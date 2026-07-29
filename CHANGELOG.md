@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "does not satisfy" warning. The YAML list form (`versions: [">= 7.0", "< 9.0"]`)
   was unaffected and continues to work.
 
+- `hyperdrive:init` / `hyperdrive:update` now merge the `rails-hyperdrive` entry
+  into an existing `.mcp.json` instead of rendering a template over the whole
+  file. Any other MCP servers you have configured, and any sibling top-level
+  keys, are preserved; only `mcpServers["rails-hyperdrive"]` is managed. The
+  write is also silent — previously a project with a pre-existing `.mcp.json`
+  hit Thor's interactive `Overwrite? [Ynaqdhm]` prompt, which stalls CI and
+  agent runs and then discarded the other servers anyway. A re-run that changes
+  nothing writes nothing, and a `.mcp.json` that cannot be parsed is left
+  byte-for-byte intact with a warning rather than overwritten.
+
 ### Changed
 
 - **BREAKING:** renamed the `hyperdrive:init` / `hyperdrive:update` flag
