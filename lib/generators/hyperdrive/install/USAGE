@@ -1,6 +1,7 @@
 Description:
     Bootstraps Rails Hyperdrive in this app:
-      - writes .mcp.json (Claude Code config)
+      - adds the rails-hyperdrive server to .mcp.json (Claude Code config),
+        merging into any servers already configured there
       - mounts Rails::Hyperdrive::Engine at /_hyperdrive in config/routes.rb (idempotent)
       - generates .claude/hyperdrive/stack.md (stack facts + steering)
       - discovers companion-gem skills + guidelines in the bundle and installs

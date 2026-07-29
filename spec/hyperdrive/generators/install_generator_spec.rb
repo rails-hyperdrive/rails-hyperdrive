@@ -76,6 +76,143 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
+  describe ".mcp.json merging" do
+    def write_mcp_json(content)
+      File.write(path(".mcp.json"), content)
+    end
+
+    def mcp_json = JSON.parse(File.read(path(".mcp.json")))
+
+    let(:other_server) do
+      <<~JSON
+        {
+          "mcpServers": {
+            "my-other-server": {
+              "command": "npx",
+              "args": ["-y", "@acme/mcp"]
+            }
+          }
+        }
+      JSON
+    end
+
+    it "creates the file when none exists" do
+      run_generator([])
+      expect(mcp_json.dig("mcpServers", "rails-hyperdrive")).to eq(
+        "url" => "http://localhost:3000/_hyperdrive/mcp", "type" => "http"
+      )
+    end
+
+    it "keeps an existing server alongside ours" do
+      write_mcp_json(other_server)
+      run_generator([])
+      expect(mcp_json["mcpServers"].keys).to contain_exactly("my-other-server", "rails-hyperdrive")
+      expect(mcp_json.dig("mcpServers", "my-other-server", "command")).to eq("npx")
+    end
+
+    it "preserves sibling top-level keys" do
+      write_mcp_json('{"mcpServers":{},"someOtherKey":{"a":1},"list":[1,2]}')
+      run_generator([])
+      expect(mcp_json["someOtherKey"]).to eq("a" => 1)
+      expect(mcp_json["list"]).to eq([1, 2])
+    end
+
+    it "adds mcpServers when the existing document has no such key" do
+      write_mcp_json('{"someOtherKey":true}')
+      run_generator([])
+      expect(mcp_json.dig("mcpServers", "rails-hyperdrive", "type")).to eq("http")
+      expect(mcp_json["someOtherKey"]).to be(true)
+    end
+
+    it "replaces a stale rails-hyperdrive entry rather than duplicating it" do
+      write_mcp_json('{"mcpServers":{"rails-hyperdrive":{"url":"http://localhost:3000/old/mcp","type":"http"}}}')
+      run_generator([])
+      expect(mcp_json["mcpServers"].keys).to eq(["rails-hyperdrive"])
+      expect(mcp_json.dig("mcpServers", "rails-hyperdrive", "url")).to eq("http://localhost:3000/_hyperdrive/mcp")
+    end
+
+    it "preserves other servers under --update" do
+      write_mcp_json(other_server)
+      run_generator(["--update"])
+      expect(mcp_json["mcpServers"]).to have_key("my-other-server")
+    end
+
+    it "preserves other servers under --force-install" do
+      write_mcp_json(other_server)
+      run_generator(["--force-install"])
+      expect(mcp_json["mcpServers"]).to have_key("my-other-server")
+    end
+
+    it "preserves other servers under --skip-content" do
+      write_mcp_json(other_server)
+      run_generator(["--skip-content"])
+      expect(mcp_json["mcpServers"]).to have_key("my-other-server")
+    end
+
+    it "never prompts on conflict" do
+      write_mcp_json(other_server)
+      out = run_generator([])
+      expect(out).not_to include("conflict")
+      expect(out).not_to match(/Overwrite/i)
+    end
+
+    it "writes nothing on a re-run when the entry already matches" do
+      run_generator([])
+      before = File.read(path(".mcp.json"))
+      out = run_generator([])
+      expect(File.read(path(".mcp.json"))).to eq(before)
+      expect(out).to match(/unchanged\s+\.mcp\.json/)
+      expect(out).not_to match(/force\s+\.mcp\.json/)
+    end
+
+    it "emits 2-space-indented JSON with a trailing newline" do
+      write_mcp_json(other_server)
+      run_generator([])
+      body = File.read(path(".mcp.json"))
+      expect(body).to end_with("}\n")
+      expect(body).to include(%(\n  "mcpServers": {\n))
+      expect(body).to include(%(\n    "rails-hyperdrive": {\n))
+    end
+
+    context "when the existing file cannot be merged into" do
+      it "leaves malformed JSON untouched, warns, and completes the install" do
+        write_mcp_json("{ this is not json")
+        out = run_generator([])
+        expect(File.read(path(".mcp.json"))).to eq("{ this is not json")
+        expect(out).to match(/warn\s+\.mcp\.json left unchanged/)
+        expect(File).to exist(path(".claude/hyperdrive/stack.md"))
+        expect(File.read(path("config/routes.rb"))).to include("Rails::Hyperdrive::Engine")
+      end
+
+      it "leaves a non-object document untouched" do
+        write_mcp_json("[1, 2, 3]\n")
+        out = run_generator([])
+        expect(File.read(path(".mcp.json"))).to eq("[1, 2, 3]\n")
+        expect(out).to match(/top-level value is not a JSON object/)
+      end
+
+      it "leaves a non-object mcpServers untouched" do
+        write_mcp_json('{"mcpServers":[]}')
+        out = run_generator([])
+        expect(File.read(path(".mcp.json"))).to eq('{"mcpServers":[]}')
+        expect(out).to match(/"mcpServers" is not a JSON object/)
+      end
+    end
+
+    describe "--dry-run" do
+      it "writes no file when none exists" do
+        run_generator(["--dry-run"])
+        expect(File).not_to exist(path(".mcp.json"))
+      end
+
+      it "leaves an existing file untouched" do
+        write_mcp_json(other_server)
+        run_generator(["--dry-run"])
+        expect(File.read(path(".mcp.json"))).to eq(other_server)
+      end
+    end
+  end
+
   describe "zero-content install (no companions)" do
     it "generates stack.md, index.md, the lockfile, and a CLAUDE.md import line" do
       run_generator([])
