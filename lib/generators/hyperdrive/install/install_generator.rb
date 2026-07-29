@@ -43,7 +43,7 @@ module Rails
         source_root File.expand_path("templates", __dir__)
 
         class_option :mount_at,      type: :string,  default: DEFAULT_MOUNT_AT, desc: "Engine mount path."
-        class_option :skip_skills,   type: :boolean, default: false, desc: "Skip all .claude content + CLAUDE.md; write only .mcp.json and the mount."
+        class_option :skip_content,  type: :boolean, default: false, desc: "Skip all .claude content, CLAUDE.md, and the lockfile; write only .mcp.json and the mount."
         class_option :dry_run,       type: :boolean, default: false, desc: "Show what would change; write nothing."
         class_option :force_install, type: :boolean, default: false, desc: "Force-overwrite locally-modified files (same as update)."
         class_option :update,        type: :boolean, default: false, desc: "Update mode: force-overwrite locally-modified files."
@@ -74,7 +74,7 @@ module Rails
         def discover_artifacts
           @warnings = []
           @artifacts =
-            if options[:skip_skills]
+            if options[:skip_content]
               []
             else
               ::Rails::Hyperdrive::BundlerArtifactDiscovery.discover(warnings: @warnings)
@@ -118,8 +118,14 @@ module Rails
         # The whole .claude content pipeline: skills, guidelines, stack.md,
         # index.md, CLAUDE.md injection, lockfile. One Thor step so ivars flow
         # in order.
+        # `--skip-content` deliberately writes no lockfile either. The lock is a
+        # manifest *of installed content*; with nothing installed there is
+        # nothing to record, and an empty lock would assert "zero files is the
+        # managed set". A later plain init/update reconstructs from scratch:
+        # LockFile.load treats an absent file as empty, so every path reads as
+        # missing → reinstall and claude_md.state as nil → inject.
         def sync_content
-          return if options[:skip_skills]
+          return if options[:skip_content]
 
           @old_lock = ::Rails::Hyperdrive::LockFile.load(::Rails.root.join(LOCK_PATH).to_s)
           @new_lock = ::Rails::Hyperdrive::LockFile.new(::Rails.root.join(LOCK_PATH).to_s)
@@ -140,7 +146,7 @@ module Rails
           say ""
           say_status :done, "hyperdrive #{update_mode? ? "updated" : "initialized"}", :green
           say "  Mount: #{mount_path} (in config/routes.rb)"
-          unless options[:skip_skills]
+          unless options[:skip_content]
             say "  Guidelines: #{Array(@plan).count { |a| a[:type] == :guideline }} + stack.md"
             say "  Skills: #{Array(@plan).count { |a| a[:type] == :skill }}"
           end

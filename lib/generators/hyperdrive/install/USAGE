@@ -16,6 +16,6 @@ Description:
 Examples:
     bin/rails hyperdrive:init
     bin/rails hyperdrive:init --mount-at /admin/hyperdrive
-    bin/rails hyperdrive:init --skip-skills
+    bin/rails hyperdrive:init --skip-content
     bin/rails hyperdrive:init --dry-run
     bin/rails hyperdrive:update

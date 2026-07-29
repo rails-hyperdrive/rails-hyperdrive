@@ -309,11 +309,22 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       expect(File.read(path("config/routes.rb"))).not_to include("Rails::Hyperdrive::Engine")
     end
 
-    it "honors --skip-skills (no .claude content, no CLAUDE.md, still writes .mcp.json)" do
-      run_generator(["--skip-skills"])
+    it "honors --skip-content (no .claude content, no CLAUDE.md, no lockfile, still writes .mcp.json)" do
+      run_generator(["--skip-content"])
       expect(File).to exist(path(".mcp.json"))
       expect(File).not_to exist(path(".claude/hyperdrive/stack.md"))
+      expect(File).not_to exist(path(".claude/hyperdrive/index.md"))
       expect(File).not_to exist(path("CLAUDE.md"))
+      expect(File).not_to exist(path(".hyperdrive/lock.yml"))
+    end
+
+    it "reconstructs full content on a later init after --skip-content" do
+      run_generator(["--skip-content"])
+      run_generator([])
+      expect(File).to exist(path(".claude/hyperdrive/stack.md"))
+      expect(File).to exist(path(".claude/hyperdrive/index.md"))
+      expect(File.read(path("CLAUDE.md"))).to include("@.claude/hyperdrive/index.md")
+      expect(File.read(path(".hyperdrive/lock.yml"))).to include("state: present")
     end
 
     it "honors --mount-at and writes the initializer when non-default" do

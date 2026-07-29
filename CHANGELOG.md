@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING:** renamed the `hyperdrive:init` / `hyperdrive:update` flag
+  `--skip-skills` to `--skip-content`. The old name is removed outright, with no
+  deprecated alias — it never described what the flag does. The flag skips *all*
+  installed content, not just skills: skills, guidelines, `stack.md`, `index.md`,
+  the `CLAUDE.md` import line, and `.hyperdrive/lock.yml`, leaving only
+  `.mcp.json`, the discover-cache `.gitignore` rule, the optional initializer,
+  and the engine mount. Writing no lockfile is intentional and unchanged: the
+  lock is a manifest of installed content, and a later `hyperdrive:init` or
+  `hyperdrive:update` reconstructs the full state from scratch. Update any
+  scripts or CI invocations passing `--skip-skills`.
+
 - Dropped the `< 8.1` upper cap on the `railties` and `activerecord` runtime
   dependencies — both are now floor-only (`>= 7.2`), so the gem installs against
   Rails 8.1 and later without waiting on a new release. The gem uses only stable
