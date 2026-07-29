@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Documented the companion gem contract rules the installer enforces but the
+  README omitted or misstated: the `hyperdrive_skills_dir` gemspec metadata
+  override (an additional skill root, not a replacement; `..` segments ignored),
+  the permissive failure model and where its warnings surface, within-gem
+  collapsing of same-`name:` artifacts, and both accepted forms of `versions:`.
+  Corrected the description of `name:` — it determines the installed path rather
+  than merely matching the file or directory stem.
+
 - **BREAKING:** renamed the `hyperdrive:init` / `hyperdrive:update` flag
   `--skip-skills` to `--skip-content`. The old name is removed outright, with no
   deprecated alias — it never described what the flag does. The flag skips *all*
