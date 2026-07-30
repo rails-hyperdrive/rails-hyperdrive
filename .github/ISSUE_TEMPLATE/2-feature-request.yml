@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a new capability or improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that rails-hyperdrive doesn't support today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: How should it work?
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: >
+        **Note:** rails-hyperdrive ships the mechanism (discovery, install, MCP
+        server); companion gems ship the content (skills, guidelines). Requests
+        for new skill/guideline content usually belong in a companion gem and
+        may be redirected.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false

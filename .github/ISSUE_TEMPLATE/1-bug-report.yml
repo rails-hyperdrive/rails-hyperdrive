@@ -1,0 +1,70 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      description: Which part of rails-hyperdrive is misbehaving?
+      options:
+        - hyperdrive:init / hyperdrive:update (generator, lockfile, drift)
+        - hyperdrive:discover (networked companion discovery)
+        - MCP server / tools (runtime at /_hyperdrive/mcp)
+        - Artifact discovery (skills/guidelines skipped or not found)
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, and what went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `bin/rails hyperdrive:init`
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: gem-version
+    attributes:
+      label: rails-hyperdrive version
+      placeholder: e.g. 0.3.1
+    validations:
+      required: true
+  - type: input
+    id: ruby-version
+    attributes:
+      label: Ruby version
+      placeholder: e.g. 3.4.2
+    validations:
+      required: true
+  - type: input
+    id: rails-version
+    attributes:
+      label: Rails version
+      placeholder: e.g. 8.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant output
+      description: >
+        Command output, warnings, or server logs. If this is about an artifact
+        being skipped or not discovered, include the artifact's frontmatter and
+        the printed warnings.
+      render: text
