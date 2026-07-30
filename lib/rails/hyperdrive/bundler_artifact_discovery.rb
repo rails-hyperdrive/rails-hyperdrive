@@ -9,7 +9,7 @@ module Rails
     #   <gem-source>/lib/<gem_name>/hyperdrive/skills/<name>/SKILL.md   # skill
     #   <gem-source>/lib/<gem_name>/hyperdrive/guidelines/<name>.md     # guideline
     #
-    # Skills additionally honor a `hyperdrive_skills_dir` gemspec metadata
+    # Skills additionally honor a `rails_hyperdrive_skills_dir` gemspec metadata
     # override (the union of the convention path and the override path).
     #
     # Each artifact carries YAML frontmatter with four required fields:
@@ -93,11 +93,11 @@ module Rails
         Dir.glob(File.join(root, "*.md"))
       end
 
-      # `hyperdrive_skills_dir` relocates skill discovery (skills only).
+      # `rails_hyperdrive_skills_dir` relocates skill discovery (skills only).
       # ".." segments are rejected to prevent escaping the gem root.
       def skills_dir_override(spec)
         return nil unless spec.respond_to?(:metadata)
-        raw = spec.metadata && spec.metadata["hyperdrive_skills_dir"]
+        raw = spec.metadata && spec.metadata["rails_hyperdrive_skills_dir"]
         return nil if raw.nil? || raw.to_s.strip.empty?
         return nil if raw.to_s.split(%r{[/\\]}).include?("..")
         raw.to_s
