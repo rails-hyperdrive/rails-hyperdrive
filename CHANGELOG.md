@@ -38,6 +38,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "does not satisfy" warning. The YAML list form (`versions: [">= 7.0", "< 9.0"]`)
   was unaffected and continues to work.
 
+- `hyperdrive:init` / `hyperdrive:update` now merge the `rails-hyperdrive` entry
+  into an existing `.mcp.json` instead of rendering a template over the whole
+  file. Any other MCP servers you have configured, and any sibling top-level
+  keys, are preserved; only `mcpServers["rails-hyperdrive"]` is managed. The
+  write is also silent — previously a project with a pre-existing `.mcp.json`
+  hit Thor's interactive `Overwrite? [Ynaqdhm]` prompt, which stalls CI and
+  agent runs and then discarded the other servers anyway. A re-run that changes
+  nothing writes nothing, and a `.mcp.json` that cannot be parsed is left
+  byte-for-byte intact with a warning rather than overwritten.
+
 ### Changed
 
 - **BREAKING:** the `gem:` value reported for each installed skill by the
@@ -45,6 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **array** of every target that matched, rather than a single string. A
   single-target artifact reports a one-element array. Consumers reading that
   field as a string need updating.
+
+- Documented the companion gem contract rules the installer enforces but the
+  README omitted or misstated: the `hyperdrive_skills_dir` gemspec metadata
+  override (an additional skill root, not a replacement; `..` segments ignored),
+  the permissive failure model and where its warnings surface, within-gem
+  collapsing of same-`name:` artifacts, and both accepted forms of `versions:`.
+  Corrected the description of `name:` — it determines the installed path rather
+  than merely matching the file or directory stem.
+
 - **BREAKING:** renamed the `hyperdrive:init` / `hyperdrive:update` flag
   `--skip-skills` to `--skip-content`. The old name is removed outright, with no
   deprecated alias — it never described what the flag does. The flag skips *all*

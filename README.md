@@ -98,16 +98,28 @@ A companion gem ships artifacts under:
 <gem-source>/lib/<gem_name>/hyperdrive/guidelines/<name>.md         # guideline (flat file)
 ```
 
-with four required YAML frontmatter fields:
+Skills may ship under an additional root declared in gemspec metadata:
+
+```ruby
+spec.metadata["hyperdrive_skills_dir"] = "extra/skills"   # optional; relative to the gem root
+```
+
+That root is searched **in addition to** the convention path, never instead of it, so an override never hides skills already shipped at the convention path. A value containing a `..` segment is ignored. Guidelines have no override — they are found only at the convention path.
+
+Every artifact carries four required YAML frontmatter fields:
 
 ```yaml
 ---
-name: jobs-sidekiq                # kebab-case, equals filename/dir stem
+name: jobs-sidekiq                # kebab-case; determines the install path
 description: Background job conventions for Sidekiq.
-gem: sidekiq                      # the TARGET gems (resolved + version-matched in the bundle)
+gem: sidekiq                      # TARGET gem(s), resolved + version-matched in the bundle
 versions: ">= 7.0, < 9.0"         # Gem::Requirement matched against the target gem
 ---
 ```
+
+`name:` is the artifact's identity, not a label — it is what the installer writes to disk (`.claude/skills/<name>/SKILL.md`, `.claude/hyperdrive/guidelines/<name>.md`). Keep it equal to the file or directory stem: if the two disagree the install still succeeds, but the artifact lands under `name:`. Within one gem, two artifacts of the same type declaring the same `name:` collapse to a single installed file; which one survives is not a guarantee to build on, so give each a distinct `name:`.
+
+`versions:` accepts a single comma-separated string (`">= 7.0, < 9.0"`), a YAML list (`[">= 7.0", "< 9.0"]`), or — for multi-target artifacts — a map keyed by gem name.
 
 `gem:` names the **targets** (each must be present in the bundle; its resolved version is matched against `versions:`). Use `railties` for "every Rails app" or the quoted `"*"` for "always applicable" (it must be quoted — bare `*` is a YAML alias and the file is skipped). `hyperdrive:init` discovers every such file across the bundle, version-matches it, and installs it with an audit header naming `source`, `sha256`, and `installed_at`. Guidelines are installed with their frontmatter stripped (they are `@`-included eagerly). When two gems ship a same-named artifact, both install, each postfixed by source gem.
 
@@ -125,6 +137,8 @@ versions:
 ```
 
 Draw the listed targets from the gem's own `hyperdrive_targets` (below): the gem-level declaration decides whether a companion is suggested at all, and an artifact naming a target the gemspec omits is unreachable for apps that have only that target.
+
+Discovery never raises. An artifact with missing or malformed frontmatter, a missing required field, no declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:update` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there — read that section first when a gem you expected to contribute produces no files.
 
 To be discoverable by `hyperdrive:discover` **before** it is installed, a companion also declares gemspec metadata (read remotely from rubygems, so the frontmatter inside the gem isn't visible yet):
 

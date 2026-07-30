@@ -1,6 +1,7 @@
 require "rails/generators"
 require "rails/generators/base"
 require "digest"
+require "json"
 require "time"
 require "rails/hyperdrive"
 require "rails/hyperdrive/stack_profile"
@@ -30,6 +31,8 @@ module Rails
         DEFAULT_MOUNT_AT = "/_hyperdrive".freeze
 
         CLAUDE_MD = "CLAUDE.md".freeze
+        MCP_JSON_PATH = ".mcp.json".freeze
+        MCP_SERVER_KEY = "rails-hyperdrive".freeze
         INDEX_LINE = "@.claude/hyperdrive/index.md".freeze
         HYPERDRIVE_DIR = ".claude/hyperdrive".freeze
         INDEX_PATH = ".claude/hyperdrive/index.md".freeze
@@ -81,8 +84,21 @@ module Rails
             end
         end
 
+        # The write is forced: Thor's conflict prompt would otherwise block the
+        # run waiting on stdin.
         def write_mcp_json
-          template "mcp.json.tt", ".mcp.json"
+          existing = mcp_json_on_disk
+          document = existing ? parse_mcp_json(existing) : {}
+          return if document.nil?
+
+          (document["mcpServers"] ||= {})[MCP_SERVER_KEY] = mcp_server_entry
+          content = JSON.pretty_generate(document) + "\n"
+
+          if existing == content
+            say_status :unchanged, MCP_JSON_PATH, :blue
+          else
+            create_file MCP_JSON_PATH, content, force: true
+          end
         end
 
         # The `hyperdrive:discover` cache is the only gitignored
@@ -162,6 +178,41 @@ module Rails
         no_tasks do
           def update_mode?
             options[:update] || options[:force_install]
+          end
+
+          def mcp_json_on_disk
+            abs = ::Rails.root.join(MCP_JSON_PATH)
+            File.exist?(abs) ? File.read(abs) : nil
+          end
+
+          def mcp_server_entry
+            {
+              "url" => "http://localhost:3000#{mount_path}/mcp",
+              "type" => "http"
+            }
+          end
+
+          # A file we can't parse is never overwritten — its contents are
+          # unrecoverable.
+          def parse_mcp_json(raw)
+            document = JSON.parse(raw)
+            return unmergeable_mcp_json("top-level value is not a JSON object") unless document.is_a?(Hash)
+
+            servers = document["mcpServers"]
+            unless servers.nil? || servers.is_a?(Hash)
+              return unmergeable_mcp_json('"mcpServers" is not a JSON object')
+            end
+
+            document
+          rescue JSON::ParserError => e
+            unmergeable_mcp_json(e.message.lines.first.to_s.strip)
+          end
+
+          def unmergeable_mcp_json(reason)
+            say_status :warn,
+              "#{MCP_JSON_PATH} left unchanged (#{reason}); fix it and re-run to add the #{MCP_SERVER_KEY} server",
+              :yellow
+            nil
           end
 
           # Normalize the user-supplied mount path.

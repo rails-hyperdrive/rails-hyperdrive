@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "rails-hyperdrive": {
-      "url": "http://localhost:3000<%= mount_path %>/mcp",
-      "type": "http"
-    }
-  }
-}
