@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- An artifact's `gem:` frontmatter field can now declare **several** targets, as
+  either a comma-separated string (`gem: "sidekiq, solid_queue"`) or a YAML list.
+  The artifact installs when **any** listed target is in the bundle at a
+  satisfying version, so one guideline or skill can cover interchangeable
+  libraries instead of shipping as near-identical per-target copies. `"*"`
+  anywhere in the list makes the artifact universal.
+- `versions:` accepts a **map keyed by gem name** alongside the existing single
+  requirement, for target sets that do not share a version cycle:
+
+  ```yaml
+  gem: [sidekiq, solid_queue]
+  versions:
+    sidekiq: ">= 7.0"
+    solid_queue: ">= 1.0"
+  ```
+
+  A single requirement still applies to every listed target. Targets absent from
+  the map are unconstrained.
+
 ### Fixed
 
 - `BundlerArtifactDiscovery#version_matches?` now correctly parses the documented
@@ -19,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING:** the `gem:` value reported for each installed skill by the
+  `describe_app` MCP tool and the `hyperdrive://stack-profile` resource is now an
+  **array** of every target that matched, rather than a single string. A
+  single-target artifact reports a one-element array. Consumers reading that
+  field as a string need updating.
 - **BREAKING:** renamed the `hyperdrive:init` / `hyperdrive:update` flag
   `--skip-skills` to `--skip-content`. The old name is removed outright, with no
   deprecated alias — it never described what the flag does. The flag skips *all*

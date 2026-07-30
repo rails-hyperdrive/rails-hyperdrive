@@ -104,12 +104,27 @@ with four required YAML frontmatter fields:
 ---
 name: jobs-sidekiq                # kebab-case, equals filename/dir stem
 description: Background job conventions for Sidekiq.
-gem: sidekiq                      # the TARGET gem (resolved + version-matched in the bundle)
+gem: sidekiq                      # the TARGET gems (resolved + version-matched in the bundle)
 versions: ">= 7.0, < 9.0"         # Gem::Requirement matched against the target gem
 ---
 ```
 
-`gem:` is the **target** (must be present in the bundle; its resolved version is matched against `versions:`). Use `railties` for "every Rails app" or the quoted `"*"` for "always applicable" (it must be quoted — bare `*` is a YAML alias and the file is skipped). `hyperdrive:init` discovers every such file across the bundle, version-matches it, and installs it with an audit header naming `source`, `sha256`, and `installed_at`. Guidelines are installed with their frontmatter stripped (they are `@`-included eagerly). When two gems ship a same-named artifact, both install, each postfixed by source gem.
+`gem:` names the **targets** (each must be present in the bundle; its resolved version is matched against `versions:`). Use `railties` for "every Rails app" or the quoted `"*"` for "always applicable" (it must be quoted — bare `*` is a YAML alias and the file is skipped). `hyperdrive:init` discovers every such file across the bundle, version-matches it, and installs it with an audit header naming `source`, `sha256`, and `installed_at`. Guidelines are installed with their frontmatter stripped (they are `@`-included eagerly). When two gems ship a same-named artifact, both install, each postfixed by source gem.
+
+One artifact can cover several interchangeable libraries — write `gem:` as a comma-separated string or a YAML list, and it installs when **any** listed target is bundled at a satisfying version. `"*"` anywhere in the list makes the artifact universal. Give `versions:` a map keyed by gem name when the targets do not share a version cycle; targets the map omits are unconstrained.
+
+```yaml
+---
+name: jobs-conventions
+description: Background job conventions.
+gem: [sidekiq, solid_queue, good_job]
+versions:
+  sidekiq: ">= 7.0"
+  solid_queue: ">= 1.0"
+---
+```
+
+Draw the listed targets from the gem's own `hyperdrive_targets` (below): the gem-level declaration decides whether a companion is suggested at all, and an artifact naming a target the gemspec omits is unreachable for apps that have only that target.
 
 To be discoverable by `hyperdrive:discover` **before** it is installed, a companion also declares gemspec metadata (read remotely from rubygems, so the frontmatter inside the gem isn't visible yet):
 

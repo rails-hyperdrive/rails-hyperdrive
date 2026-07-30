@@ -15,13 +15,19 @@ module Rails
     # Each artifact carries YAML frontmatter with four required fields:
     #   name:        kebab-case identity (equals filename/dir stem)
     #   description: single sentence
-    #   gem:         the TARGET gem (resolved + version-matched in the bundle)
-    #   versions:    Gem::Requirement string matched against the target's version
+    #   gem:         the TARGET gems (resolved + version-matched in the bundle)
+    #   versions:    Gem::Requirement matched against each target's version
     #
-    # Target vs. source: `gem:` is the *target* (must be present in the bundle;
-    # its resolved version is matched against `versions:`). `spec.name` during
-    # the walk is the *source* (provenance / audit header / conflict postfix).
-    # `gem: "*"` is universal — no target is resolved and `versions:` is ignored.
+    # Target vs. source: `gem:` names the *targets* — one name, a comma-separated
+    # list, or a YAML list. `spec.name` during the walk is the *source*
+    # (provenance / audit header / conflict postfix). An artifact matches when
+    # ANY declared target is in the bundle at a satisfying version; `target_gem`
+    # then carries every target that matched. `"*"` anywhere in the list is
+    # universal — no target is resolved and `versions:` is ignored.
+    #
+    # `versions:` is either one requirement covering every declared target, or a
+    # map keyed by gem name constraining each independently; targets absent from
+    # the map are unconstrained.
     #
     # The walk returns the Phase-1 survivor set: within a single source gem,
     # same-name variants collapse to the highest spec_version (path as
@@ -114,32 +120,30 @@ module Rails
         meta        = YAML.safe_load(frontmatter, permitted_classes: [Symbol]) || {}
         name        = meta["name"]
         description = meta["description"]
-        target      = meta["gem"]
         versions    = meta["versions"]
 
-        unless name && description && target && versions
+        unless name && description && meta["gem"] && versions
           warnings << "skip #{path}: missing a required field (name, description, gem, versions)"
           return nil
         end
 
-        target = target.to_s
-        unless target == "*"
-          target_version = resolved[target]
-          unless target_version
-            warnings << "skip #{name} (from #{source_spec.name}): target gem '#{target}' not in bundle"
-            return nil
-          end
-          unless version_matches?(versions, target_version)
-            warnings << "skip #{name} (from #{source_spec.name}): #{target} #{target_version} does not satisfy '#{versions}'"
-            return nil
-          end
+        targets = parse_targets(meta["gem"])
+        if targets.nil? || targets.empty?
+          warnings << "skip #{name} (from #{source_spec.name}): gem: must name a gem, a comma-separated list, or a YAML list"
+          return nil
+        end
+
+        matched = match_targets(targets, versions, resolved)
+        if matched.empty?
+          warnings << "skip #{name} (from #{source_spec.name}): #{no_match_reason(targets, versions, resolved)}"
+          return nil
         end
 
         Artifact.new(
           name: name.to_s,
           description: description.to_s,
-          target_gem: target,
-          versions: versions.to_s,
+          target_gem: matched,
+          versions: versions,
           artifact_type: type,
           source_gem: source_spec.name.to_s,
           path: path,
@@ -169,6 +173,40 @@ module Rails
 
         absolute_closing = closing_index + 1
         [lines[1...absolute_closing].join, lines[(absolute_closing + 1)..].join]
+      end
+
+      # Returns the declared target names, or nil when an entry is not a scalar.
+      def parse_targets(raw)
+        entries = raw.is_a?(Array) ? raw : [raw]
+        return nil if entries.any? { |e| e.nil? || e.is_a?(Array) || e.is_a?(Hash) }
+        entries.flat_map { |e| e.to_s.split(",") }.map(&:strip).reject(&:empty?)
+      end
+
+      # Every declared target present in the bundle at a satisfying version, in
+      # declaration order. `"*"` short-circuits: universal, no target resolved.
+      def match_targets(targets, versions, resolved)
+        return ["*"] if targets.include?("*")
+
+        targets.select do |t|
+          version = resolved[t]
+          version && version_satisfied?(versions, t, version)
+        end
+      end
+
+      def version_satisfied?(versions, target, version)
+        requirement = versions.is_a?(Hash) ? versions[target] : versions
+        requirement.nil? || version_matches?(requirement, version)
+      end
+
+      def no_match_reason(targets, versions, resolved)
+        present = targets.select { |t| resolved.key?(t) }
+        if present.empty?
+          label = targets.size == 1 ? "target gem" : "target gems"
+          "#{label} '#{targets.join(", ")}' not in bundle"
+        else
+          present.map { |t| "#{t} #{resolved[t]} does not satisfy '#{versions.is_a?(Hash) ? versions[t] : versions}'" }
+                 .join("; ")
+        end
       end
 
       # Accepts both YAML list form (versions: [">= 6.0", "< 9.0"]) and the
