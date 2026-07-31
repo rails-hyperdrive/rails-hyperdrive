@@ -29,6 +29,10 @@ module Rails
         MCP_JSON_PATH = ".mcp.json".freeze
         MCP_SERVER_KEY = "rails-hyperdrive".freeze
 
+        KIND_WIDTH = "guideline".length
+        KIND_ORDER = %w[skill guideline stack].freeze
+        INTERNAL_SOURCE_PREFIX = "internal@".freeze
+
         source_root File.expand_path("templates", __dir__)
 
         # Routes InstallPipeline's writes through Thor, so its output and
@@ -163,11 +167,7 @@ module Rails
           say ""
           say_status :done, "hyperdrive #{update_mode? ? "updated" : "initialized"}", :green
           say "  Mount: #{mount_path} (in config/routes.rb)"
-          unless options[:skip_content]
-            plan = @pipeline.plan
-            say "  Guidelines: #{plan.count { |e| e.type == :guideline }} + stack.md"
-            say "  Skills: #{plan.count { |e| e.type == :skill }}"
-          end
+          print_installed_artifacts unless options[:skip_content]
           say ""
           say "  Next steps:"
           say "    1. bin/rails server"
@@ -226,6 +226,52 @@ module Rails
 
           def stack
             @stack_profile.to_h
+          end
+
+          # Reads the lock the pipeline leaves behind, so the listing states the
+          # app's resulting content: untouched, locally-modified, and orphaned
+          # files included.
+          def print_installed_artifacts
+            entries = []
+            @pipeline&.lock&.each_entry { |e| entries << e }
+            return if entries.empty?
+
+            say "  #{installed_counts(entries)}"
+            say ""
+            group_by_source(entries).each do |source, group|
+              say "    #{source}"
+              group.each do |entry|
+                say "      #{entry[:artifact].to_s.ljust(KIND_WIDTH)}  #{display_name(entry)}"
+              end
+            end
+          end
+
+          def installed_counts(entries)
+            counts = entries.group_by { |e| e[:artifact].to_s }.transform_values(&:size)
+            summary = "Installed #{quantify(counts["skill"].to_i, "skill")}, #{quantify(counts["guideline"].to_i, "guideline")}"
+            counts["stack"].to_i.positive? ? "#{summary} + stack.md" : summary
+          end
+
+          def group_by_source(entries)
+            entries
+              .group_by { |e| e[:source].to_s }
+              .sort_by { |source, _| [source.start_with?(INTERNAL_SOURCE_PREFIX) ? 1 : 0, source] }
+              .map do |source, group|
+                [source, group.sort_by { |e| [KIND_ORDER.index(e[:artifact].to_s) || KIND_ORDER.size, display_name(e)] }]
+              end
+          end
+
+          def display_name(entry)
+            path = entry[:path].to_s
+            case entry[:artifact].to_s
+            when "skill" then File.basename(File.dirname(path))
+            when "stack" then File.basename(path)
+            else File.basename(path, ".md")
+            end
+          end
+
+          def quantify(count, noun)
+            "#{count} #{noun}#{"s" unless count == 1}"
           end
         end
       end

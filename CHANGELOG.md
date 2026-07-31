@@ -54,6 +54,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check and still add up to real context-window pressure with nothing flagging
   it. The install still proceeds — this is a warning, not a gate.
 
+- `hyperdrive:init` / `hyperdrive:update` now list every installed artifact in
+  the final summary, grouped under the source gem and version that shipped it,
+  instead of reporting bare skill and guideline counts. The listing is built
+  from `.hyperdrive/lock.yml`, so it reflects what the app ends up with —
+  including files left unchanged, files skipped as locally modified, and
+  orphans whose source gem has left the bundle — rather than only what the run
+  wrote. `--skip-content` prints no listing, as before.
+
+- `hyperdrive:init` / `hyperdrive:update` now warn when git ignores an install
+  destination. Installed artifacts are git-tracked on purpose: reviewing the
+  diff is how you see what a companion gem added to the agent's context. An app
+  that gitignores `.claude/` empties that diff while the artifacts still reach
+  the agent, and nothing previously said so. The check asks git whether each
+  destination is ignored, so patterns, negations, and per-repository excludes
+  are all honored; outside a git repository, or without git installed, it stays
+  silent.
+
 ### Fixed
 
 - The MCP endpoint no longer 403s local requests whose `Origin` port differs
