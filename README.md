@@ -93,11 +93,13 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
   index.md                             # managed aggregator: @stack.md + @guidelines/<name>.md
   stack.md                             # rails-hyperdrive-generated stack guideline
   guidelines/<name>.md                 # companion-shipped, frontmatter stripped, audit-headered
-.claude/skills/<name>/SKILL.md         # companion-shipped, frontmatter kept, audit-headered
+.claude/skills/<name>/
+  SKILL.md                             # companion-shipped, frontmatter kept, audit-headered
+  <supporting files>                   # optional companion-shipped extras, installed byte-identical
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
 
-Everything a companion gem contributes lands here as git-tracked markdown, so a diff is where you review what it added — the install summary names each artifact's source gem and version, and every file carries the same provenance in an audit header. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
+Everything a companion gem contributes lands here git-tracked, so a diff is where you review what it added — the install summary names each artifact's source gem and version, and every SKILL.md, guideline, and `stack.md` carries the same provenance in an audit header. A skill's supporting files carry no header — they install byte-identical to what the gem ships, and their provenance and content hash live in `.hyperdrive/lock.yml` alone. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
 
 ### Turning off a single artifact
 
@@ -111,7 +113,7 @@ disabled:
     - jobs-sidekiq
 ```
 
-A disabled artifact is never installed, and one already on disk is removed on the next `hyperdrive:init` or `hyperdrive:sync` — but only if you haven't edited it. A locally-modified file is reported and left alone, for you to delete when you're ready. Disabling a guideline also drops its line from `index.md`, so it leaves eager context along with the file.
+A disabled artifact is never installed, and one already on disk is removed on the next `hyperdrive:init` or `hyperdrive:sync` — but only if you haven't edited it. A locally-modified file is reported and left alone, for you to delete when you're ready. Disabling a skill removes its shipped supporting files under the same per-file rule; files you created yourself in the skill directory survive and keep the directory alive. Disabling a guideline also drops its line from `index.md`, so it leaves eager context along with the file.
 
 The list is yours to edit; the generator only reads it and carries it forward. Delete a name to get the artifact back on the next run. When two companion gems ship the same artifact name, both install under a `<name>--<source-gem>` suffix — the plain name disables both, the suffixed name disables one.
 
@@ -133,6 +135,8 @@ spec.metadata["rails_hyperdrive_skills_dir"] = "extra/skills"   # optional; rela
 ```
 
 That root is searched **in addition to** the convention path, never instead of it, so an override never hides skills already shipped at the convention path. A value containing a `..` segment is ignored. Guidelines have no override — they are found only at the convention path.
+
+A skill is a **directory**, and it may ship more than `SKILL.md`. Everything else in the skill directory — nested however you like (`workflows/`, `references/`, `examples/`, …) — installs alongside it as **supporting files**, preserving the relative layout under `.claude/skills/<name>/`. Reference them from `SKILL.md` with directory-relative links; a cross-source name collision renames the whole installed directory, so those links keep working. Supporting files carry no frontmatter contract and no audit header — they install byte-identical to what the gem ships (markdown, code, or binary alike), and each is tracked per file in `.hyperdrive/lock.yml`, so local edits are preserved on sync exactly like any other installed file. `SKILL.md` frontmatter remains the skill's sole schema surface. Guidelines stay single-file.
 
 Every artifact carries four required YAML frontmatter fields:
 

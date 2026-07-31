@@ -33,12 +33,12 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
     )
   end
 
-  def skill_artifact(name:, source:)
+  def skill_artifact(name:, source:, support_files: [], version: "1.0.0")
     Artifact.new(
       name: name, description: "d", target_gem: ["dummy_gem"], versions: "~> 1.0",
       artifact_type: :skill, source_gem: source, path: "/x/#{name}/SKILL.md",
       body: "---\nname: #{name}\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n# #{name}\n",
-      spec_version: "1.0.0"
+      spec_version: version, support_files: support_files
     )
   end
 
@@ -130,6 +130,51 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       out = run_generator([])
       expect(out).to include("was missing")
       expect(File.read(gpath)).to include("# auth-pundit")
+    end
+  end
+
+  describe "drift handling for a skill's supporting files" do
+    let(:spath) { path(".claude/skills/jobs-sidekiq/references/deep.md") }
+
+    before do
+      stub_discovery([skill_artifact(
+        name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq",
+        support_files: [{ path: "references/deep.md", body: "# Deep\n" }]
+      )])
+    end
+
+    it "skips a locally-edited supporting file by default and restores it with --overwrite" do
+      run_generator([])
+      File.write(spath, "my rewrite\n")
+
+      out = run_generator([])
+      expect(out).to include("locally modified")
+      expect(File.read(spath)).to eq("my rewrite\n")
+
+      run_generator(["--overwrite"])
+      expect(File.read(spath)).to eq("# Deep\n")
+    end
+
+    it "reinstalls a deleted supporting file" do
+      run_generator([])
+      File.delete(spath)
+
+      out = run_generator([])
+      expect(out).to include("was missing")
+      expect(File.read(spath)).to eq("# Deep\n")
+    end
+
+    it "keeps the summary count when an edited SKILL.md lags the supporting files' source version" do
+      run_generator([])
+      File.write(path(".claude/skills/jobs-sidekiq/SKILL.md"), "my rewrite\n")
+
+      stub_discovery([skill_artifact(
+        name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq", version: "1.1.0",
+        support_files: [{ path: "references/deep.md", body: "# Deep v2\n" }]
+      )])
+
+      out = run_generator([])
+      expect(out).to match(/skill\s+jobs-sidekiq \(\+1 file\)/)
     end
   end
 

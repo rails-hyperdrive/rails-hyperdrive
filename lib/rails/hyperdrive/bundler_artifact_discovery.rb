@@ -6,7 +6,7 @@ module Rails
     module BundlerArtifactDiscovery
       Artifact = Struct.new(
         :name, :description, :target_gem, :versions, :artifact_type,
-        :source_gem, :path, :body, :spec_version,
+        :source_gem, :path, :body, :spec_version, :support_files,
         keyword_init: true
       ) do
         def skill?
@@ -116,11 +116,25 @@ module Rails
           source_gem: source_spec.name.to_s,
           path: path,
           body: body,
-          spec_version: source_spec.version.to_s
+          spec_version: source_spec.version.to_s,
+          support_files: type == :skill ? support_files_for(File.dirname(path)) : []
         )
       rescue Psych::SyntaxError
         warnings << "skip #{path}: malformed YAML frontmatter"
         nil
+      end
+
+      # Everything in a skill's directory besides SKILL.md ships as raw bytes,
+      # with no frontmatter contract. ".." segments are rejected to keep the
+      # tree inside the skill directory.
+      def support_files_for(skill_dir)
+        Dir.glob(File.join(skill_dir, "**", "*")).filter_map do |file|
+          next unless File.file?(file)
+          rel = file.delete_prefix("#{skill_dir}/")
+          next if File.basename(rel) == "SKILL.md"
+          next if rel.split(%r{[/\\]}).include?("..")
+          { path: rel, body: File.binread(file) }
+        end
       end
 
       def install_ready_body(artifact)

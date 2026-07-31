@@ -21,12 +21,12 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     )
   end
 
-  def skill(name:, source: "rails-hyperdrive-x")
+  def skill(name:, source: "rails-hyperdrive-x", support_files: [])
     Artifact.new(
       name: name, description: "d", target_gem: "*", versions: "*",
       artifact_type: :skill, source_gem: source, path: "/x/#{name}/SKILL.md",
       body: "---\nname: #{name}\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# #{name}\n",
-      spec_version: "1.0.0"
+      spec_version: "1.0.0", support_files: support_files
     )
   end
 
@@ -138,6 +138,101 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
       expect(exist?(".claude/hyperdrive/guidelines/auth-pundit.md")).to be true
       expect(read(".hyperdrive/lock.yml")).to include("auth-pundit")
+    end
+  end
+
+  describe "multi-file skills" do
+    let(:support) do
+      [
+        { path: "references/deep.md", body: "# Deep\n\nraw bytes, no header.\n" },
+        { path: "examples/sample.rb", body: "puts 1\n" }
+      ]
+    end
+    let(:multi) { skill(name: "jobs", support_files: support) }
+
+    it "installs the supporting tree byte-identical, with no audit header" do
+      run(artifacts: [multi])
+
+      expect(read(".claude/skills/jobs/references/deep.md")).to eq("# Deep\n\nraw bytes, no header.\n")
+      expect(read(".claude/skills/jobs/examples/sample.rb")).to eq("puts 1\n")
+    end
+
+    it "locks each supporting file under the skill_support kind with its own sha" do
+      run(artifacts: [multi])
+
+      lock = YAML.safe_load(read(".hyperdrive/lock.yml"))
+      entries = lock["files"].select { |e| e["artifact"] == "skill_support" }
+      expect(entries.map { |e| e["path"] }).to contain_exactly(
+        ".claude/skills/jobs/references/deep.md",
+        ".claude/skills/jobs/examples/sample.rb"
+      )
+      deep = entries.find { |e| e["path"].end_with?("deep.md") }
+      expect(deep["source_sha"]).to eq(Digest::SHA256.hexdigest("# Deep\n\nraw bytes, no header.\n"))
+      expect(deep["source"]).to eq("rails-hyperdrive-x@1.0.0")
+    end
+
+    describe "gated delete of a dropped supporting file" do
+      before { run(artifacts: [multi]) }
+
+      let(:upgraded) { skill(name: "jobs", support_files: support.first(1)) }
+
+      it "removes an unedited copy and prunes the emptied subdirectory" do
+        result = run(artifacts: [upgraded])
+
+        expect(exist?(".claude/skills/jobs/examples/sample.rb")).to be false
+        expect(exist?(".claude/skills/jobs/examples")).to be false
+        expect(exist?(".claude/skills/jobs/references/deep.md")).to be true
+        expect(result.removed).to include(".claude/skills/jobs/examples/sample.rb")
+        expect(read(".hyperdrive/lock.yml")).not_to include("examples/sample.rb")
+      end
+
+      it "warns and leaves an edited copy, carrying its lock entry" do
+        File.write(File.join(root, ".claude/skills/jobs/examples/sample.rb"), "puts 2 # mine\n")
+
+        result = run(artifacts: [upgraded])
+
+        expect(read(".claude/skills/jobs/examples/sample.rb")).to eq("puts 2 # mine\n")
+        expect(result.skipped).to include(".claude/skills/jobs/examples/sample.rb")
+        expect(read(".hyperdrive/lock.yml")).to include("examples/sample.rb")
+      end
+
+      it "never removes anything in additive mode" do
+        result = run(mode: :additive, artifacts: [upgraded])
+
+        expect(exist?(".claude/skills/jobs/examples/sample.rb")).to be true
+        expect(result.removed).to be_empty
+      end
+    end
+
+    describe "additive mode" do
+      before { run(artifacts: [multi]) }
+
+      it "installs a supporting file the lock does not record yet" do
+        grown = skill(name: "jobs", support_files: support + [{ path: "references/new.md", body: "new\n" }])
+
+        result = run(mode: :additive, artifacts: [grown])
+
+        expect(read(".claude/skills/jobs/references/new.md")).to eq("new\n")
+        expect(result.installed).to eq([".claude/skills/jobs/references/new.md"])
+      end
+
+      it "does not resurrect a lock-tracked supporting file the user deleted" do
+        File.delete(File.join(root, ".claude/skills/jobs/examples/sample.rb"))
+
+        run(mode: :additive, artifacts: [multi])
+
+        expect(exist?(".claude/skills/jobs/examples/sample.rb")).to be false
+      end
+    end
+
+    it "carries a supporting file as an orphan when the whole source gem is gone" do
+      run(artifacts: [multi])
+
+      result = run(artifacts: [])
+
+      expect(result.orphaned).to include(".claude/skills/jobs/references/deep.md")
+      expect(exist?(".claude/skills/jobs/references/deep.md")).to be true
+      expect(read(".hyperdrive/lock.yml")).to include("references/deep.md")
     end
   end
 
