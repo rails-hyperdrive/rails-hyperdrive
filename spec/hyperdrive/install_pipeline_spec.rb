@@ -137,6 +137,12 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       expect(read(".claude/hyperdrive/index.md")).not_to include("@guidelines/auth-pundit.md")
     end
 
+    it "prints no eager footprint" do
+      out = run_reporting(mode: :additive, artifacts: [existing, guideline(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+
+      expect(out).not_to include("always in context")
+    end
+
     it "does not touch CLAUDE.md" do
       File.write(File.join(root, "CLAUDE.md"), "# mine only\n")
 
@@ -302,6 +308,32 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       run_reporting(artifacts: [guideline(name: "auth-pundit")])
 
       expect(run_reporting(mode: :additive, artifacts: [])).not_to match(/gitignored/)
+    end
+  end
+
+  describe "generated output" do
+    it "writes index.md and CLAUDE.md byte-for-byte" do
+      run(artifacts: [guideline(name: "jobs-sidekiq"), guideline(name: "auth-pundit"), skill(name: "s1")])
+
+      expect(read(".claude/hyperdrive/index.md"))
+        .to eq("@stack.md\n@guidelines/auth-pundit.md\n@guidelines/jobs-sidekiq.md\n")
+      expect(read("CLAUDE.md")).to eq(
+        "<!-- AI instructions for this project. Managed content lives in .claude/hyperdrive/. -->\n\n" \
+        "@.claude/hyperdrive/index.md\n"
+      )
+    end
+
+    it "prints the eager footprint" do
+      out = run_reporting(artifacts: [guideline(name: "auth-pundit")])
+
+      expect(out).to match(/eager\s+1 guideline\(s\) \+ stack\.md, ~\d+ tokens always in context/)
+    end
+
+    it "leaves index.md alone on a re-run" do
+      run(artifacts: [guideline(name: "auth-pundit")])
+      out = run_reporting(artifacts: [guideline(name: "auth-pundit")])
+
+      expect(out).to match(%r{unchanged\s+\.claude/hyperdrive/index\.md})
     end
   end
 

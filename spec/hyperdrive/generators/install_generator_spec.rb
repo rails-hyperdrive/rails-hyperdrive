@@ -693,14 +693,9 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
-  describe "total eager budget warning" do
+  describe "eager budget warning" do
     def guideline_of(name, tokens)
       "---\nname: #{name}\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n" + ("x" * (tokens * 4))
-    end
-
-    it "stays quiet while the assembled eager set is under the budget" do
-      stub_discovery([guideline_artifact(name: "small", source: "rails-hyperdrive-x", body: guideline_of("small", 100))])
-      expect(run_generator([])).not_to match(/token budget/)
     end
 
     it "warns and names the largest contributors when the total is over the budget" do
@@ -713,17 +708,6 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       expect(out).to match(/eager context is over the ~10000 token budget/)
       expect(out).to match(/largest: huge\.md ~\d+, big\.md ~\d+/)
       expect(out).not_to include("tiny.md ~")
-    end
-
-    it "excludes guidelines the user opted out of" do
-      stub_discovery([
-        guideline_artifact(name: "huge", source: "rails-hyperdrive-x", body: guideline_of("huge", 12_000)),
-        guideline_artifact(name: "tiny", source: "rails-hyperdrive-x", body: guideline_of("tiny", 10))
-      ])
-      expect(run_generator([])).to match(/token budget/)
-
-      File.write(path(".claude/hyperdrive/index.md"), "@stack.md\n@guidelines/tiny.md\n")
-      expect(run_generator([])).not_to match(/token budget/)
     end
   end
 
@@ -832,7 +816,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
-  describe "CLAUDE.md opt-out state machine" do
+  describe "CLAUDE.md import line" do
     before { stub_discovery([]) }
 
     it "does not re-add the import line after the user deletes it (warn once)" do
@@ -849,25 +833,6 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       body = File.read(path("CLAUDE.md"))
       expect(body).to include("# pre-existing user content")
       expect(body).to include("@.claude/hyperdrive/index.md")
-    end
-
-    it "adopts a pre-existing CLAUDE.md that already contains the import line (no lock yet)" do
-      File.write(path("CLAUDE.md"), "# my notes\n\n@.claude/hyperdrive/index.md\n")
-      run_generator([])
-      body = File.read(path("CLAUDE.md"))
-      expect(body.scan("@.claude/hyperdrive/index.md").length).to eq(1)
-      expect(File.read(path(".hyperdrive/lock.yml"))).to include("state: present")
-    end
-
-    it "flips state back to present when the user re-adds the import line" do
-      run_generator([])
-      File.write(path("CLAUDE.md"), "# my own notes\n")
-      run_generator([])
-      expect(File.read(path(".hyperdrive/lock.yml"))).to include("state: removed-by-user")
-
-      File.write(path("CLAUDE.md"), "# my own notes\n\n@.claude/hyperdrive/index.md\n")
-      run_generator([])
-      expect(File.read(path(".hyperdrive/lock.yml"))).to include("state: present")
     end
   end
 

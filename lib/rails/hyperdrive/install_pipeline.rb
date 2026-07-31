@@ -2,7 +2,10 @@ require "time"
 require "rails/hyperdrive/version"
 require "rails/hyperdrive/audit_header"
 require "rails/hyperdrive/bundler_artifact_discovery"
+require "rails/hyperdrive/claude_md_import"
 require "rails/hyperdrive/drift_verdict"
+require "rails/hyperdrive/eager_footprint"
+require "rails/hyperdrive/index_document"
 require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_plan"
 require "rails/hyperdrive/lock_file"
@@ -13,18 +16,11 @@ module Rails
     # The application root is explicit and no Rails constant is touched, so any
     # process that can see the bundle can run this.
     class InstallPipeline
-      CLAUDE_MD = "CLAUDE.md".freeze
-      INDEX_LINE = "@#{InstallLayout::INDEX_PATH}".freeze
-
       ARTIFACT_DESTINATIONS =
         [InstallLayout::SKILLS_DIR, InstallLayout::HYPERDRIVE_DIR, InstallLayout::LOCK_PATH].freeze
 
       WARN_LINES = 150
       WARN_TOKENS = 1_500
-
-      # Soft cap on the assembled eager set — roughly six at-the-limit
-      # guidelines, or ~5% of a 200k context window.
-      TOTAL_WARN_TOKENS = 10_000
 
       MODES = %i[preserve overwrite additive].freeze
 
@@ -49,16 +45,16 @@ module Rails
         report_collisions
         report_disabled
         install_skills
-        install_guidelines
-        install_stack
+        guidelines = install_guidelines
+        stack_body = install_stack
         remove_disabled
         remove_stale_support_files
         carry_orphans
-        write_index_md
-        inject_claude_md
+        eager_guidelines = write_index_md(guidelines)
+        write_claude_md
         write_lock
         print_warnings
-        print_footprint
+        print_footprint(guidelines: eager_guidelines, stack_body: stack_body)
         warn_if_destinations_gitignored
         @result
       end
@@ -125,18 +121,16 @@ module Rails
       end
 
       def install_guidelines
-        @installed_guidelines = []
-        @plan.select { |e| e.type == :guideline }.each do |entry|
+        @plan.select { |e| e.type == :guideline }.map do |entry|
           body = entry.install_ready_body
           warn_if_oversize(entry.dest, body)
           install_file(entry: entry, type: :guideline, install_ready_body: body)
-          @installed_guidelines << { base: "#{entry.final_name}.md", dest: entry.dest, body: body }
+          { base: "#{entry.final_name}.md", dest: entry.dest, body: body }
         end
       end
 
       def install_stack
         body = StackDocument.render(@stack)
-        @stack_body = body
         warn_if_oversize(InstallLayout::STACK_PATH, body)
         install_file(
           dest: InstallLayout::STACK_PATH,
@@ -146,6 +140,7 @@ module Rails
           version: VERSION,
           artifact_kind: "stack"
         )
+        body
       end
 
       def install_file(dest: nil, type:, install_ready_body:, entry: nil, source_gem: nil, version: nil, artifact_kind: nil)
@@ -316,94 +311,52 @@ module Rails
         end
       end
 
-      # A guideline whose line the user deleted from an existing index.md is
-      # not re-added.
-      def write_index_md
-        return additive_index_md if additive?
+      # Returns the eager set: the guidelines index.md ends up including.
+      def write_index_md(guidelines)
+        return amend_index_md(guidelines) if additive?
 
-        index_abs = abs(InstallLayout::INDEX_PATH)
-        existing = File.exist?(index_abs) ? File.read(index_abs) : nil
-        old_known = old_lock.guideline_paths.map { |p| File.basename(p) }
+        existing = read_index
+        rendered = IndexDocument.render(
+          guidelines: guidelines,
+          existing: existing,
+          previously_installed: old_lock.guideline_paths.map { |p| File.basename(p) }
+        )
 
-        included = @installed_guidelines.select do |g|
-          if existing.nil?
-            true
-          elsif old_known.include?(g[:base])
-            existing.include?("@guidelines/#{g[:base]}")
-          else
-            true
-          end
-        end
-
-        lines = ["@stack.md"]
-        included.map { |g| "@guidelines/#{g[:base]}" }.sort.each { |l| lines << l }
-        content = lines.join("\n") + "\n"
-
-        # Only guidelines referenced by index.md load into context, so they
-        # alone make up the eager footprint.
-        @index_guideline_count = included.size
-        @eager_entries = included.map { |g| { name: g[:base], body: g[:body] } }
-
-        if existing == content
+        if existing == rendered.content
           @shell.say_status :unchanged, InstallLayout::INDEX_PATH, :blue
         else
-          @shell.create_file InstallLayout::INDEX_PATH, content
+          @shell.create_file InstallLayout::INDEX_PATH, rendered.content
         end
+        rendered.guidelines
       end
 
-      # Existing lines carry over untouched, so an orphan keeps its inclusion.
-      def additive_index_md
-        index_abs = abs(InstallLayout::INDEX_PATH)
-        return unless File.exist?(index_abs)
-
-        added = @installed_guidelines
-          .select { |g| @result.installed.include?(g[:dest]) }
-          .map { |g| "@guidelines/#{g[:base]}" }
-        return if added.empty?
-
-        existing = File.read(index_abs).split("\n").map(&:strip).reject(&:empty?)
-        return if (added - existing).empty?
-
-        guidelines = (existing.reject { |l| l == "@stack.md" } + added).uniq.sort
-        lines = existing.include?("@stack.md") ? ["@stack.md"] : []
-        @shell.create_file InstallLayout::INDEX_PATH, (lines + guidelines).join("\n") + "\n"
+      def amend_index_md(guidelines)
+        added = guidelines.select { |g| @result.installed.include?(g[:dest]) }.map { |g| g[:base] }
+        content = IndexDocument.amend(existing: read_index, added: added)
+        @shell.create_file InstallLayout::INDEX_PATH, content if content
+        [] # an additive run prints no footprint, so it reports no eager set
       end
 
-      def inject_claude_md
-        state = old_lock.claude_md_state
+      def read_index
+        file = abs(InstallLayout::INDEX_PATH)
+        File.read(file) if File.exist?(file)
+      end
 
-        # CLAUDE.md is the user's own file; only a generator they ran edits it.
-        if additive?
-          @new_lock.claude_md_state = state
-          return
+      def write_claude_md
+        file = abs(ClaudeMdImport::PATH)
+        decision = ClaudeMdImport.decide(
+          content: (File.read(file) if File.exist?(file)),
+          state: old_lock.claude_md_state,
+          mode: @mode
+        )
+
+        case decision.action
+        when :create then @shell.create_file ClaudeMdImport::PATH, decision.body
+        when :append then @shell.append_to_file ClaudeMdImport::PATH, decision.body
         end
+        @shell.say_status :warn, decision.warning, :yellow if decision.warning
 
-        file = abs(CLAUDE_MD)
-        present_on_disk = File.exist?(file) && File.read(file).include?(INDEX_LINE)
-
-        new_state =
-          if state.nil?
-            if !File.exist?(file)
-              @shell.create_file CLAUDE_MD,
-                "<!-- AI instructions for this project. Managed content lives in #{InstallLayout::HYPERDRIVE_DIR}/. -->\n\n#{INDEX_LINE}\n"
-              LockFile::STATE_PRESENT
-            elsif present_on_disk
-              LockFile::STATE_PRESENT
-            else
-              @shell.append_to_file CLAUDE_MD, "\n#{INDEX_LINE}\n"
-              LockFile::STATE_PRESENT
-            end
-          elsif state == LockFile::STATE_PRESENT && !present_on_disk
-            @shell.say_status :warn,
-              "you removed #{INDEX_LINE} from CLAUDE.md; leaving it out (won't re-add)", :yellow
-            LockFile::STATE_REMOVED
-          elsif state == LockFile::STATE_REMOVED && present_on_disk
-            LockFile::STATE_PRESENT
-          else
-            state
-          end
-
-        @new_lock.claude_md_state = new_state
+        @new_lock.claude_md_state = decision.state
       end
 
       def write_lock
@@ -417,23 +370,12 @@ module Rails
         @warnings.each { |w| @shell.say "    - #{w}" }
       end
 
-      def print_footprint
+      def print_footprint(guidelines:, stack_body:)
         return if additive?
-        entries = Array(@eager_entries).dup
-        entries << { name: File.basename(InstallLayout::STACK_PATH), body: @stack_body } if @stack_body
-        tokens = entries.sum { |e| approx_tokens(e[:body]) }
-        @shell.say_status :eager,
-          "#{@index_guideline_count.to_i} guideline(s) + stack.md, ~#{tokens} tokens always in context", :cyan
-        warn_if_over_budget(entries, tokens)
-      end
 
-      def warn_if_over_budget(entries, tokens)
-        return unless tokens > TOTAL_WARN_TOKENS
-        top = entries.sort_by { |e| -approx_tokens(e[:body]) }.first(2)
-          .map { |e| "#{e[:name]} ~#{approx_tokens(e[:body])}" }
-        @shell.say_status :warn,
-          "eager context is over the ~#{TOTAL_WARN_TOKENS} token budget (largest: #{top.join(", ")}); trim them, or drop a line from #{InstallLayout::INDEX_PATH} to opt one out",
-          :yellow
+        EagerFootprint.lines(guidelines: guidelines, stack_body: stack_body).each do |line|
+          @shell.say_status line.status, line.message, line.color
+        end
       end
 
       def warn_if_destinations_gitignored
@@ -464,15 +406,11 @@ module Rails
 
       def warn_if_oversize(dest, body)
         lines = body.lines.size
-        tokens = approx_tokens(body)
+        tokens = EagerFootprint.approx_tokens(body)
         return unless lines > WARN_LINES || tokens > WARN_TOKENS
         @shell.say_status :warn,
           "#{dest} is large (#{lines} lines, ~#{tokens} tokens); guidelines are eager — move tutorial content to a skill",
           :yellow
-      end
-
-      def approx_tokens(body)
-        (body.to_s.length / 4.0).ceil
       end
     end
   end
