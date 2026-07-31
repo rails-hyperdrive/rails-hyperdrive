@@ -43,6 +43,10 @@ module Rails
         WARN_LINES = 150
         WARN_TOKENS = 1_500
 
+        # Soft cap on the assembled eager set — roughly six at-the-limit
+        # guidelines, or ~5% of a 200k context window.
+        TOTAL_WARN_TOKENS = 10_000
+
         source_root File.expand_path("templates", __dir__)
 
         class_option :mount_at,      type: :string,  default: DEFAULT_MOUNT_AT, desc: "Engine mount path."
@@ -410,7 +414,7 @@ module Rails
             # Only guidelines actually referenced by index.md are eager; opted-out
             # ones stay on disk but out of context. Footprint counts the eager set.
             @index_guideline_count = included.size
-            @eager_guideline_bodies = included.map { |g| g[:body] }
+            @eager_entries = included.map { |g| { name: g[:base], body: g[:body] } }
 
             if existing == content
               say_status :unchanged, INDEX_PATH, :blue
@@ -463,11 +467,21 @@ module Rails
           end
 
           def print_footprint
-            bodies = Array(@eager_guideline_bodies).dup
-            bodies << @stack_body if @stack_body
-            tokens = bodies.sum { |b| approx_tokens(b) }
+            entries = Array(@eager_entries).dup
+            entries << { name: File.basename(STACK_PATH), body: @stack_body } if @stack_body
+            tokens = entries.sum { |e| approx_tokens(e[:body]) }
             count = @index_guideline_count.to_i
             say_status :eager, "#{count} guideline(s) + stack.md, ~#{tokens} tokens always in context", :cyan
+            warn_if_over_budget(entries, tokens)
+          end
+
+          def warn_if_over_budget(entries, tokens)
+            return unless tokens > TOTAL_WARN_TOKENS
+            top = entries.sort_by { |e| -approx_tokens(e[:body]) }.first(2)
+              .map { |e| "#{e[:name]} ~#{approx_tokens(e[:body])}" }
+            say_status :warn,
+              "eager context is over the ~#{TOTAL_WARN_TOKENS} token budget (largest: #{top.join(", ")}); trim them, or drop a line from #{INDEX_PATH} to opt one out",
+              :yellow
           end
 
           def warn_if_oversize(dest, body)
