@@ -21,14 +21,14 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
   end
 
   it "places a uniquely-named artifact at its canonical path" do
-    entry = described_class.build([skill(name: "jobs", source: "gem_a")]).first
+    entry = described_class.build([skill(name: "jobs", source: "gem_a")]).entries.first
 
     expect(entry.dest).to eq(".claude/skills/jobs/SKILL.md")
     expect(entry.collision).to be false
   end
 
   it "postfixes every variant when several sources ship the same name" do
-    plan = described_class.build([skill(name: "jobs", source: "gem_a"), skill(name: "jobs", source: "gem_b")])
+    plan = described_class.build([skill(name: "jobs", source: "gem_a"), skill(name: "jobs", source: "gem_b")]).entries
 
     expect(plan.map(&:dest)).to contain_exactly(
       ".claude/skills/jobs--gem_a/SKILL.md",
@@ -37,19 +37,19 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
   end
 
   it "keeps a skill's display name in step with its postfixed directory" do
-    plan = described_class.build([skill(name: "jobs", source: "gem_a"), skill(name: "jobs", source: "gem_b")])
+    plan = described_class.build([skill(name: "jobs", source: "gem_a"), skill(name: "jobs", source: "gem_b")]).entries
 
     expect(plan.first.install_ready_body).to include("name: jobs--gem_a")
   end
 
   it "does not collide a skill with a guideline of the same name" do
-    plan = described_class.build([skill(name: "jobs", source: "gem_a"), guideline(name: "jobs", source: "gem_b")])
+    plan = described_class.build([skill(name: "jobs", source: "gem_a"), guideline(name: "jobs", source: "gem_b")]).entries
 
     expect(plan.map(&:collision)).to all(be false)
   end
 
   it "strips a guideline's frontmatter from the install-ready body" do
-    entry = described_class.build([guideline(name: "jobs", source: "gem_a")]).first
+    entry = described_class.build([guideline(name: "jobs", source: "gem_a")]).entries.first
 
     expect(entry.install_ready_body).to start_with("# jobs")
     expect(entry.source_label).to eq("gem_a@1.0.0")
@@ -64,7 +64,7 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     end
 
     it "re-roots each file under the skill's directory, preserving relative layout" do
-      entry = described_class.build([skill(name: "jobs", source: "gem_a", support_files: support)]).first
+      entry = described_class.build([skill(name: "jobs", source: "gem_a", support_files: support)]).entries.first
 
       expect(entry.support_files.map { |f| f[:dest] }).to contain_exactly(
         ".claude/skills/jobs/references/deep.md",
@@ -73,7 +73,7 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     end
 
     it "passes bodies through byte-identical" do
-      entry = described_class.build([skill(name: "jobs", source: "gem_a", support_files: support)]).first
+      entry = described_class.build([skill(name: "jobs", source: "gem_a", support_files: support)]).entries.first
 
       expect(entry.support_files.map { |f| f[:body] }).to eq(["raw reference bytes\n", "puts 1\n"])
     end
@@ -82,15 +82,15 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
       plan = described_class.build([
         skill(name: "jobs", source: "gem_a", support_files: support),
         skill(name: "jobs", source: "gem_b")
-      ])
+      ]).entries
 
       entry = plan.find { |e| e.source_gem == "gem_a" }
       expect(entry.support_files.map { |f| f[:dest] }).to include(".claude/skills/jobs--gem_a/references/deep.md")
     end
 
     it "is empty for a guideline and for an artifact discovered without any" do
-      expect(described_class.build([guideline(name: "jobs", source: "gem_a")]).first.support_files).to eq([])
-      expect(described_class.build([skill(name: "jobs", source: "gem_a")]).first.support_files).to eq([])
+      expect(described_class.build([guideline(name: "jobs", source: "gem_a")]).entries.first.support_files).to eq([])
+      expect(described_class.build([skill(name: "jobs", source: "gem_a")]).entries.first.support_files).to eq([])
     end
   end
 
@@ -103,37 +103,48 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
       end
     end
 
-    it "is left out of the plan" do
-      plan = described_class.build(
+    it "is left out of the plan and reported as disabled at its canonical path" do
+      result = described_class.build(
         [skill(name: "jobs", source: "gem_a"), guideline(name: "auth", source: "gem_a")],
         lock: lock(skills: ["jobs"])
       )
 
-      expect(plan.map(&:final_name)).to eq(["auth"])
+      expect(result.entries.map(&:final_name)).to eq(["auth"])
+      expect(result.disabled.map(&:final_name)).to eq(["jobs"])
+      expect(result.disabled.map(&:dest)).to eq([".claude/skills/jobs/SKILL.md"])
     end
 
     it "only disables the artifact type it is listed under" do
-      plan = described_class.build([skill(name: "jobs", source: "gem_a")], lock: lock(guidelines: ["jobs"]))
+      result = described_class.build([skill(name: "jobs", source: "gem_a")], lock: lock(guidelines: ["jobs"]))
 
-      expect(plan.map(&:final_name)).to eq(["jobs"])
+      expect(result.entries.map(&:final_name)).to eq(["jobs"])
+      expect(result.disabled).to be_empty
     end
 
-    it "drops every variant of a collision when the shipped name is listed" do
-      plan = described_class.build(
+    it "drops every variant of a collision, postfixed, when the shipped name is listed" do
+      result = described_class.build(
         [skill(name: "jobs", source: "gem_a"), skill(name: "jobs", source: "gem_b")],
         lock: lock(skills: ["jobs"])
       )
 
-      expect(plan).to be_empty
+      expect(result.entries).to be_empty
+      expect(result.disabled.map(&:final_name)).to contain_exactly("jobs--gem_a", "jobs--gem_b")
     end
 
     it "drops one variant of a collision when the postfixed name is listed" do
-      plan = described_class.build(
+      result = described_class.build(
         [skill(name: "jobs", source: "gem_a"), skill(name: "jobs", source: "gem_b")],
         lock: lock(skills: ["jobs--gem_a"])
       )
 
-      expect(plan.map(&:dest)).to eq([".claude/skills/jobs--gem_b/SKILL.md"])
+      expect(result.entries.map(&:dest)).to eq([".claude/skills/jobs--gem_b/SKILL.md"])
+      expect(result.disabled.map(&:final_name)).to eq(["jobs--gem_a"])
+    end
+
+    it "reports no casualties when no lock is given" do
+      result = described_class.build([skill(name: "jobs", source: "gem_a")])
+
+      expect(result.disabled).to be_empty
     end
 
     it "matches an installed path back to the name that disables it" do

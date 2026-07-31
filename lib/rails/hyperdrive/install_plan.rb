@@ -1,4 +1,5 @@
 require "rails/hyperdrive/bundler_artifact_discovery"
+require "rails/hyperdrive/install_layout"
 
 module Rails
   module Hyperdrive
@@ -39,51 +40,38 @@ module Rails
         end
       end
 
+      Result = Struct.new(:entries, :disabled, keyword_init: true)
+
       module_function
 
       # A collision installs under a postfixed name, so the shipped name
       # disables every variant and a postfixed name disables just one.
       def build(artifacts, lock: nil)
-        artifacts.group_by { |a| [a.artifact_type, a.name] }.flat_map do |(type, name), group|
-          next [] if lock&.disabled?(type, name)
-
+        result = Result.new(entries: [], disabled: [])
+        artifacts.group_by { |a| [a.artifact_type, a.name] }.each do |(type, name), group|
           collision = group.size > 1
-          group.filter_map do |artifact|
-            final_name = collision ? "#{name}--#{artifact.source_gem}" : name
-            next if collision && lock&.disabled?(type, final_name)
-
-            Entry.new(
+          group.each do |artifact|
+            final_name = collision ? InstallLayout.postfixed_name(name, artifact.source_gem) : name
+            entry = Entry.new(
               type: type,
               artifact: artifact,
               final_name: final_name,
-              dest: dest_for(type, final_name),
+              dest: InstallLayout.dest_for(type, final_name),
               collision: collision
             )
+            dropped = lock && (lock.disabled?(type, name) || (collision && lock.disabled?(type, final_name)))
+            (dropped ? result.disabled : result.entries) << entry
           end
         end
-      end
-
-      def dest_for(type, final_name)
-        case type
-        when :skill     then ".claude/skills/#{final_name}/SKILL.md"
-        when :guideline then ".claude/hyperdrive/guidelines/#{final_name}.md"
-        end
-      end
-
-      def installed_name(type, dest)
-        case type
-        when :skill         then File.basename(File.dirname(dest))
-        when :skill_support then dest.split("/")[2] # .claude/skills/<name>/<relpath>
-        when :guideline     then File.basename(dest, ".md")
-        end
+        result
       end
 
       # A supporting file is disabled through its owning skill's name.
       def disabled_dest?(lock, type, dest)
-        name = installed_name(type, dest)
+        name = InstallLayout.installed_name(type, dest)
         return false unless name
         lookup = type == :skill_support ? :skill : type
-        lock.disabled?(lookup, name) || lock.disabled?(lookup, name.split("--").first.to_s)
+        lock.disabled?(lookup, name) || lock.disabled?(lookup, InstallLayout.base_name(name))
       end
     end
   end

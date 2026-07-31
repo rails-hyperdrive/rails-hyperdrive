@@ -125,7 +125,7 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
 
   describe "a disabled artifact" do
     def disable(*names)
-      lock_path = File.join(root, Rails::Hyperdrive::InstallPipeline::LOCK_PATH)
+      lock_path = File.join(root, Rails::Hyperdrive::InstallLayout::LOCK_PATH)
       FileUtils.mkdir_p(File.dirname(lock_path))
       data = File.exist?(lock_path) ? YAML.safe_load(File.read(lock_path)) : {}
       (data["disabled"] ||= {})["guidelines"] = names

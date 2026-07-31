@@ -1,4 +1,5 @@
 require "mcp"
+require "rails/hyperdrive/install_layout"
 
 module Rails
   module Hyperdrive
@@ -17,7 +18,7 @@ module Rails
           ::MCP::ResourceTemplate.new(
             uri_template: URI_TEMPLATE,
             name: "Installed skill",
-            description: "Markdown body of an installed .claude/skills/<name>/SKILL.md",
+            description: "Markdown body of an installed #{InstallLayout::SKILLS_DIR}/<name>/SKILL.md",
             mime_type: "text/markdown"
           )
         end
@@ -26,10 +27,10 @@ module Rails
         # `hyperdrive:init` only appear after a dev-server restart.
         def installed_resources
           return [] unless defined?(::Rails) && ::Rails.respond_to?(:root) && ::Rails.root
-          skills_root = ::Rails.root.join(".claude", "skills")
+          skills_root = ::Rails.root.join(InstallLayout::SKILLS_DIR)
           return [] unless Dir.exist?(skills_root)
-          Dir.glob(skills_root.join("*", "SKILL.md")).sort.map do |path|
-            name = File.basename(File.dirname(path))
+          Dir.glob(::Rails.root.join(InstallLayout.dest_for(:skill, "*")).to_s).sort.map do |path|
+            name = InstallLayout.installed_name(:skill, path)
             next unless name.match?(NAME_PATTERN)
             ::MCP::Resource.new(
               uri: "#{URI_PREFIX}#{name}",
@@ -48,7 +49,7 @@ module Rails
               "Resource not found: #{uri}", params, error_type: :invalid_params
             )
           end
-          path = ::Rails.root.join(".claude", "skills", name, "SKILL.md")
+          path = ::Rails.root.join(InstallLayout.dest_for(:skill, name))
           unless File.exist?(path)
             raise ::MCP::Server::RequestHandlerError.new(
               "Resource not found: #{uri}", params, error_type: :invalid_params

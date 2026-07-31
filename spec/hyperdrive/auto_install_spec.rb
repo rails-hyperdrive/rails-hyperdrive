@@ -151,7 +151,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
   end
 
   def disable(*names)
-    lock_path = File.join(root, Rails::Hyperdrive::InstallPipeline::LOCK_PATH)
+    lock_path = File.join(root, Rails::Hyperdrive::InstallLayout::LOCK_PATH)
     data = YAML.safe_load(File.read(lock_path))
     (data["disabled"] ||= {})["guidelines"] = names
     File.write(lock_path, data.to_yaml)

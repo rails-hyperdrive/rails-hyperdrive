@@ -3,6 +3,7 @@ require "rails/hyperdrive/version"
 require "rails/hyperdrive/audit_header"
 require "rails/hyperdrive/bundler_artifact_discovery"
 require "rails/hyperdrive/drift_verdict"
+require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_plan"
 require "rails/hyperdrive/lock_file"
 require "rails/hyperdrive/stack_document"
@@ -13,16 +14,10 @@ module Rails
     # process that can see the bundle can run this.
     class InstallPipeline
       CLAUDE_MD = "CLAUDE.md".freeze
-      INDEX_LINE = "@.claude/hyperdrive/index.md".freeze
-      HYPERDRIVE_DIR = ".claude/hyperdrive".freeze
-      SKILLS_DIR = ".claude/skills".freeze
-      INDEX_PATH = ".claude/hyperdrive/index.md".freeze
-      STACK_PATH = ".claude/hyperdrive/stack.md".freeze
-      LOCK_PATH = ".hyperdrive/lock.yml".freeze
+      INDEX_LINE = "@#{InstallLayout::INDEX_PATH}".freeze
 
-      ARTIFACT_DESTINATIONS = [SKILLS_DIR, HYPERDRIVE_DIR, LOCK_PATH].freeze
-
-      ARTIFACT_TYPES = { "skill" => :skill, "skill_support" => :skill_support, "guideline" => :guideline }.freeze
+      ARTIFACT_DESTINATIONS =
+        [InstallLayout::SKILLS_DIR, InstallLayout::HYPERDRIVE_DIR, InstallLayout::LOCK_PATH].freeze
 
       WARN_LINES = 150
       WARN_TOKENS = 1_500
@@ -48,7 +43,7 @@ module Rails
       end
 
       def call
-        @new_lock = LockFile.new(abs(LOCK_PATH)).carry_settings(old_lock)
+        @new_lock = LockFile.new(abs(InstallLayout::LOCK_PATH)).carry_settings(old_lock)
         @plan = plan
 
         report_collisions
@@ -69,7 +64,7 @@ module Rails
       end
 
       def plan
-        @plan ||= InstallPlan.build(@artifacts, lock: old_lock)
+        build_result.entries
       end
 
       def lock
@@ -78,8 +73,12 @@ module Rails
 
       private
 
+      def build_result
+        @build_result ||= InstallPlan.build(@artifacts, lock: old_lock)
+      end
+
       def old_lock
-        @old_lock ||= LockFile.load(abs(LOCK_PATH))
+        @old_lock ||= LockFile.load(abs(InstallLayout::LOCK_PATH))
       end
 
       def additive?
@@ -104,9 +103,8 @@ module Rails
       end
 
       def report_disabled
-        planned = @plan.map(&:dest)
-        InstallPlan.build(@artifacts).reject { |e| planned.include?(e.dest) }.each do |entry|
-          @shell.say_status :disabled, "#{entry.type} '#{entry.final_name}' (listed in #{LOCK_PATH})", :blue
+        build_result.disabled.each do |entry|
+          @shell.say_status :disabled, "#{entry.type} '#{entry.final_name}' (listed in #{InstallLayout::LOCK_PATH})", :blue
         end
       end
 
@@ -139,9 +137,9 @@ module Rails
       def install_stack
         body = StackDocument.render(@stack)
         @stack_body = body
-        warn_if_oversize(STACK_PATH, body)
+        warn_if_oversize(InstallLayout::STACK_PATH, body)
         install_file(
-          dest: STACK_PATH,
+          dest: InstallLayout::STACK_PATH,
           type: :stack,
           install_ready_body: body,
           source_gem: "internal",
@@ -236,7 +234,7 @@ module Rails
         return if additive?
 
         old_lock.each_entry do |entry|
-          type = ARTIFACT_TYPES[entry.kind]
+          type = InstallLayout::ARTIFACT_TYPES[entry.kind]
           next unless type
           next if @new_lock.entry(entry.path)
 
@@ -268,7 +266,7 @@ module Rails
         old_lock.each_entry do |entry|
           next unless entry.kind == "skill_support"
           next if @new_lock.entry(entry.path)
-          next unless planned_skill_dirs.include?(skill_dir_of(entry.path))
+          next unless planned_skill_dirs.include?(InstallLayout.skill_dir_of(entry.path))
 
           file = abs(entry.path)
           next unless File.exist?(file)
@@ -287,18 +285,13 @@ module Rails
         end
       end
 
-      def skill_dir_of(dest)
-        segments = dest.split("/")
-        File.join(*segments[0, 3]) # .claude/skills/<name>
-      end
-
       # Skill directories go only once empty; any user file keeps the whole
       # chain alive. The just-removed entry is subtracted because a dry run
       # deletes nothing from disk.
       def prune_empty_dirs(removed_dest)
         removed = abs(removed_dest)
         dir = File.dirname(removed_dest)
-        while dir.start_with?("#{SKILLS_DIR}/")
+        while dir.start_with?("#{InstallLayout::SKILLS_DIR}/")
           children = Dir.exist?(abs(dir)) ? Dir.children(abs(dir)).map { |c| File.join(abs(dir), c) } : []
           children -= [removed]
           break unless children.empty?
@@ -310,7 +303,7 @@ module Rails
       end
 
       def carry_orphans
-        planned = @plan.map(&:dest) + [STACK_PATH]
+        planned = @plan.map(&:dest) + [InstallLayout::STACK_PATH]
         old_lock.each_entry do |entry|
           next if planned.include?(entry.path)
           next if @new_lock.entry(entry.path)
@@ -328,7 +321,7 @@ module Rails
       def write_index_md
         return additive_index_md if additive?
 
-        index_abs = abs(INDEX_PATH)
+        index_abs = abs(InstallLayout::INDEX_PATH)
         existing = File.exist?(index_abs) ? File.read(index_abs) : nil
         old_known = old_lock.guideline_paths.map { |p| File.basename(p) }
 
@@ -352,15 +345,15 @@ module Rails
         @eager_entries = included.map { |g| { name: g[:base], body: g[:body] } }
 
         if existing == content
-          @shell.say_status :unchanged, INDEX_PATH, :blue
+          @shell.say_status :unchanged, InstallLayout::INDEX_PATH, :blue
         else
-          @shell.create_file INDEX_PATH, content
+          @shell.create_file InstallLayout::INDEX_PATH, content
         end
       end
 
       # Existing lines carry over untouched, so an orphan keeps its inclusion.
       def additive_index_md
-        index_abs = abs(INDEX_PATH)
+        index_abs = abs(InstallLayout::INDEX_PATH)
         return unless File.exist?(index_abs)
 
         added = @installed_guidelines
@@ -373,7 +366,7 @@ module Rails
 
         guidelines = (existing.reject { |l| l == "@stack.md" } + added).uniq.sort
         lines = existing.include?("@stack.md") ? ["@stack.md"] : []
-        @shell.create_file INDEX_PATH, (lines + guidelines).join("\n") + "\n"
+        @shell.create_file InstallLayout::INDEX_PATH, (lines + guidelines).join("\n") + "\n"
       end
 
       def inject_claude_md
@@ -392,7 +385,7 @@ module Rails
           if state.nil?
             if !File.exist?(file)
               @shell.create_file CLAUDE_MD,
-                "<!-- AI instructions for this project. Managed content lives in #{HYPERDRIVE_DIR}/. -->\n\n#{INDEX_LINE}\n"
+                "<!-- AI instructions for this project. Managed content lives in #{InstallLayout::HYPERDRIVE_DIR}/. -->\n\n#{INDEX_LINE}\n"
               LockFile::STATE_PRESENT
             elsif present_on_disk
               LockFile::STATE_PRESENT
@@ -414,7 +407,7 @@ module Rails
       end
 
       def write_lock
-        @shell.create_file LOCK_PATH, @new_lock.to_yaml
+        @shell.create_file InstallLayout::LOCK_PATH, @new_lock.to_yaml
       end
 
       def print_warnings
@@ -427,7 +420,7 @@ module Rails
       def print_footprint
         return if additive?
         entries = Array(@eager_entries).dup
-        entries << { name: File.basename(STACK_PATH), body: @stack_body } if @stack_body
+        entries << { name: File.basename(InstallLayout::STACK_PATH), body: @stack_body } if @stack_body
         tokens = entries.sum { |e| approx_tokens(e[:body]) }
         @shell.say_status :eager,
           "#{@index_guideline_count.to_i} guideline(s) + stack.md, ~#{tokens} tokens always in context", :cyan
@@ -439,7 +432,7 @@ module Rails
         top = entries.sort_by { |e| -approx_tokens(e[:body]) }.first(2)
           .map { |e| "#{e[:name]} ~#{approx_tokens(e[:body])}" }
         @shell.say_status :warn,
-          "eager context is over the ~#{TOTAL_WARN_TOKENS} token budget (largest: #{top.join(", ")}); trim them, or drop a line from #{INDEX_PATH} to opt one out",
+          "eager context is over the ~#{TOTAL_WARN_TOKENS} token budget (largest: #{top.join(", ")}); trim them, or drop a line from #{InstallLayout::INDEX_PATH} to opt one out",
           :yellow
       end
 

@@ -1,6 +1,7 @@
 require "bundler"
 require "rails/hyperdrive/artifact_status"
 require "rails/hyperdrive/bundler_artifact_discovery"
+require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_pipeline"
 require "rails/hyperdrive/install_shell"
 require "rails/hyperdrive/stack_profile"
@@ -43,7 +44,7 @@ module Rails
         root = File.expand_path(root.to_s)
 
         return skip(:not_development) unless development?(env)
-        return skip(:not_initialized) unless File.exist?(File.join(root, InstallPipeline::LOCK_PATH))
+        return skip(:not_initialized) unless File.exist?(File.join(root, InstallLayout::LOCK_PATH))
 
         artifacts = BundlerArtifactDiscovery.discover
         stack = StackProfile.from_lockfile(File.join(root, "Gemfile.lock"), app_root: root).to_h

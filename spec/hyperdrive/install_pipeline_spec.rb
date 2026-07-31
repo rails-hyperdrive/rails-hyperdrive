@@ -40,6 +40,18 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     ).call
   end
 
+  def run_reporting(mode: :preserve, artifacts: [])
+    io = StringIO.new
+    described_class.new(
+      root: root,
+      shell: Rails::Hyperdrive::InstallShell.new(root: root, io: io),
+      artifacts: artifacts,
+      stack: stack,
+      mode: mode
+    ).call
+    io.string
+  end
+
   def read(rel) = File.read(File.join(root, rel))
   def exist?(rel) = File.exist?(File.join(root, rel))
 
@@ -236,19 +248,39 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     end
   end
 
-  describe "gitignored install destination" do
-    def run_reporting(mode: :preserve, artifacts: [])
-      io = StringIO.new
-      described_class.new(
-        root: root,
-        shell: Rails::Hyperdrive::InstallShell.new(root: root, io: io),
-        artifacts: artifacts,
-        stack: stack,
-        mode: mode
-      ).call
-      io.string
+  describe "artifacts dropped by the disabled list" do
+    def disable(key, *names)
+      lock = File.join(root, ".hyperdrive/lock.yml")
+      FileUtils.mkdir_p(File.dirname(lock))
+      data = File.exist?(lock) ? YAML.safe_load(File.read(lock)) : {}
+      (data["disabled"] ||= {})[key] = names
+      File.write(lock, data.to_yaml)
     end
 
+    it "reports each one against the file that lists it" do
+      disable("skills", "jobs")
+
+      out = run_reporting(artifacts: [skill(name: "jobs"), guideline(name: "auth-pundit")])
+
+      expect(out).to include("skill 'jobs' (listed in .hyperdrive/lock.yml)")
+      expect(exist?(".claude/skills/jobs/SKILL.md")).to be false
+      expect(exist?(".claude/hyperdrive/guidelines/auth-pundit.md")).to be true
+    end
+
+    it "names both variants of a collision by their postfixed names" do
+      disable("skills", "jobs")
+
+      out = run_reporting(artifacts: [skill(name: "jobs", source: "gem_a"), skill(name: "jobs", source: "gem_b")])
+
+      expect(out).to include("skill 'jobs--gem_a'", "skill 'jobs--gem_b'")
+    end
+
+    it "stays quiet when nothing is listed" do
+      expect(run_reporting(artifacts: [skill(name: "jobs")])).not_to include("disabled")
+    end
+  end
+
+  describe "gitignored install destination" do
     before { system("git", "init", "--quiet", root, out: File::NULL, err: File::NULL) }
 
     it "warns when the destinations are ignored" do

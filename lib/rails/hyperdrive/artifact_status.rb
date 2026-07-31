@@ -1,7 +1,7 @@
 require "rails/hyperdrive/version"
 require "rails/hyperdrive/drift_verdict"
+require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_plan"
-require "rails/hyperdrive/install_pipeline"
 require "rails/hyperdrive/lock_file"
 require "rails/hyperdrive/stack_document"
 
@@ -37,16 +37,16 @@ module Rails
       end
 
       def compare
-        lock = LockFile.load(File.join(@root, InstallPipeline::LOCK_PATH))
+        lock = LockFile.load(File.join(@root, InstallLayout::LOCK_PATH))
         offered = {}
 
-        InstallPlan.build(@artifacts, lock: lock).each do |plan_entry|
+        InstallPlan.build(@artifacts, lock: lock).entries.each do |plan_entry|
           offered[plan_entry.dest] = [DriftVerdict.body_sha(plan_entry.install_ready_body), plan_entry.source_label, plan_entry.type]
           plan_entry.support_files.each do |file|
             offered[file[:dest]] = [DriftVerdict.body_sha(file[:body]), plan_entry.source_label, :skill_support]
           end
         end
-        offered[InstallPipeline::STACK_PATH] =
+        offered[InstallLayout::STACK_PATH] =
           [DriftVerdict.body_sha(StackDocument.render(@stack)), "internal@#{VERSION}", :stack]
 
         offered.each do |path, (gem_sha, source_label, type)|
@@ -67,7 +67,7 @@ module Rails
 
           # A disabled artifact left on disk was reported at install time; the
           # bundle still ships it, so it is not an orphan.
-          type = InstallPipeline::ARTIFACT_TYPES[locked.kind]
+          type = InstallLayout::ARTIFACT_TYPES[locked.kind]
           next if type && InstallPlan.disabled_dest?(lock, type, locked.path)
 
           @entries << Entry.new(

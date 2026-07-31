@@ -1,6 +1,7 @@
 require "rails/hyperdrive"
 require "rails/hyperdrive/stack_profile"
 require "rails/hyperdrive/bundler_artifact_discovery"
+require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_pipeline"
 
 module Rails
@@ -99,7 +100,7 @@ module Rails
           # supporting files, so counts key on the installed directory name,
           # which is unique across sources.
           support_counts = support
-            .group_by { |e| e.path.to_s.split("/")[2] }
+            .group_by { |e| ::Rails::Hyperdrive::InstallLayout.installed_name(:skill_support, e.path.to_s) }
             .transform_values(&:size)
 
           say "  #{installed_counts(listed)}"
@@ -132,11 +133,12 @@ module Rails
 
         def display_name(entry)
           path = entry.path.to_s
-          case entry.kind.to_s
-          when "skill" then File.basename(File.dirname(path))
-          when "stack" then File.basename(path)
-          else File.basename(path, ".md")
-          end
+          return File.basename(path) if entry.kind.to_s == "stack"
+
+          # A kind outside the install layout can only come from a hand-edited
+          # lock, so it degrades to the filename instead of printing nothing.
+          type = ::Rails::Hyperdrive::InstallLayout::ARTIFACT_TYPES[entry.kind.to_s]
+          type ? ::Rails::Hyperdrive::InstallLayout.installed_name(type, path) : File.basename(path, ".md")
         end
 
         def quantify(count, noun)
