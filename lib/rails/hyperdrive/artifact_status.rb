@@ -1,0 +1,89 @@
+require "digest"
+require "rails/hyperdrive/version"
+require "rails/hyperdrive/install_plan"
+require "rails/hyperdrive/install_pipeline"
+require "rails/hyperdrive/lock_file"
+require "rails/hyperdrive/stack_document"
+
+module Rails
+  module Hyperdrive
+    # Compares what the bundle offers against what `.hyperdrive/lock.yml`
+    # records. The comparison is against that manifest alone — installed files
+    # are never read, so an edited or deleted file does not change a verdict.
+    class ArtifactStatus
+      STATES = %i[installed missing outdated orphaned].freeze
+
+      Entry = Struct.new(:path, :state, :artifact, :locked_source, :bundle_source, keyword_init: true) do
+        def to_s
+          case state
+          when :missing  then "#{path} (from #{bundle_source})"
+          when :outdated then "#{path} (#{locked_source} → #{bundle_source})"
+          when :orphaned then "#{path} (source #{locked_source} no longer in bundle)"
+          else path
+          end
+        end
+      end
+
+      def self.compare(root:, artifacts:, stack:)
+        new(root: root, artifacts: artifacts, stack: stack).tap(&:compare)
+      end
+
+      attr_reader :entries
+
+      def initialize(root:, artifacts:, stack:)
+        @root = File.expand_path(root.to_s)
+        @artifacts = artifacts
+        @stack = stack
+        @entries = []
+      end
+
+      def compare
+        lock = LockFile.load(File.join(@root, InstallPipeline::LOCK_PATH))
+        offered = {}
+
+        InstallPlan.build(@artifacts).each do |plan_entry|
+          offered[plan_entry.dest] = [sha(plan_entry.install_ready_body), plan_entry.source_label, plan_entry.type]
+        end
+        offered[InstallPipeline::STACK_PATH] =
+          [sha(StackDocument.render(@stack)), "internal@#{VERSION}", :stack]
+
+        offered.each do |path, (gem_sha, source_label, type)|
+          locked = lock.entry(path)
+          state =
+            if locked.nil? then :missing
+            elsif locked[:source_sha] == gem_sha then :installed
+            else :outdated
+            end
+          @entries << Entry.new(
+            path: path, state: state, artifact: type,
+            locked_source: locked && locked[:source], bundle_source: source_label
+          )
+        end
+
+        lock.each_entry do |locked|
+          next if offered.key?(locked[:path])
+          @entries << Entry.new(
+            path: locked[:path], state: :orphaned, artifact: locked[:artifact]&.to_sym,
+            locked_source: locked[:source], bundle_source: nil
+          )
+        end
+
+        self
+      end
+
+      STATES.each do |state|
+        define_method(state) { @entries.select { |e| e.state == state } }
+      end
+
+      def stale?
+        !missing.empty? || !outdated.empty? || !orphaned.empty?
+      end
+
+      private
+
+      def sha(content)
+        Digest::SHA256.hexdigest(content.to_s)
+      end
+    end
+  end
+end

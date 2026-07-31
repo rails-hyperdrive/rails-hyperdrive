@@ -111,6 +111,18 @@ module Smoke
     end
   end
 
+  # Run a Ruby snippet against the app's bundle with no Rails application
+  # booted. Returns [stdout_plus_stderr, status].
+  def run_ruby!(app_dir, snippet, env = {})
+    Bundler.with_unbundled_env do
+      Open3.capture2e(
+        env_for(app_dir).merge(env),
+        "bundle", "exec", "ruby", "-e", snippet,
+        chdir: app_dir
+      )
+    end
+  end
+
   # Boot `bin/rails server` in the background on a random port. Returns
   # [pid, port]. Caller is responsible for killing the pid via stop_server!.
   def boot_server!(app_dir)
