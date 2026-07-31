@@ -31,7 +31,13 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
     ).call
   end
 
+  # The guard reads the ambient environment, so every input it consults is
+  # pinned here — a runner that sets CI or a frozen bundle would otherwise
+  # turn each example into a silent no-op that still passes its guard test.
+  around { |example| with_env("CI" => nil) { example.run } }
+
   before do
+    allow(::Bundler).to receive(:frozen_bundle?).and_return(false)
     FileUtils.cp(File.expand_path("../fixtures/gemfile_lock/standard.lock", __dir__), File.join(root, "Gemfile.lock"))
     allow(Rails::Hyperdrive::StackProfile).to receive(:from_lockfile).and_return(instance_double(Rails::Hyperdrive::StackProfile, to_h: stack))
   end
