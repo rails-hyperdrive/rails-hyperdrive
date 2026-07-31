@@ -2,7 +2,6 @@ require "fileutils"
 
 module Rails
   module Hyperdrive
-    # The filesystem and reporting surface InstallPipeline writes through.
     class InstallShell
       attr_reader :root
 

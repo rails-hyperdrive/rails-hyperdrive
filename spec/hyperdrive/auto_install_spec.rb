@@ -31,9 +31,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
     ).call
   end
 
-  # The guard reads the ambient environment, so every input it consults is
-  # pinned here — a runner that sets CI or a frozen bundle would otherwise
-  # turn each example into a silent no-op that still passes its guard test.
+  # Unpinned CI/frozen-bundle state would make every example a vacuously-passing no-op.
   around { |example| with_env("CI" => nil) { example.run } }
 
   before do
@@ -142,7 +140,6 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(File).not_to exist(File.join(root, ".claude/hyperdrive/guidelines/jobs-sidekiq.md"))
     end
 
-    # Removing one is an explicit hyperdrive:init / hyperdrive:update.
     it "leaves an installed artifact on disk when it is disabled" do
       disable("auth-pundit")
       bundle_ships([guideline(name: "auth-pundit")])

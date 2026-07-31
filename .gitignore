@@ -15,16 +15,13 @@
 /test/version_tmp/
 /tmp/
 
-# bundler
 Gemfile.lock
 .bundle
 
-# rspec/yard
 .rspec_status
 .yardoc
 /doc/
 
-# logs
 *.log
 spec/tmp/
 

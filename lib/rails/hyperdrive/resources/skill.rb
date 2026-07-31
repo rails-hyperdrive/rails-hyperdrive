@@ -3,8 +3,6 @@ require "mcp"
 module Rails
   module Hyperdrive
     module Resources
-      # hyperdrive://skills/{name} → the SKILL.md body installed at
-      # .claude/skills/<name>/SKILL.md inside the host app.
       module Skill
         URI_TEMPLATE = "hyperdrive://skills/{name}"
         URI_PREFIX = "hyperdrive://skills/"

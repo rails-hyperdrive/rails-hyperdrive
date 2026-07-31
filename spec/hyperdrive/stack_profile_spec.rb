@@ -63,7 +63,7 @@ RSpec.describe Rails::Hyperdrive::StackProfile do
 
   it "buckets db gems separately from the database adapter" do
     keys = profile[:db_gems].map { |g| g[:key] }
-    # pg is in :db category in gem_categories.yml
+    # pg is categorised as a db gem, not as the adapter.
     expect(keys).to include(:pg)
   end
 

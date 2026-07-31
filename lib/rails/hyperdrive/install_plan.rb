@@ -2,13 +2,12 @@ require "rails/hyperdrive/bundler_artifact_discovery"
 
 module Rails
   module Hyperdrive
-    # Phase 2 of the dedup contract: a name shipped by one source installs at
-    # its canonical path; a name shipped by several installs every variant,
-    # postfixed --<source_gem>.
+    # A name shipped by one source installs at its canonical path; a name
+    # shipped by several installs every variant, postfixed --<source_gem>.
     module InstallPlan
       Entry = Struct.new(:type, :artifact, :final_name, :dest, :collision, keyword_init: true) do
-        # Both the installer and the lockfile comparison hash this, so a
-        # postfixed skill's renamed `name:` has to be part of it.
+        # The renamed name: is part of the hashed body, so a postfixed skill
+        # hashes to a stable value.
         def install_ready_body
           body = BundlerArtifactDiscovery.install_ready_body(artifact)
           return body unless type == :skill && final_name != artifact.name
@@ -70,8 +69,6 @@ module Rails
         end
       end
 
-      # An installed path carries the postfixed name, so the shipped name has to
-      # match it too.
       def disabled_dest?(lock, type, dest)
         name = installed_name(type, dest)
         return false unless name

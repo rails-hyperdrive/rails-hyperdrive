@@ -29,8 +29,8 @@ module Rails
           end
         end
 
-        # popen3 + manual timeout (rather than capture3) so we can TERM the
-        # `ri` process if it hangs. Returns [nil, nil, nil] when `ri` is missing.
+        # The manual timeout lets a hung ri be TERMed; a missing ri returns
+        # [nil, nil, nil].
         def self.run_ri(reference)
           Open3.popen3("ri", "-T", "--format=markdown", reference) do |_in, out, err, wait_thr|
             begin
@@ -43,7 +43,6 @@ module Rails
               begin
                 Process.kill("TERM", wait_thr.pid)
               rescue Errno::ESRCH
-                # already gone
               end
               ["", "ri timeout after #{RI_TIMEOUT_SECONDS}s", FakeStatus.new(124)]
             end
@@ -52,7 +51,6 @@ module Rails
           [nil, nil, nil]
         end
 
-        # Minimal stand-in so the call site can treat a timeout uniformly.
         FakeStatus = Struct.new(:exitstatus) do
           def success?; false; end
         end

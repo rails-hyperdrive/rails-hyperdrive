@@ -1,16 +1,6 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Materialize one of the smoke fixtures into a gitignored `playground/<variant>/`
-# directory, wire it to this gem via `path:`, run `bundle install`, and run
-# `bin/rails hyperdrive:init` — leaving a ready-to-poke-at app for manual testing
-# (Claude Code, MCP server, generator output).
-#
-# Usage:
-#   bin/playground <variant> [--force] [--no-init] [--hyperdrive-flag FLAG ...]
-#
-# Variants are the directory names under spec/fixtures/smoke_apps/.
-
 require "fileutils"
 require "optparse"
 

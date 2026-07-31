@@ -10,9 +10,7 @@ end
 gem "sqlite3", "~> 2.0"
 gem "puma", "~> 6.0"
 
-# Present purely so StackProfile picks them up in Gemfile.lock and the
-# install generator's CLAUDE.md / .mcp.json reflect a realistic stack.
-# `require: false` keeps boot lean — these gems are never actually wired in.
+# Never wired in; present only so the resolved lockfile carries a realistic stack.
 gem "devise", require: false
 gem "sidekiq", require: false
 gem "pundit", require: false

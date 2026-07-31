@@ -170,7 +170,6 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       expect(run_reporting(artifacts: [guideline(name: "auth-pundit")])).not_to match(/gitignored/)
     end
 
-    # An additive run has no terminal to warn at, and reports through its result.
     it "stays quiet in additive mode" do
       File.write(File.join(root, ".gitignore"), ".claude/\n")
       run_reporting(artifacts: [guideline(name: "auth-pundit")])

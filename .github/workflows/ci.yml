@@ -34,16 +34,8 @@ jobs:
         run: bundle exec rspec
 
   smoke:
-    # Smoke runs `bundle install` inside three fixture apps and boots a
-    # subprocess Rails server, so it's slow. It runs:
-    #   - on every push to `main` (catch regressions before they ship),
-    #   - manually via the Actions tab (workflow_dispatch),
-    #   - on a PR by applying the `run-smoke` label.
-    # Two corner slots cover both Rails majors and both ends of the Ruby
-    # range (floor 3.2/7.2, ceiling 3.4/8.1). The generator + live-boot
-    # path is where Rails-version differences bite; the regular `test`
-    # matrix only exercises it via in-memory Combustion, never a real
-    # subprocess install + server boot.
+    # Smoke does a real bundle install + server boot per fixture app, so it is
+    # gated rather than run on every PR.
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-smoke'))
     runs-on: ubuntu-latest
     strategy:

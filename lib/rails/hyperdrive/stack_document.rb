@@ -3,16 +3,9 @@ require_relative "stack_profile"
 
 module Rails
   module Hyperdrive
-    # Renders stack.md — rails-hyperdrive's own generated guideline, the only
-    # content a zero-companion install produces. Body-only markdown (no YAML
-    # frontmatter); the installer adds the HTML-comment audit header.
-    #
-    # Content = facts (Rails/Ruby/DB) + per-bucket steering (from
-    # stack_steering.yml) + a trailing "## MCP tools" section.
     module StackDocument
       STEERING_PATH = File.expand_path("data/stack_steering.yml", __dir__)
 
-      # Buckets are rendered in this fixed order.
       BUCKET_ORDER = %i[jobs auth authz test frontend].freeze
 
       MCP_TOOLS = <<~MD.freeze
@@ -37,7 +30,6 @@ module Rails
         steering_config["steering"] || {}
       end
 
-      # Render the body-only markdown for the given StackProfile hash.
       def render(profile)
         lines = ["## Stack"]
         lines.concat(fact_lines(profile))
@@ -47,8 +39,6 @@ module Rails
         end
         "#{lines.join("\n")}\n\n#{MCP_TOOLS}"
       end
-
-      # ---- internals ----
 
       def fact_lines(profile)
         out = []
@@ -80,8 +70,6 @@ module Rails
         end
       end
 
-      # "<gem> <version>" (or just "<gem>" when no single version is known,
-      # e.g. the rolled-up hotwire entry).
       def display_member(entry)
         name = gem_name_for(entry)
         version = entry[:version]

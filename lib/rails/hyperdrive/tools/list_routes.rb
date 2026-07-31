@@ -15,8 +15,7 @@ module Rails
               reqs = r.requirements
               controller = reqs[:controller]
               action     = reqs[:action]
-              # Engine mounts have no controller/action — emit nil rather than
-              # synthesizing a bogus string.
+              # Engine mounts have no controller/action, so the pair is nil.
               controller_action = (controller && action) ? "#{controller}##{action}" : nil
               {
                 verb: r.verb.to_s,

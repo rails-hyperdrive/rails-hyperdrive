@@ -7,9 +7,7 @@ require "fileutils"
 RSpec.describe Rails::Hyperdrive::CompanionDiscovery do
   Response = described_class::Response
 
-  # Stand-in for the Net::HTTP fetcher. `pages` maps page-number → array of gem
-  # hashes (rubygems search.json shape); `raise_error` simulates offline; a
-  # `code` override drives the non-200 paths (e.g. 429).
+  # pages maps page-number to an array of gems in rubygems search.json shape.
   class FakeFetcher
     attr_reader :calls
 

@@ -7,9 +7,8 @@ require "rails/hyperdrive/stack_document"
 
 module Rails
   module Hyperdrive
-    # Compares what the bundle offers against what `.hyperdrive/lock.yml`
-    # records. The comparison is against that manifest alone — installed files
-    # are never read, so an edited or deleted file does not change a verdict.
+    # The comparison is against the lock manifest alone — installed files are
+    # never read, so an edited or deleted file does not change a verdict.
     class ArtifactStatus
       STATES = %i[installed missing outdated orphaned].freeze
 

@@ -30,7 +30,6 @@ module Rails
         end
 
         # Path-traversal guard: the resolved target must stay inside log_dir.
-        # Accepts both relative (resolved against log_dir) and absolute paths.
         def self.resolve_path(log_dir, requested)
           base = Pathname.new(requested)
           target = base.absolute? ? base : (log_dir + base)
@@ -40,8 +39,6 @@ module Rails
         end
 
         # Pure-Ruby `tail -n` — portable and avoids shell-escaping risk.
-        # Reads from EOF in 8 KiB blocks until we have enough newlines or hit
-        # BOF; MAX_LINES caps total buffer size.
         def self.tail(path, lines)
           block_size = 8 * 1024
           File.open(path, "rb") do |f|

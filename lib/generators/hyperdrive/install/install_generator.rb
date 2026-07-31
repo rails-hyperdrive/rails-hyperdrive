@@ -11,15 +11,6 @@ require "generators/hyperdrive/gitignore_support"
 module Rails
   module Generators
     module Hyperdrive
-      # Backs `bin/rails hyperdrive:init` and `bin/rails hyperdrive:update`.
-      #
-      # init   — first-run + idempotent re-sync; skips locally-modified files.
-      # update — same pipeline, but force-overwrites locally-modified files.
-      #
-      # rails-hyperdrive ships no content. It walks the bundle for companion
-      # gems' skills + guidelines, installs them, generates stack.md, maintains
-      # the index.md aggregator, and injects exactly one `@`-include line into
-      # CLAUDE.md.
       class InstallGenerator < ::Rails::Generators::Base
         include GitignoreSupport
 
@@ -79,8 +70,7 @@ module Rails
             warn "hyperdrive: hyperdrive:init must run with Rails.env=development (current: #{env})"
             raise Thor::Error, "hyperdrive: refuse to run outside development (Rails.env=#{env})"
           end
-          # Thor's create_file / inject_into_file / append_to_file all honor
-          # `options[:pretend]`. Translate our user-facing --dry-run to that.
+          # Thor's file-writing helpers honor options[:pretend], so --dry-run maps onto it.
           if options[:dry_run]
             self.options = options.merge(pretend: true).freeze
           end
@@ -120,10 +110,6 @@ module Rails
           end
         end
 
-        # The `hyperdrive:discover` cache is the only gitignored
-        # rails-hyperdrive artifact — the lockfile `.hyperdrive/lock.yml` stays
-        # git-tracked. Ignore the specific file, not the `.hyperdrive/`
-        # directory.
         def ignore_discover_cache
           ensure_gitignored(::Rails::Hyperdrive::CompanionDiscovery::CACHE_RELATIVE_PATH)
         end
@@ -179,8 +165,6 @@ module Rails
           say "    3. Verify the connection: curl http://localhost:3000#{mount_path}/mcp"
         end
 
-        # ---------- helpers ----------
-
         no_tasks do
           def update_mode?
             options[:update] || options[:force_install]
@@ -221,7 +205,6 @@ module Rails
             nil
           end
 
-          # Normalize the user-supplied mount path.
           def mount_path
             raw = options[:mount_at].to_s
             raw = "/" + raw unless raw.start_with?("/")
@@ -232,9 +215,8 @@ module Rails
             @stack_profile.to_h
           end
 
-          # Reads the lock the pipeline leaves behind, so the listing states the
-          # app's resulting content: untouched, locally-modified, and orphaned
-          # files included.
+          # The lock is the authoritative set: it includes untouched,
+          # locally-modified, and orphaned files.
           def print_installed_artifacts
             entries = []
             @pipeline&.lock&.each_entry { |e| entries << e }

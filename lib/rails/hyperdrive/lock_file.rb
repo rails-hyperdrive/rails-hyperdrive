@@ -2,16 +2,7 @@ require "yaml"
 
 module Rails
   module Hyperdrive
-    # Reads and writes `.hyperdrive/lock.yml` — the git-tracked manifest that
-    # records, per installed file, the source gem + version, the canonical
-    # `source_sha` (SHA256 of the install-ready body, pre audit-header
-    # injection), and an install timestamp. Also tracks the CLAUDE.md
-    # injected-line opt-out state and the hand-editable `disabled:` list.
-    #
-    # `installed_at` is volatile metadata, never an input to any comparison.
-    #
-    # Top-level keys this version does not recognize survive a read/write
-    # round-trip; entries under `files:` are regenerated from the install run.
+    # installed_at is volatile metadata, never an input to any comparison.
     class LockFile
       SCHEMA_VERSION = 1
       STATE_PRESENT  = "present".freeze
@@ -101,7 +92,6 @@ module Rails
         }
       end
 
-      # Carry an existing entry forward unchanged (preserves installed_at).
       def carry(entry)
         return unless entry && entry[:path]
         @files[entry[:path]] = entry

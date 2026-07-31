@@ -19,8 +19,6 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     allow(::Rails).to receive(:root).and_return(Pathname.new(path))
   end
 
-  # By default, stub discovery to return no companion artifacts (zero-content
-  # install) — individual examples override with `stub_discovery`.
   def stub_discovery(artifacts)
     allow(Rails::Hyperdrive::BundlerArtifactDiscovery)
       .to receive(:discover).and_return(artifacts)
@@ -241,8 +239,6 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
-  # The discover cache is the one gitignored artifact; init writes the
-  # rule so the cache never gets committed once `hyperdrive:discover` runs.
   describe "discover-cache .gitignore rule" do
     it "ignores the specific cache file, not the .hyperdrive/ directory" do
       run_generator([])
@@ -301,13 +297,13 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     it "does not re-add a guideline whose index.md line the user deleted (opt-out)" do
       run_generator([])
       index = path(".claude/hyperdrive/index.md")
-      File.write(index, "@stack.md\n") # user removed the guideline line
+      File.write(index, "@stack.md\n")
       run_generator([])
       expect(File.read(index)).not_to include("@guidelines/auth-pundit.md")
     end
   end
 
-  describe "cross-source conflict (Phase 2 — install both, postfixed)" do
+  describe "cross-source conflict (install both, postfixed)" do
     before do
       stub_discovery([
         skill_artifact(name: "dummy-skill", source: "dummy_gem"),
@@ -385,7 +381,6 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
   describe "per-artifact opt-out (disabled: in lock.yml)" do
     def lock_path = path(".hyperdrive/lock.yml")
 
-    # Hand-edit the lockfile the way a user would.
     def disable(key, *names)
       FileUtils.mkdir_p(File.dirname(lock_path))
       data = File.exist?(lock_path) ? YAML.safe_load(File.read(lock_path)) : {}
@@ -709,11 +704,11 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
 
     it "flips state back to present when the user re-adds the import line" do
       run_generator([])
-      File.write(path("CLAUDE.md"), "# my own notes\n") # remove the line
+      File.write(path("CLAUDE.md"), "# my own notes\n")
       run_generator([])
       expect(File.read(path(".hyperdrive/lock.yml"))).to include("state: removed-by-user")
 
-      File.write(path("CLAUDE.md"), "# my own notes\n\n@.claude/hyperdrive/index.md\n") # re-add manually
+      File.write(path("CLAUDE.md"), "# my own notes\n\n@.claude/hyperdrive/index.md\n")
       run_generator([])
       expect(File.read(path(".hyperdrive/lock.yml"))).to include("state: present")
     end

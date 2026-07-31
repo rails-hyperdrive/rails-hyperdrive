@@ -2,8 +2,7 @@ source "https://rubygems.org"
 
 gemspec
 
-# CI exercises a Rails-version matrix via this env var. Locally, unset →
-# Bundler picks whatever the gemspec accepts.
+# RAILS_VERSION pins the Rails series for matrix runs; unset resolves against the gemspec.
 rails_version = ENV["RAILS_VERSION"]
 if rails_version && !rails_version.empty?
   gem "rails", "~> #{rails_version}.0"

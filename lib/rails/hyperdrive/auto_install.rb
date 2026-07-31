@@ -7,10 +7,8 @@ require "rails/hyperdrive/stack_profile"
 
 module Rails
   module Hyperdrive
-    # Tops up an already-initialized application with artifacts its lockfile
-    # does not record yet, and reports everything it left alone. Requires no
-    # booted Rails, and never raises — every failure comes back as a skipped
-    # result.
+    # Requires no booted Rails and never raises — every failure comes back as
+    # a skipped result.
     module AutoInstall
       DEVELOPMENT = "development".freeze
 

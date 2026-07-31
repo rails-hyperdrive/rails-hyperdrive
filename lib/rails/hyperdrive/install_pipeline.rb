@@ -9,9 +9,8 @@ require "rails/hyperdrive/stack_document"
 
 module Rails
   module Hyperdrive
-    # Installs discovered artifacts into an application. The application root is
-    # explicit and no Rails constant is touched, so any process that can see the
-    # bundle can run this.
+    # The application root is explicit and no Rails constant is touched, so any
+    # process that can see the bundle can run this.
     class InstallPipeline
       CLAUDE_MD = "CLAUDE.md".freeze
       INDEX_LINE = "@.claude/hyperdrive/index.md".freeze
@@ -23,7 +22,6 @@ module Rails
 
       ARTIFACT_DESTINATIONS = [SKILLS_DIR, HYPERDRIVE_DIR, LOCK_PATH].freeze
 
-      # Lockfile `artifact:` value → discovery artifact type.
       ARTIFACT_TYPES = { "skill" => :skill, "guideline" => :guideline }.freeze
 
       WARN_LINES = 150
@@ -73,7 +71,6 @@ module Rails
         @plan ||= InstallPlan.build(@artifacts, lock: old_lock)
       end
 
-      # The lock as the run leaves it: source gem and version per installed file.
       def lock
         @new_lock
       end
@@ -392,6 +389,7 @@ module Rails
       end
 
       def warn_if_destinations_gitignored
+        # An additive run has no terminal to warn at; it reports through its result.
         return if additive?
         ignored = gitignored_destinations
         return if ignored.empty?

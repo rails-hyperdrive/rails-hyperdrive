@@ -6,17 +6,9 @@ require "socket"
 require "tmpdir"
 require "uri"
 
-# Smoke helper — shared utilities for end-to-end tests that exercise the
-# `hyperdrive:init` CLI and the `/_hyperdrive/mcp` HTTP endpoint against a real Rails
-# app subprocess.
-#
-# Smoke specs are tagged `:smoke` and excluded by default; run with
-# `bundle exec rspec --tag smoke`.
 module Smoke
   REPO_ROOT = File.expand_path("../..", __dir__).freeze
   FIXTURES_ROOT = File.join(REPO_ROOT, "spec/fixtures/smoke_apps").freeze
-  # Fixture-only companion gems (real path gems, each shipping hyperdrive
-  # skills/guidelines) used to exercise the install pipeline end-to-end.
   COMPANIONS_ROOT = File.join(REPO_ROOT, "spec/fixtures/smoke_companions").freeze
   TMP_ROOT = File.join(REPO_ROOT, "spec/tmp/smoke").freeze
   # Shared bundle cache across scenarios so only the first install pays the
@@ -25,7 +17,6 @@ module Smoke
 
   module_function
 
-  # Copy a fixture into a fresh tmpdir and return its absolute path.
   def copy_fixture(name)
     src = File.join(FIXTURES_ROOT, name)
     raise "unknown fixture: #{name}" unless Dir.exist?(src)
@@ -37,17 +28,12 @@ module Smoke
     dest
   end
 
-  # Append `gem "rails-hyperdrive", path: REPO_ROOT` to the Gemfile so the
-  # subprocess resolves against the working tree of this gem.
   def add_path_gem!(app_dir)
     gemfile = File.join(app_dir, "Gemfile")
     line = %(gem "rails-hyperdrive", path: #{REPO_ROOT.inspect}\n)
     File.open(gemfile, "a") { |f| f.write(line) }
   end
 
-  # Append a fixture companion gem (e.g. "rails-hyperdrive-alpha") as a path
-  # gem so the subprocess bundle resolves it and the installer discovers its
-  # shipped skills/guidelines.
   def add_companion_gem!(app_dir, gem_name)
     path = File.join(COMPANIONS_ROOT, gem_name)
     raise "unknown companion: #{gem_name}" unless Dir.exist?(path)
@@ -57,7 +43,6 @@ module Smoke
     File.open(gemfile, "a") { |f| f.write(line) }
   end
 
-  # Run `bundle install` against the app, sharing BUNDLE_PATH across calls.
   # Bundler.with_unbundled_env scrubs parent-process bundler vars so the
   # subprocess resolves the app's own Gemfile.
   def bundle_install!(app_dir)
@@ -72,9 +57,8 @@ module Smoke
     end
   end
 
-  # Run `bin/rails hyperdrive:init` against the app. The `--` separator is
-  # required because Rails' command runner parses `--flag` itself unless
-  # told to stop. Returns [stdout_plus_stderr, status].
+  # The `--` separator is required because Rails' command runner parses
+  # `--flag` itself unless told to stop.
   def run_hyperdrive_init!(app_dir, *flags)
     Bundler.with_unbundled_env do
       Open3.capture2e(
@@ -85,9 +69,6 @@ module Smoke
     end
   end
 
-  # Run `bin/rails hyperdrive:update` against the app — same pipeline as init
-  # but force-overwrites locally-modified files. Returns [stdout_plus_stderr,
-  # status].
   def run_hyperdrive_update!(app_dir, *flags)
     Bundler.with_unbundled_env do
       Open3.capture2e(
@@ -98,9 +79,7 @@ module Smoke
     end
   end
 
-  # Run `bin/rails hyperdrive:discover` against the app. Same `--` plumbing
-  # as init. Returns [stdout_plus_stderr, status]. Read-only and networked —
-  # the command never raises, so a non-success status is itself a failure.
+  # The command never raises, so a non-success status is itself a failure.
   def run_hyperdrive_discover!(app_dir, *flags)
     Bundler.with_unbundled_env do
       Open3.capture2e(
@@ -111,8 +90,6 @@ module Smoke
     end
   end
 
-  # Run a Ruby snippet against the app's bundle with no Rails application
-  # booted. Returns [stdout_plus_stderr, status].
   def run_ruby!(app_dir, snippet, env = {})
     Bundler.with_unbundled_env do
       Open3.capture2e(
@@ -123,8 +100,7 @@ module Smoke
     end
   end
 
-  # Boot `bin/rails server` in the background on a random port. Returns
-  # [pid, port]. Caller is responsible for killing the pid via stop_server!.
+  # The caller owns the returned pid and must pass it to stop_server!.
   def boot_server!(app_dir)
     port = pick_free_port
     pid = nil
@@ -153,8 +129,6 @@ module Smoke
     # already gone
   end
 
-  # JSON-RPC POST to the MCP endpoint. Returns the parsed result, or raises
-  # with the error payload.
   def mcp_call(port, method, params = {}, mount: "/_hyperdrive")
     uri = URI("http://127.0.0.1:#{port}#{mount}/mcp")
     req = Net::HTTP::Post.new(uri)
@@ -167,15 +141,13 @@ module Smoke
     JSON.parse(res.body)
   end
 
-  # ---------- internals ----------
-
   def env_for(app_dir)
     {
       "BUNDLE_GEMFILE" => File.join(app_dir, "Gemfile"),
       "BUNDLE_PATH" => BUNDLE_PATH,
       "RAILS_ENV" => "development",
-      # Bundler config sometimes contains a frozen flag from the parent
-      # repo. Unset to be safe.
+      # An inherited frozen/deployment flag would make the subprocess bundle
+      # refuse the appended path gems.
       "BUNDLE_FROZEN" => nil,
       "BUNDLE_DEPLOYMENT" => nil
     }
