@@ -31,6 +31,49 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
   end
 
+  describe "supporting files" do
+    it "captures every file in the skill dir besides SKILL.md, with dir-relative paths and raw bodies" do
+      skill = described_class.discover(specs: [dummy_spec]).find { |s| s.name == "dummy-skill" }
+      expect(skill.support_files.map { |f| f[:path] })
+        .to contain_exactly("examples/sample.rb", "references/deep-dive.md")
+
+      reference = skill.support_files.find { |f| f[:path] == "references/deep-dive.md" }
+      expect(reference[:body]).to eq(File.binread(File.join(File.dirname(skill.path), "references/deep-dive.md")))
+    end
+
+    it "excludes a nested file named SKILL.md" do
+      Dir.mktmpdir do |dir|
+        sdir = File.join(dir, "lib", "dummy_gem", "hyperdrive", "skills", "outer")
+        FileUtils.mkdir_p(File.join(sdir, "nested"))
+        File.write(File.join(sdir, "SKILL.md"),
+          "---\nname: outer\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# outer\n")
+        File.write(File.join(sdir, "nested", "SKILL.md"),
+          "---\nname: nested\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# nested\n")
+        File.write(File.join(sdir, "nested", "notes.md"), "notes\n")
+
+        spec = spec_double("dummy_gem", "1.0.0", dir)
+        outer = described_class.discover(specs: [spec]).find { |a| a.name == "outer" }
+        expect(outer.support_files.map { |f| f[:path] }).to eq(["nested/notes.md"])
+      end
+    end
+
+    it "rejects a relative path containing a .. segment" do
+      Dir.mktmpdir do |dir|
+        skill_dir = File.join(dir, "skills", "x")
+        FileUtils.mkdir_p(skill_dir)
+        File.write(File.join(dir, "evil.md"), "evil\n")
+        allow(Dir).to receive(:glob).and_return([File.join(skill_dir, "..", "..", "evil.md")])
+
+        expect(described_class.support_files_for(skill_dir)).to eq([])
+      end
+    end
+
+    it "is always empty for guidelines" do
+      guidelines = described_class.discover(specs: [dummy_spec]).select(&:guideline?)
+      expect(guidelines.map(&:support_files)).to all(eq([]))
+    end
+  end
+
   describe "guidelines" do
     it "discovers guidelines as a distinct artifact type" do
       guidelines = described_class.discover(specs: [dummy_spec]).select(&:guideline?)

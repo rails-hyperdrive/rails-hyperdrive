@@ -89,18 +89,30 @@ module Rails
         end
 
         # The lock is the authoritative set: it includes untouched,
-        # locally-modified, and orphaned files.
+        # locally-modified, and orphaned files. Supporting files collapse into
+        # a count on their owning skill's line.
         def print_installed_artifacts
           entries = []
           @pipeline&.lock&.each_entry { |e| entries << e }
           return if entries.empty?
 
-          say "  #{installed_counts(entries)}"
+          support, listed = entries.partition { |e| e[:artifact].to_s == "skill_support" }
+          # A carried SKILL.md entry can record an older source than its
+          # supporting files, so counts key on the installed directory name,
+          # which is unique across sources.
+          support_counts = support
+            .group_by { |e| e[:path].to_s.split("/")[2] }
+            .transform_values(&:size)
+
+          say "  #{installed_counts(listed)}"
           say ""
-          group_by_source(entries).each do |source, group|
+          group_by_source(listed).each do |source, group|
             say "    #{source}"
             group.each do |entry|
-              say "      #{entry[:artifact].to_s.ljust(KIND_WIDTH)}  #{display_name(entry)}"
+              name = display_name(entry)
+              count = entry[:artifact].to_s == "skill" ? support_counts[name].to_i : 0
+              suffix = count.positive? ? " (+#{quantify(count, "file")})" : ""
+              say "      #{entry[:artifact].to_s.ljust(KIND_WIDTH)}  #{name}#{suffix}"
             end
           end
         end

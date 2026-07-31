@@ -22,7 +22,7 @@ module Rails
 
       ARTIFACT_DESTINATIONS = [SKILLS_DIR, HYPERDRIVE_DIR, LOCK_PATH].freeze
 
-      ARTIFACT_TYPES = { "skill" => :skill, "guideline" => :guideline }.freeze
+      ARTIFACT_TYPES = { "skill" => :skill, "skill_support" => :skill_support, "guideline" => :guideline }.freeze
 
       WARN_LINES = 150
       WARN_TOKENS = 1_500
@@ -57,6 +57,7 @@ module Rails
         install_guidelines
         install_stack
         remove_disabled
+        remove_stale_support_files
         carry_orphans
         write_index_md
         inject_claude_md
@@ -112,6 +113,16 @@ module Rails
       def install_skills
         @plan.select { |e| e.type == :skill }.each do |entry|
           install_file(entry: entry, type: :skill, install_ready_body: entry.install_ready_body)
+          entry.support_files.each do |file|
+            install_file(
+              dest: file[:dest],
+              type: :skill_support,
+              install_ready_body: file[:body],
+              source_gem: entry.source_gem,
+              version: entry.version,
+              artifact_kind: "skill_support"
+            )
+          end
         end
       end
 
@@ -162,7 +173,7 @@ module Rails
           return
         end
 
-        disk_sha = sha(AuditHeader.strip(File.read(file)))
+        disk_sha = sha(stripped_disk_body(file, type))
         unedited = old && disk_sha == old[:source_sha]
 
         if unedited && old[:source_sha] == write[:gem_sha]
@@ -191,12 +202,18 @@ module Rails
         end
       end
 
+      # Supporting files land byte-identical to what the gem ships — no audit
+      # header, since they may be non-markdown or binary; provenance and sha
+      # live in the lock alone.
       def write_artifact(dest:, type:, body:, source_gem:, version:, gem_sha:, artifact_kind:)
         installed_at = Time.now.utc
         header_args = { source_gem: source_gem, version: version, body: body, installed_at: installed_at }
         on_disk =
-          if type == :skill
+          case type
+          when :skill
             AuditHeader.inject_into_frontmatter(body, AuditHeader.build(**header_args))
+          when :skill_support
+            body
           else
             AuditHeader.prepend_html(body, AuditHeader.build_html(**header_args))
           end
@@ -230,10 +247,10 @@ module Rails
           file = abs(entry[:path])
           next unless File.exist?(file)
 
-          if sha(AuditHeader.strip(File.read(file))) == entry[:source_sha]
+          if sha(stripped_disk_body(file, type)) == entry[:source_sha]
             @shell.remove_file entry[:path]
             @result.removed << entry[:path]
-            prune_empty_skill_dir(entry[:path]) if type == :skill
+            prune_empty_dirs(entry[:path])
           else
             @result.skipped << entry[:path]
             @shell.say_status :skip,
@@ -243,15 +260,63 @@ module Rails
         end
       end
 
-      # Skills install as a directory holding SKILL.md; anything else in there
-      # is the user's, so the directory goes only once it is empty.
-      def prune_empty_skill_dir(dest)
-        dir = File.dirname(dest)
-        return unless dir.start_with?("#{SKILLS_DIR}/")
-        return unless Dir.exist?(abs(dir))
+      # A supporting file the bundle no longer ships, while its owning skill
+      # still installs, is removed only when its raw bytes still hash to the
+      # recorded sha; an edited copy is reported and its lock entry carried.
+      def remove_stale_support_files
+        return if additive?
 
-        remaining = Dir.children(abs(dir)) - [File.basename(dest)]
-        @shell.remove_file dir if remaining.empty?
+        planned_skill_dirs = @plan.select { |e| e.type == :skill }.map { |e| File.dirname(e.dest) }
+
+        old_lock.each_entry do |entry|
+          next unless entry[:artifact] == "skill_support"
+          next if @new_lock.entry(entry[:path])
+          next unless planned_skill_dirs.include?(skill_dir_of(entry[:path]))
+
+          file = abs(entry[:path])
+          next unless File.exist?(file)
+
+          if sha(File.binread(file)) == entry[:source_sha]
+            @shell.remove_file entry[:path]
+            @result.removed << entry[:path]
+            prune_empty_dirs(entry[:path])
+          else
+            @result.skipped << entry[:path]
+            @shell.say_status :skip,
+              "#{entry[:path]} (no longer shipped by #{entry[:source]} but locally modified; delete it by hand)",
+              :yellow
+            @new_lock.carry(entry)
+          end
+        end
+      end
+
+      def skill_dir_of(dest)
+        segments = dest.split("/")
+        File.join(*segments[0, 3]) # .claude/skills/<name>
+      end
+
+      # Supporting files never carry an audit header, and strip's line matching
+      # can raise on binary content, so they compare as raw bytes.
+      def stripped_disk_body(file, type)
+        return File.binread(file) if type == :skill_support
+        AuditHeader.strip(File.read(file))
+      end
+
+      # Skill directories go only once empty; any user file keeps the whole
+      # chain alive. The just-removed entry is subtracted because a dry run
+      # deletes nothing from disk.
+      def prune_empty_dirs(removed_dest)
+        removed = abs(removed_dest)
+        dir = File.dirname(removed_dest)
+        while dir.start_with?("#{SKILLS_DIR}/")
+          children = Dir.exist?(abs(dir)) ? Dir.children(abs(dir)).map { |c| File.join(abs(dir), c) } : []
+          children -= [removed]
+          break unless children.empty?
+
+          @shell.remove_file dir
+          removed = abs(dir)
+          dir = File.dirname(dir)
+        end
       end
 
       def carry_orphans

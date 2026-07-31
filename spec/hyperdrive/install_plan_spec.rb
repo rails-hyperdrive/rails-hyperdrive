@@ -2,12 +2,12 @@ require "spec_helper"
 require "rails/hyperdrive/install_plan"
 
 RSpec.describe Rails::Hyperdrive::InstallPlan do
-  def skill(name:, source:)
+  def skill(name:, source:, support_files: [])
     Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact.new(
       name: name, description: "d", target_gem: "*", versions: "*",
       artifact_type: :skill, source_gem: source, path: "/x/#{source}/#{name}/SKILL.md",
       body: "---\nname: #{name}\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# #{name}\n",
-      spec_version: "1.0.0"
+      spec_version: "1.0.0", support_files: support_files
     )
   end
 
@@ -53,6 +53,45 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
 
     expect(entry.install_ready_body).to start_with("# jobs")
     expect(entry.source_label).to eq("gem_a@1.0.0")
+  end
+
+  describe "supporting files" do
+    let(:support) do
+      [
+        { path: "references/deep.md", body: "raw reference bytes\n" },
+        { path: "examples/sample.rb", body: "puts 1\n" }
+      ]
+    end
+
+    it "re-roots each file under the skill's directory, preserving relative layout" do
+      entry = described_class.build([skill(name: "jobs", source: "gem_a", support_files: support)]).first
+
+      expect(entry.support_files.map { |f| f[:dest] }).to contain_exactly(
+        ".claude/skills/jobs/references/deep.md",
+        ".claude/skills/jobs/examples/sample.rb"
+      )
+    end
+
+    it "passes bodies through byte-identical" do
+      entry = described_class.build([skill(name: "jobs", source: "gem_a", support_files: support)]).first
+
+      expect(entry.support_files.map { |f| f[:body] }).to eq(["raw reference bytes\n", "puts 1\n"])
+    end
+
+    it "lands under the postfixed directory on a cross-source collision" do
+      plan = described_class.build([
+        skill(name: "jobs", source: "gem_a", support_files: support),
+        skill(name: "jobs", source: "gem_b")
+      ])
+
+      entry = plan.find { |e| e.source_gem == "gem_a" }
+      expect(entry.support_files.map { |f| f[:dest] }).to include(".claude/skills/jobs--gem_a/references/deep.md")
+    end
+
+    it "is empty for a guideline and for an artifact discovered without any" do
+      expect(described_class.build([guideline(name: "jobs", source: "gem_a")]).first.support_files).to eq([])
+      expect(described_class.build([skill(name: "jobs", source: "gem_a")]).first.support_files).to eq([])
+    end
   end
 
   describe "a disabled name" do
@@ -104,6 +143,14 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
       expect(described_class.disabled_dest?(disabled, :skill, ".claude/skills/jobs--gem_a/SKILL.md")).to be true
       expect(described_class.disabled_dest?(disabled, :guideline, ".claude/hyperdrive/guidelines/auth.md")).to be true
       expect(described_class.disabled_dest?(disabled, :skill, ".claude/skills/other/SKILL.md")).to be false
+    end
+
+    it "disables a supporting file through its owning skill's name" do
+      disabled = lock(skills: ["jobs"])
+
+      expect(described_class.disabled_dest?(disabled, :skill_support, ".claude/skills/jobs/references/deep.md")).to be true
+      expect(described_class.disabled_dest?(disabled, :skill_support, ".claude/skills/jobs--gem_a/references/deep.md")).to be true
+      expect(described_class.disabled_dest?(disabled, :skill_support, ".claude/skills/other/references/deep.md")).to be false
     end
   end
 end

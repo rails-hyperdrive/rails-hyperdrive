@@ -42,6 +42,9 @@ module Rails
 
         InstallPlan.build(@artifacts, lock: lock).each do |plan_entry|
           offered[plan_entry.dest] = [sha(plan_entry.install_ready_body), plan_entry.source_label, plan_entry.type]
+          plan_entry.support_files.each do |file|
+            offered[file[:dest]] = [sha(file[:body]), plan_entry.source_label, :skill_support]
+          end
         end
         offered[InstallPipeline::STACK_PATH] =
           [sha(StackDocument.render(@stack)), "internal@#{VERSION}", :stack]

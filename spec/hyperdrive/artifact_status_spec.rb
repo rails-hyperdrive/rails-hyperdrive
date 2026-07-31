@@ -87,6 +87,42 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
     end
   end
 
+  describe "a skill's supporting files" do
+    def multi_skill(support_files:)
+      Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact.new(
+        name: "jobs", description: "d", target_gem: "*", versions: "*",
+        artifact_type: :skill, source_gem: "rails-hyperdrive-x", path: "/x/jobs/SKILL.md",
+        body: "---\nname: jobs\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# jobs\n",
+        spec_version: "1.0.0", support_files: support_files
+      )
+    end
+
+    let(:support) { [{ path: "references/deep.md", body: "deep\n" }] }
+
+    it "reports a supporting file the lock does not record as missing" do
+      install([multi_skill(support_files: [])])
+
+      status = compare([multi_skill(support_files: support)])
+
+      expect(status.missing.map(&:path)).to eq([".claude/skills/jobs/references/deep.md"])
+      expect(status.missing.first.artifact).to eq(:skill_support)
+    end
+
+    it "reports an installed supporting file as current" do
+      install([multi_skill(support_files: support)])
+
+      expect(compare([multi_skill(support_files: support)])).not_to be_stale
+    end
+
+    it "reports changed supporting content as outdated" do
+      install([multi_skill(support_files: support)])
+
+      status = compare([multi_skill(support_files: [{ path: "references/deep.md", body: "deeper\n" }])])
+
+      expect(status.outdated.map(&:path)).to eq([".claude/skills/jobs/references/deep.md"])
+    end
+  end
+
   describe "a disabled artifact" do
     def disable(*names)
       lock_path = File.join(root, Rails::Hyperdrive::InstallPipeline::LOCK_PATH)

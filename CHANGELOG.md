@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Multi-file skills.** A companion skill directory can now ship more than
+  `SKILL.md`: every other file in it (nested however deep — `workflows/`,
+  `references/`, `examples/`, …) installs as a **supporting file** under
+  `.claude/skills/<name>/`, preserving the relative layout, so `SKILL.md` can
+  reference it with directory-relative links (which survive cross-source
+  collision postfixing, since that renames the whole directory). Supporting
+  files carry no frontmatter contract and no audit header — they land
+  byte-identical to what the gem ships, with provenance and a per-file sha
+  recorded in `.hyperdrive/lock.yml` under the new `skill_support` kind. The
+  full drift state machine applies per file (unedited upgrades rewritten,
+  local edits skipped on sync / restored with `--overwrite`, deletions
+  reinstalled), a supporting file the gem stops shipping is cleaned up when
+  unedited (warned about and left when edited), disabling a skill removes its
+  unedited supporting files too, and the install summary shows them as a
+  `(+N files)` count on the skill's line.
+
 - `hyperdrive:sync` — content-only actualization. Refreshes skills, guidelines,
   `stack.md`, `index.md`, and `.hyperdrive/lock.yml` to match the current
   bundle, and touches no bootstrap artifact (`.mcp.json`, the engine mount, the

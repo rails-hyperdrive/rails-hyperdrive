@@ -14,6 +14,16 @@ module Rails
           body.sub(/^name:\s*.+$/, "name: #{final_name}")
         end
 
+        # Supporting-file bodies pass through byte-identical; only the relative
+        # layout is re-rooted under the (possibly postfixed) skill directory.
+        def support_files
+          return [] unless type == :skill
+          dir = File.dirname(dest)
+          Array(artifact.support_files).map do |file|
+            { path: file[:path], body: file[:body], dest: "#{dir}/#{file[:path]}" }
+          end
+        end
+
         def source_gem
           artifact.source_gem
         end
@@ -64,15 +74,18 @@ module Rails
 
       def installed_name(type, dest)
         case type
-        when :skill     then File.basename(File.dirname(dest))
-        when :guideline then File.basename(dest, ".md")
+        when :skill         then File.basename(File.dirname(dest))
+        when :skill_support then dest.split("/")[2] # .claude/skills/<name>/<relpath>
+        when :guideline     then File.basename(dest, ".md")
         end
       end
 
+      # A supporting file is disabled through its owning skill's name.
       def disabled_dest?(lock, type, dest)
         name = installed_name(type, dest)
         return false unless name
-        lock.disabled?(type, name) || lock.disabled?(type, name.split("--").first.to_s)
+        lookup = type == :skill_support ? :skill : type
+        lock.disabled?(lookup, name) || lock.disabled?(lookup, name.split("--").first.to_s)
       end
     end
   end
