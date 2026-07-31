@@ -1,0 +1,78 @@
+require "thor"
+require "rails/hyperdrive"
+require "rails/hyperdrive/stack_profile"
+require "rails/hyperdrive/bundler_artifact_discovery"
+require "rails/hyperdrive/install_pipeline"
+require "generators/hyperdrive/install_summary"
+
+module Rails
+  module Generators
+    module Hyperdrive
+      # Owns the init/sync sequence. Each phase is an idempotent memoizer and
+      # `install` forces the ones it needs, so no call order can install with a
+      # half-built input set.
+      class SyncRunner
+        def initialize(shell:, root: nil)
+          @shell = shell
+          @root = root&.to_s
+        end
+
+        def verify_environment!
+          unless defined?(::Rails) && ::Rails.respond_to?(:root) && ::Rails.root
+            @shell.say_status :error, "must be run inside a Rails app", :red
+            raise Thor::Error, "hyperdrive: not in a Rails app"
+          end
+          unless ::Rails.respond_to?(:env) && ::Rails.env.development?
+            env = ::Rails.respond_to?(:env) ? ::Rails.env.to_s : "unknown"
+            warn "hyperdrive: must run with Rails.env=development (current: #{env})"
+            raise Thor::Error, "hyperdrive: refuse to run outside development (Rails.env=#{env})"
+          end
+        end
+
+        def load_stack_profile
+          @stack ||= ::Rails::Hyperdrive::StackProfile
+            .from_lockfile(File.join(root, "Gemfile.lock"), app_root: root)
+            .to_h
+        end
+
+        def discover_artifacts(skip: false)
+          @artifacts ||= skip ? [] : ::Rails::Hyperdrive::BundlerArtifactDiscovery.discover(warnings: warnings)
+        end
+
+        def install(mode:)
+          @pipeline = ::Rails::Hyperdrive::InstallPipeline.new(
+            root: root,
+            shell: @shell,
+            artifacts: discover_artifacts,
+            stack: load_stack_profile,
+            mode: mode,
+            warnings: warnings
+          )
+          @pipeline.call
+        end
+
+        def summary_lines
+          InstallSummary.lines(lock_entries)
+        end
+
+        private
+
+        # Resolved lazily so verify_environment! can report a missing Rails app
+        # before anything dereferences ::Rails.root.
+        def root
+          @root ||= ::Rails.root.to_s
+        end
+
+        def warnings
+          @warnings ||= []
+        end
+
+        def lock_entries
+          entries = []
+          @pipeline&.lock&.each_entry { |e| entries << e }
+          entries
+        end
+      end
+    end
+  end
+end

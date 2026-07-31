@@ -1,0 +1,9 @@
+  Installed 2 skills, 1 guideline + stack.md
+
+    rails-hyperdrive-sidekiq@1.0.0
+      skill      sidekiq-idempotency (+2 files)
+      guideline  jobs-sidekiq
+    rails-hyperdrive-view-component@2.1.0
+      skill      component-authoring
+    internal@0.9.9
+      stack      stack.md

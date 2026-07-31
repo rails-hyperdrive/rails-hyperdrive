@@ -28,20 +28,15 @@ module Rails
         class_option :dry_run,       type: :boolean, default: false, desc: "Show what would change; write nothing."
 
         def verify_environment
-          ensure_rails_development!
+          runner.verify_environment!
         end
 
         def parse_stack_profile
-          load_stack_profile
+          runner.load_stack_profile
         end
 
         def discover_artifacts
-          if options[:skip_content]
-            @warnings = []
-            @artifacts = []
-          else
-            discover_bundle_artifacts
-          end
+          runner.discover_artifacts(skip: options[:skip_content])
         end
 
         # The write is forced: Thor's conflict prompt would otherwise block the
@@ -112,14 +107,14 @@ module Rails
         # managed set". A later init or sync reconstructs the full state.
         def sync_content
           return if options[:skip_content]
-          run_install_pipeline(mode: :preserve)
+          runner.install(mode: :preserve)
         end
 
         def print_summary
           say ""
           say_status :done, "hyperdrive initialized", :green
           say "  Mount: #{mount_path} (in config/routes.rb)"
-          print_installed_artifacts unless options[:skip_content]
+          runner.summary_lines.each { |line| say line } unless options[:skip_content]
           say ""
           say "  Next steps:"
           say "    1. bin/rails server"

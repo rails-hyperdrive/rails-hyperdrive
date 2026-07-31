@@ -18,25 +18,25 @@ module Rails
         class_option :dry_run,   type: :boolean, default: false, desc: "Show what would change; write nothing."
 
         def verify_environment
-          ensure_rails_development!
+          runner.verify_environment!
         end
 
         def parse_stack_profile
-          load_stack_profile
+          runner.load_stack_profile
         end
 
         def discover_artifacts
-          discover_bundle_artifacts
+          runner.discover_artifacts
         end
 
         def sync_content
-          run_install_pipeline(mode: options[:overwrite] ? :overwrite : :preserve)
+          runner.install(mode: options[:overwrite] ? :overwrite : :preserve)
         end
 
         def print_summary
           say ""
           say_status :done, "hyperdrive synced", :green
-          print_installed_artifacts
+          runner.summary_lines.each { |line| say line }
         end
       end
     end

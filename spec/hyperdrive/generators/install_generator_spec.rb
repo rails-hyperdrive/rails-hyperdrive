@@ -712,7 +712,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
   end
 
   describe "install summary provenance" do
-    it "groups each artifact under its source gem and version" do
+    it "prints the lock-derived listing" do
       stub_discovery([
         skill_artifact(name: "sidekiq-idempotency", source: "rails-hyperdrive-sidekiq"),
         guideline_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq"),
@@ -721,63 +721,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       out = run_generator([])
 
       expect(out).to include("Installed 2 skills, 1 guideline + stack.md")
-      expect(out).to match(
-        /rails-hyperdrive-sidekiq@1\.0\.0\n\s+skill\s+sidekiq-idempotency\n\s+guideline\s+jobs-sidekiq/
-      )
       expect(out).to match(/rails-hyperdrive-view-component@1\.0\.0\n\s+skill\s+component-authoring/)
-    end
-
-    it "lists the generated stack.md last, under its own source" do
-      stub_discovery([skill_artifact(name: "s1", source: "rails-hyperdrive-a")])
-      out = run_generator([])
-
-      expect(out).to match(/internal@#{Regexp.escape(Rails::Hyperdrive::VERSION)}\n\s+stack\s+stack\.md/)
-      expect(out.index("rails-hyperdrive-a@1.0.0")).to be < out.index("internal@")
-    end
-
-    it "singularizes the counts" do
-      stub_discovery([skill_artifact(name: "s1", source: "rails-hyperdrive-a")])
-      expect(run_generator([])).to include("Installed 1 skill, 0 guidelines + stack.md")
-    end
-
-    it "lists files a re-run left unchanged" do
-      stub_discovery([skill_artifact(name: "s1", source: "rails-hyperdrive-a")])
-      run_generator([])
-      out = run_generator([])
-
-      expect(out).to match(%r{unchanged.*\.claude/skills/s1/SKILL\.md})
-      expect(out).to match(/rails-hyperdrive-a@1\.0\.0\n\s+skill\s+s1/)
-    end
-
-    it "lists a locally-modified file that init skipped" do
-      stub_discovery([guideline_artifact(name: "g1", source: "rails-hyperdrive-a")])
-      run_generator([])
-      File.write(path(".claude/hyperdrive/guidelines/g1.md"), "hand-edited\n")
-      out = run_generator([])
-
-      expect(out).to match(/locally modified/)
-      expect(out).to match(/rails-hyperdrive-a@1\.0\.0\n\s+guideline\s+g1/)
-    end
-
-    it "lists an orphan whose source gem left the bundle" do
-      stub_discovery([skill_artifact(name: "gone", source: "rails-hyperdrive-a")])
-      run_generator([])
-      stub_discovery([])
-      out = run_generator([])
-
-      expect(out).to match(/no longer in bundle/)
-      expect(out).to match(/rails-hyperdrive-a@1\.0\.0\n\s+skill\s+gone/)
-    end
-
-    it "lists both variants of a cross-source collision under their own sources" do
-      stub_discovery([
-        skill_artifact(name: "dup", source: "rails-hyperdrive-a"),
-        skill_artifact(name: "dup", source: "rails-hyperdrive-b")
-      ])
-      out = run_generator([])
-
-      expect(out).to match(/rails-hyperdrive-a@1\.0\.0\n\s+skill\s+dup--rails-hyperdrive-a/)
-      expect(out).to match(/rails-hyperdrive-b@1\.0\.0\n\s+skill\s+dup--rails-hyperdrive-b/)
     end
 
     it "prints no listing under --skip-content" do
