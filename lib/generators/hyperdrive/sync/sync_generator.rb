@@ -5,12 +5,8 @@ require "generators/hyperdrive/content_sync_support"
 module Rails
   module Generators
     module Hyperdrive
-      # Backs `bin/rails hyperdrive:sync` — content actualization only: skills,
-      # guidelines, stack.md, index.md, the CLAUDE.md import line, and the
-      # lockfile. Locally-modified files are preserved (skip + warn) unless
-      # --overwrite restores the gem-shipped content. Bootstrap artifacts
-      # (.mcp.json, the engine mount, the initializer, the .gitignore rule)
-      # are never touched — those belong to `hyperdrive:init`.
+      # Content-only by contract: no step may write a bootstrap artifact
+      # (.mcp.json, the engine mount, the initializer, the .gitignore rule).
       class SyncGenerator < ::Rails::Generators::Base
         include ContentSyncSupport
 

@@ -6,14 +6,9 @@ require "rails/hyperdrive/install_pipeline"
 module Rails
   module Generators
     module Hyperdrive
-      # Content plumbing for generators that drive InstallPipeline: environment
-      # verification, stack parsing, artifact discovery, the pipeline
-      # invocation, and the lock-derived summary listing.
-      #
-      # Included as a module, so its methods are NOT registered as Thor
-      # commands (Thor's `method_added` hook fires only for methods defined
-      # directly on the generator class). Each generator declares its own
-      # ordered public step methods and delegates here.
+      # Thor registers every public method defined directly on a generator
+      # class as a runnable command, so these shared helpers must stay in an
+      # included module or private.
       module ContentSyncSupport
         KIND_WIDTH = "guideline".length
         KIND_ORDER = %w[skill guideline stack].freeze
