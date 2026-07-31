@@ -69,9 +69,9 @@ module Rails
         skip(:error, e)
       end
 
-      # Read from ENV rather than Rails.env: this runs where Rails may never
-      # boot, and it writes into the working tree, which a deploy or a CI
-      # container must never have modified underneath it.
+      # Rails may never boot in this process, and this guard fronts a write
+      # into the working tree, which a deploy or a CI container must never
+      # have modified underneath it.
       def development?(env)
         return false unless env.to_s == DEVELOPMENT
         return false if ENV["CI"] && !ENV["CI"].empty?

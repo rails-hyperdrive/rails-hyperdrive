@@ -241,8 +241,7 @@ module Rails
         end
       end
 
-      # Existing lines carry over untouched, so a line the user deleted stays
-      # deleted and an orphan keeps its inclusion.
+      # Existing lines carry over untouched, so an orphan keeps its inclusion.
       def additive_index_md
         index_abs = abs(INDEX_PATH)
         return unless File.exist?(index_abs)
