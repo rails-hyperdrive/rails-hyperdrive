@@ -91,6 +91,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   namespaced by the gem that defines it. Companion gems must update their
   gemspecs to the new keys.
 
+- **BREAKING:** `hyperdrive:discover` now finds companions by the metadata they
+  declare rather than by their name. It queries rubygems for gems declaring
+  `rails_hyperdrive_targets` instead of searching for the `rails-hyperdrive-`
+  name prefix, so a companion published under its author's own namespace is
+  suggested on the same terms as a purpose-built one. The `rails-hyperdrive-`
+  prefix remains a recommended naming convention and no longer plays any part in
+  discovery. Target matching, version gating, caching, and the never-raise
+  offline behaviour are unchanged, and artifact installation was never
+  name-filtered, so nothing about `hyperdrive:init` / `hyperdrive:update`
+  changes.
+
 - **BREAKING:** renamed the `hyperdrive:init` / `hyperdrive:update` flag
   `--skip-skills` to `--skip-content`. The old name is removed outright, with no
   deprecated alias — it never described what the flag does. The flag skips *all*

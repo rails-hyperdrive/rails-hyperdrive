@@ -1,4 +1,7 @@
 require "json"
+require "net/http"
+require "openssl"
+require "uri"
 require_relative "smoke_helper"
 
 # End-to-end smoke for `bin/rails hyperdrive:discover` against a real
@@ -9,7 +12,7 @@ require_relative "smoke_helper"
 #   - a real Gemfile.lock read by CompanionDiscovery
 #
 # discover is the only networked command and ships dormant: no companion gems
-# exist on rubygems under the `rails-hyperdrive-` prefix yet, so a live query
+# declaring `rails_hyperdrive_targets` are published yet, so a live query
 # returns an empty suggestion set. It is also resilient — offline / API-down /
 # rate-limited paths fall back to "stale" or "unavailable" and still exit 0.
 #
@@ -82,5 +85,29 @@ RSpec.describe "hyperdrive:discover smoke", :smoke do
     Smoke.run_hyperdrive_discover!(app_dir)
     occurrences = File.read(File.join(app_dir, ".gitignore")).scan(".hyperdrive/discover_cache.json").length
     expect(occurrences).to eq(1)
+  end
+
+  # Discovery depends on rubygems' undocumented field-scoped metadata search,
+  # which fails open: a retired query returns an empty 200 that reads as an empty
+  # ecosystem. A widely-published key must match, and an absent key must not.
+  describe "rubygems field-scoped metadata search" do
+    def search_count(query)
+      uri = URI("https://rubygems.org/api/v1/search.json")
+      uri.query = URI.encode_www_form(query: query)
+      resp = Net::HTTP.get_response(uri)
+      skip "rubygems returned HTTP #{resp.code}" unless resp.code.to_i == 200
+      body = JSON.parse(resp.body)
+      body.is_a?(Array) ? body.length : skip("unexpected search payload shape")
+    rescue SocketError, SystemCallError, Timeout::Error, OpenSSL::SSL::SSLError, IOError => e
+      skip "rubygems unreachable (#{e.class}: #{e.message})"
+    end
+
+    it "matches a metadata key that is widely published" do
+      expect(search_count("metadata.rubygems_mfa_required:true")).to be > 0
+    end
+
+    it "matches nothing for a metadata key no gem declares" do
+      expect(search_count("metadata.zzz_rails_hyperdrive_canary_absent:*")).to eq(0)
+    end
   end
 end
