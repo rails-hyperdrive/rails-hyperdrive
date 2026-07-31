@@ -34,6 +34,19 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       ))
       expect(File.binread(support_path)).to eq(shipped) # byte-identical, no audit header
 
+      gated_in = File.join(app_dir, ".claude/skills/alpha-skill/references/sqlite-notes.md")
+      expect(File.exist?(gated_in)).to be(true), "gated-in supporting file not installed:\n#{out}"
+      gated_out = File.join(app_dir, ".claude/skills/alpha-skill/references/alba-notes.md")
+      expect(File.exist?(gated_out)).to be(false), "gated-out supporting file installed:\n#{out}"
+
+      rendered = File.join(app_dir, ".claude/skills/alpha-skill/references/stack-notes.md")
+      expect(File.exist?(rendered)).to be(true), "rendered .md.erb not installed:\n#{out}"
+      stack_notes = File.read(rendered)
+      expect(stack_notes).to include("This app persists to SQLite (sqlite3 2.")
+      expect(stack_notes).not_to include("Alba")
+      expect(stack_notes).not_to include("<%")
+      expect(File.exist?(rendered + ".erb")).to be(false)
+
       guide_path = File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-guide.md")
       expect(File.exist?(guide_path)).to be(true), "alpha-guide not installed:\n#{out}"
       guide = File.read(guide_path)
@@ -49,11 +62,15 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       lock = File.read(File.join(app_dir, ".hyperdrive/lock.yml"))
       expect(lock).to include(".claude/skills/alpha-skill/SKILL.md")
       expect(lock).to include(".claude/skills/alpha-skill/references/deep-dive.md")
+      expect(lock).to include(".claude/skills/alpha-skill/references/sqlite-notes.md")
+      expect(lock).to include(".claude/skills/alpha-skill/references/stack-notes.md")
+      expect(lock).not_to include("alba-notes.md")
+      expect(lock).not_to include("stack-notes.md.erb")
       expect(lock).to include("artifact: skill_support")
       expect(lock).to include(".claude/hyperdrive/guidelines/alpha-guide.md")
       expect(lock).to include("rails-hyperdrive-alpha@0.1.0")
 
-      expect(out).to match(/skill\s+alpha-skill \(\+1 file\)/)
+      expect(out).to match(/skill\s+alpha-skill \(\+3 files\)/)
 
       expect(out).to match(/1 guideline\(s\) \+ stack\.md, ~[1-9]\d* tokens always in context/)
 

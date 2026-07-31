@@ -1,0 +1,9 @@
+# Stack Notes
+
+<%- if gem?("sqlite3") -%>
+This app persists to SQLite (sqlite3 <%= gem_version("sqlite3") %>).
+<%- end -%>
+<%- if gem?("alba") -%>
+This app serializes with Alba.
+<%- end -%>
+Rendered by hyperdrive at install time.

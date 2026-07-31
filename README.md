@@ -95,11 +95,11 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
   guidelines/<name>.md                 # companion-shipped, frontmatter stripped, audit-headered
 .claude/skills/<name>/
   SKILL.md                             # companion-shipped, frontmatter kept, audit-headered
-  <supporting files>                   # optional companion-shipped extras, installed byte-identical
+  <supporting files>                   # optional companion-shipped extras, installed as shipped (*.md.erb rendered)
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
 
-Everything a companion gem contributes lands here git-tracked, so a diff is where you review what it added — the install summary names each artifact's source gem and version, and every SKILL.md, guideline, and `stack.md` carries the same provenance in an audit header. A skill's supporting files carry no header — they install byte-identical to what the gem ships, and their provenance and content hash live in `.hyperdrive/lock.yml` alone. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
+Everything a companion gem contributes lands here git-tracked, so a diff is where you review what it added — the install summary names each artifact's source gem and version, and every SKILL.md, guideline, and `stack.md` carries the same provenance in an audit header. A skill's supporting files carry no header — they install byte-identical to the install-ready body (the shipped bytes; for `*.md.erb` templates, the rendered output), and their provenance and content hash live in `.hyperdrive/lock.yml` alone. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
 
 ### Turning off a single artifact
 
@@ -136,7 +136,7 @@ spec.metadata["rails_hyperdrive_skills_dir"] = "extra/skills"   # optional; rela
 
 That root is searched **in addition to** the convention path, never instead of it, so an override never hides skills already shipped at the convention path. A value containing a `..` segment is ignored. Guidelines have no override — they are found only at the convention path.
 
-A skill is a **directory**, and it may ship more than `SKILL.md`. Everything else in the skill directory — nested however you like (`workflows/`, `references/`, `examples/`, …) — installs alongside it as **supporting files**, preserving the relative layout under `.claude/skills/<name>/`. Reference them from `SKILL.md` with directory-relative links; a cross-source name collision renames the whole installed directory, so those links keep working. Supporting files carry no frontmatter contract and no audit header — they install byte-identical to what the gem ships (markdown, code, or binary alike), and each is tracked per file in `.hyperdrive/lock.yml`, so local edits are preserved on sync exactly like any other installed file. `SKILL.md` frontmatter remains the skill's sole schema surface. Guidelines stay single-file.
+A skill is a **directory**, and it may ship more than `SKILL.md`. Everything else in the skill directory — nested however you like (`workflows/`, `references/`, `examples/`, …) — installs alongside it as **supporting files**, preserving the relative layout under `.claude/skills/<name>/`. Reference them from `SKILL.md` with directory-relative links; a cross-source name collision renames the whole installed directory, so those links keep working. Supporting files carry no frontmatter contract and no audit header — they install byte-identical to the install-ready body, which is what the gem ships (markdown, code, or binary alike) except for `*.md.erb` templates, which install as their rendered output. Each is tracked per file in `.hyperdrive/lock.yml`, so local edits are preserved on sync exactly like any other installed file. `SKILL.md` frontmatter remains the skill's sole schema surface. Guidelines stay single-file.
 
 Every artifact carries four required YAML frontmatter fields:
 
@@ -169,6 +169,42 @@ versions:
 ```
 
 Draw the listed targets from the gem's own `hyperdrive_targets` (below): the gem-level declaration decides whether a companion is suggested at all, and an artifact naming a target the gemspec omits is unreachable for apps that have only that target.
+
+#### Gem-conditional skill content
+
+A multi-file skill can condition parts of itself on the app's bundle, so one skill tree serves apps with different gem sets. Both mechanisms are evaluated at discovery time, against the same resolved bundle that gates whole artifacts.
+
+**Per-file gating.** A `conditional:` map in `SKILL.md` frontmatter gates individual supporting files. Keys are dir-relative shipped paths; values take the same `gem:`/`versions:` forms as the artifact-level fields (single target, comma-separated string, YAML list, per-target `versions:` map, `"*"`), and the file installs when **any** listed target is bundled at a satisfying version. Unlike the artifact level, `versions:` is optional here — omitted means unconstrained. Files the map doesn't mention install unconditionally, and the supporting files themselves stay byte-identical to upstream — the condition lives entirely out-of-band.
+
+```yaml
+---
+name: layered-rails
+description: Layered architecture conventions.
+gem: railties
+versions: ">= 7.2"
+conditional:
+  references/gems/alba.md:
+    gem: alba
+  references/gems/jobs.md:
+    gem: [sidekiq, solid_queue]
+    versions:
+      sidekiq: ">= 7.0"
+---
+```
+
+A malformed condition **fails open**: the file installs unconditionally and the problem is reported with the other discovery warnings — a surplus reference file is harmless, a missing one breaks links from `SKILL.md`. A key naming no shipped file, or naming `SKILL.md` itself (the artifact-level `gem:`/`versions:` gate the whole skill), is warned about and ignored. The `conditional:` key ships through to the installed frontmatter unchanged.
+
+**ERB-templated markdown.** A file named `*.md.erb` in a skill directory — including `SKILL.md.erb` in place of `SKILL.md` — is rendered at install time and lands as plain `.md` (the `.erb` suffix is dropped; a `SKILL.md.erb` defines a skill exactly like `SKILL.md`, with frontmatter read from the rendered output). Templates see a sealed binding of exactly three helpers over the resolved bundle, nothing else:
+
+- `gem?("name")` / `gem?("name", ">= 2.0")` — is the gem bundled (at a satisfying version)?
+- `any_gem?("a", "b", …)` — is any of these bundled?
+- `gem_version("name")` — the resolved version as a String, or `nil`.
+
+Rendering uses ERB's trim mode, so `<%- if gem?("alba") -%>` … `<%- end -%>` control lines leave no blank lines behind. A template that fails to render is skipped with a warning (the whole skill, when it's `SKILL.md.erb`); when a plain file and a template would land at the same path, the plain file wins with a warning. `conditional:` keys refer to templates by their shipped `x.md.erb` name and gate them before rendering. Guidelines get no ERB support.
+
+Use ERB sparingly — condition reference manuals via `conditional:` and wrap link-table rows that point at gated files, but keep "consider adopting gem X" recommendations unconditional. An all-wrapped `.md.erb` renders to an empty file; to omit a file entirely, gate it with `conditional:` instead.
+
+Gated files appear and disappear as the bundle changes: `hyperdrive:init`/`hyperdrive:sync` install newly gated-in files and remove unedited gated-out ones. The auto top-up after `bundle install` adds newly gated-in files but never removes anything and never rewrites an already-installed file, so removals and re-rendered template output wait for the next `hyperdrive:sync`.
 
 Discovery never raises. An artifact with missing or malformed frontmatter, a missing required field, no declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there — read that section first when a gem you expected to contribute produces no files.
 
