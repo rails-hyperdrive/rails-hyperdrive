@@ -12,8 +12,8 @@ module Rails
     # Read-only, networked discovery of *uninstalled* companion gems.
     #
     # Queries the rubygems search API for gems under the `rails-hyperdrive-`
-    # prefix, reads their pre-install discovery metadata (`hyperdrive_targets` /
-    # `hyperdrive_artifacts`) straight from the API response (no `.gem`
+    # prefix, reads their pre-install discovery metadata (`rails_hyperdrive_targets` /
+    # `rails_hyperdrive_artifacts`) straight from the API response (no `.gem`
     # download), and matches the declared targets against the app's
     # `Gemfile.lock`. The result is a list of suggestions the user can act on
     # with `bundle add` + `hyperdrive:init`.
@@ -25,7 +25,7 @@ module Rails
     # (24h TTL, `--refresh` busts). Offline / API-down falls back to a stale
     # cache when present, otherwise reports "unavailable" — never raises.
     #
-    # The pre-install `hyperdrive_targets` hint is deliberately NOT reconciled
+    # The pre-install `rails_hyperdrive_targets` hint is deliberately NOT reconciled
     # with the per-artifact frontmatter `gem:` the installer uses; once a
     # companion is in the bundle, the in-bundle walk (BundlerArtifactDiscovery)
     # alone governs what installs.
@@ -181,7 +181,7 @@ module Rails
       def build_suggestion(candidate, installed, warnings)
         name     = candidate[:name]
         metadata = candidate[:metadata] || {}
-        targets  = parse_list(metadata["hyperdrive_targets"])
+        targets  = parse_list(metadata["rails_hyperdrive_targets"])
 
         if targets.empty?
           warnings << "#{name} #{candidate[:version]}: no targets declared (skipped)"
@@ -201,7 +201,7 @@ module Rails
           gem_name: name,
           version: candidate[:version],
           targets: targets,
-          artifacts: parse_list(metadata["hyperdrive_artifacts"]),
+          artifacts: parse_list(metadata["rails_hyperdrive_artifacts"]),
           matched_target: matched_target,
           matched_version: matched_version,
           installed: installed.key?(name)

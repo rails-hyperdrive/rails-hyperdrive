@@ -101,7 +101,7 @@ A companion gem ships artifacts under:
 Skills may ship under an additional root declared in gemspec metadata:
 
 ```ruby
-spec.metadata["hyperdrive_skills_dir"] = "extra/skills"   # optional; relative to the gem root
+spec.metadata["rails_hyperdrive_skills_dir"] = "extra/skills"   # optional; relative to the gem root
 ```
 
 That root is searched **in addition to** the convention path, never instead of it, so an override never hides skills already shipped at the convention path. A value containing a `..` segment is ignored. Guidelines have no override — they are found only at the convention path.
@@ -128,11 +128,11 @@ Discovery never raises. An artifact with missing or malformed frontmatter, a mis
 To be discoverable by `hyperdrive:discover` **before** it is installed, a companion also declares gemspec metadata (read remotely from rubygems, so the frontmatter inside the gem isn't visible yet):
 
 ```ruby
-spec.metadata["hyperdrive_targets"]   = "sidekiq"          # required; comma-sep, or "*" for always-applicable
-spec.metadata["hyperdrive_artifacts"] = "guideline,skill"  # optional; presentational hint
+spec.metadata["rails_hyperdrive_targets"]   = "sidekiq"          # required; comma-sep, or "*" for always-applicable
+spec.metadata["rails_hyperdrive_artifacts"] = "guideline,skill"  # optional; presentational hint
 ```
 
-`hyperdrive_targets` is a coarse pre-install hint — it is never reconciled against the frontmatter `gem:`; once the gem is bundled, the frontmatter alone governs what installs.
+`rails_hyperdrive_targets` is a coarse pre-install hint — it is never reconciled against the frontmatter `gem:`; once the gem is bundled, the frontmatter alone governs what installs.
 
 ---
 

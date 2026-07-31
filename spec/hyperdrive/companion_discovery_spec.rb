@@ -33,8 +33,8 @@ RSpec.describe Rails::Hyperdrive::CompanionDiscovery do
 
   def gem_entry(name, version, targets: nil, artifacts: nil)
     metadata = {}
-    metadata["hyperdrive_targets"] = targets if targets
-    metadata["hyperdrive_artifacts"] = artifacts if artifacts
+    metadata["rails_hyperdrive_targets"] = targets if targets
+    metadata["rails_hyperdrive_artifacts"] = artifacts if artifacts
     { "name" => name, "version" => version, "metadata" => metadata }
   end
 

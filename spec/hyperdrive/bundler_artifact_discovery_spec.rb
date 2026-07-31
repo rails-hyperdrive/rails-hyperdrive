@@ -91,10 +91,10 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
   end
 
-  describe "hyperdrive_skills_dir override" do
+  describe "rails_hyperdrive_skills_dir override" do
     it "rejects an override containing .. segments" do
       spec = spec_double("dummy_gem", "1.4.2", dummy_root)
-      allow(spec).to receive(:metadata).and_return("hyperdrive_skills_dir" => "../../etc")
+      allow(spec).to receive(:metadata).and_return("rails_hyperdrive_skills_dir" => "../../etc")
       expect(described_class.skills_dir_override(spec)).to be_nil
     end
 
@@ -107,7 +107,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
           "---\nname: extra\ndescription: d\ngem: \"*\"\nversions: \">= 0\"\n---\n\n# extra\n"
         )
         spec = spec_double("dummy_gem", "1.0.0", dir)
-        allow(spec).to receive(:metadata).and_return("hyperdrive_skills_dir" => "custom_skills")
+        allow(spec).to receive(:metadata).and_return("rails_hyperdrive_skills_dir" => "custom_skills")
         expect(described_class.discover(specs: [spec]).map(&:name)).to include("extra")
       end
     end

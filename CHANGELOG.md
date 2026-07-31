@@ -37,6 +37,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Corrected the description of `name:` — it determines the installed path rather
   than merely matching the file or directory stem.
 
+- **BREAKING:** renamed the three companion-gem gemspec metadata keys
+  `hyperdrive_targets`, `hyperdrive_artifacts`, and `hyperdrive_skills_dir` to
+  `rails_hyperdrive_targets`, `rails_hyperdrive_artifacts`, and
+  `rails_hyperdrive_skills_dir`. The old spellings are no longer read, with no
+  deprecated alias. Gemspec metadata is a single flat namespace shared by every
+  published gem, and the unprefixed `hyperdrive_*` prefix belongs to the
+  pre-existing, unrelated `hyperdrive` gem on rubygems — the contract is now
+  namespaced by the gem that defines it. Companion gems must update their
+  gemspecs to the new keys.
+
 - **BREAKING:** renamed the `hyperdrive:init` / `hyperdrive:update` flag
   `--skip-skills` to `--skip-content`. The old name is removed outright, with no
   deprecated alias — it never described what the flag does. The flag skips *all*
