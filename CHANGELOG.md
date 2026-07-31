@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `hyperdrive:sync` — content-only actualization. Refreshes skills, guidelines,
+  `stack.md`, `index.md`, and `.hyperdrive/lock.yml` to match the current
+  bundle, and touches no bootstrap artifact (`.mcp.json`, the engine mount, the
+  optional initializer, the `.gitignore` rule). Locally-edited files are
+  preserved by default (skip + warn); pass `--overwrite` to restore the
+  gem-shipped content. Works with or without a prior `hyperdrive:init`.
 - An artifact's `gem:` frontmatter field can now declare **several** targets, as
   either a comma-separated string (`gem: "sidekiq, solid_queue"`) or a YAML list.
   The artifact installs when **any** listed target is in the bundle at a
@@ -74,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Per-artifact opt-out via a `disabled:` list in `.hyperdrive/lock.yml`, keyed by
   artifact type (`skills:` / `guidelines:`). A listed artifact is never installed,
   and one already on disk is removed on the next `hyperdrive:init` /
-  `hyperdrive:update` — but only when the file still matches the content the lock
+  `hyperdrive:sync` — but only when the file still matches the content the lock
   recorded, so a locally-modified artifact is reported and left in place instead.
   Disabling a guideline also drops its line from `index.md`. For a name shipped by
   more than one companion gem, the shipped name disables every variant and the
@@ -82,6 +88,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generator reads it, carries it forward, and writes the empty scaffold on every
   install so the key is discoverable. Previously the only control was
   `--skip-content`, which suppresses all installed content at once.
+
+### Changed
+
+- **BREAKING:** `hyperdrive:init` no longer accepts `--update` /
+  `--force-install`; it always preserves locally-edited files (skip + warn).
+  The conflict warning and the AutoInstall nudge now point at
+  `hyperdrive:sync`.
+
+### Removed
+
+- **BREAKING:** `hyperdrive:update` is removed (not deprecated) — use
+  `bin/rails hyperdrive:sync --overwrite`. Note the default flip: the routine
+  refresh (`hyperdrive:sync`) now preserves locally-edited files; overwriting
+  them is opt-in via `--overwrite`.
 
 ### Fixed
 

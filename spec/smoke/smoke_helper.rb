@@ -69,11 +69,11 @@ module Smoke
     end
   end
 
-  def run_hyperdrive_update!(app_dir, *flags)
+  def run_hyperdrive_sync!(app_dir, *flags)
     Bundler.with_unbundled_env do
       Open3.capture2e(
         env_for(app_dir),
-        "bundle", "exec", "bin/rails", "hyperdrive:update", "--", *flags,
+        "bundle", "exec", "bin/rails", "hyperdrive:sync", "--", *flags,
         chdir: app_dir
       )
     end

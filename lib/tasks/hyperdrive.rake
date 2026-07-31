@@ -6,11 +6,11 @@ namespace :hyperdrive do
     Rails::Generators::Hyperdrive::InstallGenerator.start(ARGV.drop(1))
   end
 
-  desc "Re-sync Rails Hyperdrive content, force-overwriting locally-modified files"
-  task :update do
+  desc "Sync Rails Hyperdrive content (skills, guidelines, stack.md, index.md, lockfile); locally-edited files are preserved — pass --overwrite to restore gem-shipped content"
+  task :sync do
     require "rails/generators"
-    require "generators/hyperdrive/install/install_generator"
-    Rails::Generators::Hyperdrive::InstallGenerator.start(ARGV.drop(1) + ["--update"])
+    require "generators/hyperdrive/sync/sync_generator"
+    Rails::Generators::Hyperdrive::SyncGenerator.start(ARGV.drop(1))
   end
 
   desc "Suggest uninstalled rails-hyperdrive companion gems for this app's stack (networked, cached; pass --refresh to re-query)"

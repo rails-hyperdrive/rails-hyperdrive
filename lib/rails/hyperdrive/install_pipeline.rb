@@ -31,11 +31,11 @@ module Rails
       # guidelines, or ~5% of a 200k context window.
       TOTAL_WARN_TOKENS = 10_000
 
-      MODES = %i[init update additive].freeze
+      MODES = %i[preserve overwrite additive].freeze
 
       Result = Struct.new(:installed, :updated, :unchanged, :skipped, :orphaned, :removed, keyword_init: true)
 
-      def initialize(root:, shell:, artifacts:, stack:, mode: :init, warnings: [])
+      def initialize(root:, shell:, artifacts:, stack:, mode: :preserve, warnings: [])
         raise ArgumentError, "unknown mode #{mode.inspect}" unless MODES.include?(mode)
 
         @root = File.expand_path(root.to_s)
@@ -85,8 +85,8 @@ module Rails
         @mode == :additive
       end
 
-      def update_mode?
-        @mode == :update
+      def overwrite_mode?
+        @mode == :overwrite
       end
 
       def abs(path)
@@ -169,11 +169,11 @@ module Rails
           @new_lock.carry(old)
           @result.unchanged << write[:dest]
           @shell.say_status :unchanged, write[:dest], :blue
-        elsif unedited || update_mode?
+        elsif unedited || overwrite_mode?
           write_artifact(**write)
         else
           @result.skipped << write[:dest]
-          @shell.say_status :skip, "#{write[:dest]} (locally modified; run hyperdrive:update to overwrite)", :yellow
+          @shell.say_status :skip, "#{write[:dest]} (locally modified; run hyperdrive:sync --overwrite to overwrite)", :yellow
           @new_lock.carry(old) if old
         end
       end

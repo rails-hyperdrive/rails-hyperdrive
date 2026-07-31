@@ -30,7 +30,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     )
   end
 
-  def run(mode: :init, artifacts: [])
+  def run(mode: :preserve, artifacts: [])
     described_class.new(
       root: root,
       shell: Rails::Hyperdrive::InstallShell.new(root: root),
@@ -142,7 +142,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
   end
 
   describe "gitignored install destination" do
-    def run_reporting(mode: :init, artifacts: [])
+    def run_reporting(mode: :preserve, artifacts: [])
       io = StringIO.new
       described_class.new(
         root: root,

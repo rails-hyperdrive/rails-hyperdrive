@@ -1,0 +1,21 @@
+Description:
+    Syncs Rails Hyperdrive content to match the current bundle (run after
+    `bundle update` or after adding a companion gem):
+      - discovers companion-gem skills + guidelines in the bundle and installs
+        them with audit headers (skills to .claude/skills/, guidelines to
+        .claude/hyperdrive/guidelines/)
+      - regenerates .claude/hyperdrive/stack.md (stack facts + steering)
+      - maintains the .claude/hyperdrive/index.md aggregator and the single
+        @-include line in CLAUDE.md
+      - tracks everything in .hyperdrive/lock.yml
+
+    Locally-modified files are left untouched (skip + warn). Pass --overwrite
+    to restore them to the gem-shipped content.
+
+    Touches no bootstrap artifact: .mcp.json, the engine mount, the optional
+    initializer, and .gitignore belong to hyperdrive:init and are left alone.
+
+Examples:
+    bin/rails hyperdrive:sync
+    bin/rails hyperdrive:sync --overwrite
+    bin/rails hyperdrive:sync --dry-run
