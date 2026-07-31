@@ -1,14 +1,10 @@
 require "rails/generators"
 require "rails/generators/base"
-require "digest"
 require "json"
-require "time"
 require "rails/hyperdrive"
 require "rails/hyperdrive/stack_profile"
-require "rails/hyperdrive/stack_document"
 require "rails/hyperdrive/bundler_artifact_discovery"
-require "rails/hyperdrive/audit_header"
-require "rails/hyperdrive/lock_file"
+require "rails/hyperdrive/install_pipeline"
 require "rails/hyperdrive/companion_discovery"
 require "generators/hyperdrive/gitignore_support"
 
@@ -30,24 +26,34 @@ module Rails
         ENGINE_MOUNT_TOKEN = "Rails::Hyperdrive::Engine"
         DEFAULT_MOUNT_AT = "/_hyperdrive".freeze
 
-        CLAUDE_MD = "CLAUDE.md".freeze
         MCP_JSON_PATH = ".mcp.json".freeze
         MCP_SERVER_KEY = "rails-hyperdrive".freeze
-        INDEX_LINE = "@.claude/hyperdrive/index.md".freeze
-        HYPERDRIVE_DIR = ".claude/hyperdrive".freeze
-        INDEX_PATH = ".claude/hyperdrive/index.md".freeze
-        STACK_PATH = ".claude/hyperdrive/stack.md".freeze
-        LOCK_PATH = ".hyperdrive/lock.yml".freeze
-
-        # Eager-budget soft caps (per guideline).
-        WARN_LINES = 150
-        WARN_TOKENS = 1_500
-
-        # Soft cap on the assembled eager set — roughly six at-the-limit
-        # guidelines, or ~5% of a 200k context window.
-        TOTAL_WARN_TOKENS = 10_000
 
         source_root File.expand_path("templates", __dir__)
+
+        # Routes InstallPipeline's writes through Thor, so its output and
+        # `--dry-run` handling cover installed content too.
+        class ThorShell
+          def initialize(generator)
+            @generator = generator
+          end
+
+          def create_file(path, content)
+            @generator.create_file(path, content, force: true)
+          end
+
+          def append_to_file(path, content)
+            @generator.append_to_file(path, content)
+          end
+
+          def say_status(kind, message, color = nil)
+            @generator.say_status(kind, message, color)
+          end
+
+          def say(message = "")
+            @generator.say(message)
+          end
+        end
 
         class_option :mount_at,      type: :string,  default: DEFAULT_MOUNT_AT, desc: "Engine mount path."
         class_option :skip_content,  type: :boolean, default: false, desc: "Skip all .claude content, CLAUDE.md, and the lockfile; write only .mcp.json and the mount."
@@ -74,7 +80,8 @@ module Rails
 
         def parse_stack_profile
           @stack_profile = ::Rails::Hyperdrive::StackProfile.from_lockfile(
-            ::Rails.root.join("Gemfile.lock").to_s
+            ::Rails.root.join("Gemfile.lock").to_s,
+            app_root: ::Rails.root.to_s
           )
         end
 
@@ -135,31 +142,21 @@ module Rails
           inject_into_file routes_file, snippet, after: /Rails\.application\.routes\.draw do\s*\n/
         end
 
-        # The whole .claude content pipeline: skills, guidelines, stack.md,
-        # index.md, CLAUDE.md injection, lockfile. One Thor step so ivars flow
-        # in order.
-        # `--skip-content` deliberately writes no lockfile either. The lock is a
-        # manifest *of installed content*; with nothing installed there is
-        # nothing to record, and an empty lock would assert "zero files is the
-        # managed set". A later plain init/update reconstructs from scratch:
-        # LockFile.load treats an absent file as empty, so every path reads as
-        # missing → reinstall and claude_md.state as nil → inject.
+        # `--skip-content` writes no lockfile either: the lock is a manifest of
+        # installed content, and an empty one would assert "zero files is the
+        # managed set". A later init/update reconstructs the full state.
         def sync_content
           return if options[:skip_content]
 
-          @old_lock = ::Rails::Hyperdrive::LockFile.load(::Rails.root.join(LOCK_PATH).to_s)
-          @new_lock = ::Rails::Hyperdrive::LockFile.new(::Rails.root.join(LOCK_PATH).to_s)
-
-          @plan = build_install_plan
-          install_skills
-          install_guidelines
-          install_stack
-          carry_orphans
-          write_index_md
-          inject_claude_md
-          write_lock
-          print_warnings
-          print_footprint
+          @pipeline = ::Rails::Hyperdrive::InstallPipeline.new(
+            root: ::Rails.root.to_s,
+            shell: ThorShell.new(self),
+            artifacts: @artifacts,
+            stack: stack,
+            mode: update_mode? ? :update : :init,
+            warnings: @warnings
+          )
+          @pipeline.call
         end
 
         def print_summary
@@ -167,8 +164,9 @@ module Rails
           say_status :done, "hyperdrive #{update_mode? ? "updated" : "initialized"}", :green
           say "  Mount: #{mount_path} (in config/routes.rb)"
           unless options[:skip_content]
-            say "  Guidelines: #{Array(@plan).count { |a| a[:type] == :guideline }} + stack.md"
-            say "  Skills: #{Array(@plan).count { |a| a[:type] == :skill }}"
+            plan = @pipeline.plan
+            say "  Guidelines: #{plan.count { |e| e.type == :guideline }} + stack.md"
+            say "  Skills: #{plan.count { |e| e.type == :skill }}"
           end
           say ""
           say "  Next steps:"
@@ -228,282 +226,6 @@ module Rails
 
           def stack
             @stack_profile.to_h
-          end
-
-          # Phase 2: group Phase-1 survivors by [type, name]. A name shipped by
-          # one source installs at its canonical path; a name shipped by
-          # multiple sources installs all variants, postfixed --<source_gem>.
-          def build_install_plan
-            plan = []
-            @artifacts.group_by { |a| [a.artifact_type, a.name] }.each do |(type, name), group|
-              collision = group.size > 1
-              if collision
-                say_status :conflict,
-                  "#{type} '#{name}' shipped by #{group.map(&:source_gem).join(", ")}; installing all (postfixed)",
-                  :yellow
-              end
-              group.each do |artifact|
-                final_name = collision ? "#{name}--#{artifact.source_gem}" : name
-                plan << {
-                  type: type,
-                  artifact: artifact,
-                  final_name: final_name,
-                  dest: dest_for(type, final_name)
-                }
-              end
-            end
-            plan
-          end
-
-          def dest_for(type, final_name)
-            case type
-            when :skill     then ".claude/skills/#{final_name}/SKILL.md"
-            when :guideline then ".claude/hyperdrive/guidelines/#{final_name}.md"
-            end
-          end
-
-          def install_skills
-            @plan.select { |p| p[:type] == :skill }.each do |p|
-              artifact = p[:artifact]
-              body = ::Rails::Hyperdrive::BundlerArtifactDiscovery.install_ready_body(artifact)
-              # Postfixed skills rename the display `name:` to match the dir.
-              body = rename_skill(body, p[:final_name]) if p[:final_name] != artifact.name
-              install_file(
-                dest: p[:dest],
-                type: :skill,
-                install_ready_body: body,
-                source_gem: artifact.source_gem,
-                version: artifact.spec_version,
-                artifact_kind: "skill"
-              )
-            end
-          end
-
-          def install_guidelines
-            @installed_guidelines = []
-            @plan.select { |p| p[:type] == :guideline }.each do |p|
-              artifact = p[:artifact]
-              body = ::Rails::Hyperdrive::BundlerArtifactDiscovery.install_ready_body(artifact)
-              warn_if_oversize(p[:dest], body)
-              install_file(
-                dest: p[:dest],
-                type: :guideline,
-                install_ready_body: body,
-                source_gem: artifact.source_gem,
-                version: artifact.spec_version,
-                artifact_kind: "guideline"
-              )
-              @installed_guidelines << { base: "#{p[:final_name]}.md", dest: p[:dest], body: body }
-            end
-          end
-
-          def install_stack
-            body = ::Rails::Hyperdrive::StackDocument.render(stack)
-            @stack_body = body
-            warn_if_oversize(STACK_PATH, body)
-            install_file(
-              dest: STACK_PATH,
-              type: :stack,
-              install_ready_body: body,
-              source_gem: "internal",
-              version: ::Rails::Hyperdrive::VERSION,
-              artifact_kind: "stack"
-            )
-          end
-
-          # The drift state machine (spec §3.6). Decides, per file, whether to
-          # leave it untouched (current), rewrite (gem changed / missing), or
-          # skip-with-warning (user-edited, init) vs. force-overwrite (update).
-          def install_file(dest:, type:, install_ready_body:, source_gem:, version:, artifact_kind:)
-            abs = ::Rails.root.join(dest)
-            gem_sha = sha(install_ready_body)
-            old = @old_lock.entry(dest)
-            source_label = "#{source_gem}@#{version}"
-
-            if File.exist?(abs)
-              disk_sha = sha(::Rails::Hyperdrive::AuditHeader.strip(File.read(abs)))
-              unedited = old && disk_sha == old[:source_sha]
-
-              if unedited && old[:source_sha] == gem_sha
-                # Current: source unchanged → leave untouched, preserve installed_at.
-                @new_lock.carry(old)
-                say_status :unchanged, dest, :blue
-                return
-              elsif unedited
-                # Gem upgraded, file not edited → rewrite.
-                write_artifact(dest, type, install_ready_body, source_gem, version, gem_sha, artifact_kind)
-                return
-              else
-                # User-edited (disk != lock) or untracked file present.
-                if update_mode?
-                  write_artifact(dest, type, install_ready_body, source_gem, version, gem_sha, artifact_kind)
-                else
-                  say_status :skip, "#{dest} (locally modified; run hyperdrive:update to overwrite)", :yellow
-                  @new_lock.carry(old) if old
-                end
-                return
-              end
-            end
-
-            # File missing.
-            say_status(:reinstall, "#{dest} (was missing)", :yellow) if old
-            write_artifact(dest, type, install_ready_body, source_gem, version, gem_sha, artifact_kind)
-          end
-
-          def write_artifact(dest, type, install_ready_body, source_gem, version, gem_sha, artifact_kind)
-            installed_at = Time.now.utc
-            body =
-              if type == :skill
-                header = ::Rails::Hyperdrive::AuditHeader.build(
-                  source_gem: source_gem, version: version, body: install_ready_body, installed_at: installed_at
-                )
-                ::Rails::Hyperdrive::AuditHeader.inject_into_frontmatter(install_ready_body, header)
-              else
-                header = ::Rails::Hyperdrive::AuditHeader.build_html(
-                  source_gem: source_gem, version: version, body: install_ready_body, installed_at: installed_at
-                )
-                ::Rails::Hyperdrive::AuditHeader.prepend_html(install_ready_body, header)
-              end
-
-            create_file dest, body, force: true
-            @new_lock.upsert(
-              path: dest,
-              artifact: artifact_kind,
-              source: "#{source_gem}@#{version}",
-              source_sha: gem_sha,
-              installed_at: installed_at.iso8601
-            )
-          end
-
-          # Retain lock entries whose source gem is gone but whose file remains.
-          def carry_orphans
-            planned = @plan.map { |p| p[:dest] } + [STACK_PATH]
-            @old_lock.each_entry do |entry|
-              next if planned.include?(entry[:path])
-              next if @new_lock.entry(entry[:path])
-              abs = ::Rails.root.join(entry[:path])
-              if File.exist?(abs)
-                say_status :orphan, "#{entry[:path]} (source #{entry[:source]} no longer in bundle; left in place)", :yellow
-                @new_lock.carry(entry)
-              end
-            end
-          end
-
-          # Managed aggregator: `@stack.md` + one `@guidelines/<name>.md` per
-          # installed guideline. Honors per-guideline opt-out (a guideline whose
-          # line a user deleted from an existing index.md is not re-added).
-          def write_index_md
-            index_abs = ::Rails.root.join(INDEX_PATH)
-            existing = File.exist?(index_abs) ? File.read(index_abs) : nil
-            old_known = @old_lock.guideline_paths.map { |p| File.basename(p) }
-
-            included = @installed_guidelines.select do |g|
-              if existing.nil?
-                true
-              elsif old_known.include?(g[:base])
-                existing.include?("@guidelines/#{g[:base]}")
-              else
-                true
-              end
-            end
-
-            lines = ["@stack.md"]
-            included.map { |g| "@guidelines/#{g[:base]}" }.sort.each { |l| lines << l }
-            content = lines.join("\n") + "\n"
-
-            # Only guidelines actually referenced by index.md are eager; opted-out
-            # ones stay on disk but out of context. Footprint counts the eager set.
-            @index_guideline_count = included.size
-            @eager_entries = included.map { |g| { name: g[:base], body: g[:body] } }
-
-            if existing == content
-              say_status :unchanged, INDEX_PATH, :blue
-            else
-              create_file INDEX_PATH, content, force: true
-            end
-          end
-
-          # Inject exactly one `@`-include line into CLAUDE.md, governed by the
-          # opt-out state machine in lock.yml > claude_md.state.
-          def inject_claude_md
-            abs = ::Rails.root.join(CLAUDE_MD)
-            present_on_disk = File.exist?(abs) && File.read(abs).include?(INDEX_LINE)
-            state = @old_lock.claude_md_state
-
-            new_state =
-              if state.nil?
-                if !File.exist?(abs)
-                  create_file CLAUDE_MD,
-                    "<!-- AI instructions for this project. Managed content lives in #{HYPERDRIVE_DIR}/. -->\n\n#{INDEX_LINE}\n"
-                  ::Rails::Hyperdrive::LockFile::STATE_PRESENT
-                elsif present_on_disk
-                  ::Rails::Hyperdrive::LockFile::STATE_PRESENT
-                else
-                  append_to_file CLAUDE_MD, "\n#{INDEX_LINE}\n"
-                  ::Rails::Hyperdrive::LockFile::STATE_PRESENT
-                end
-              elsif state == ::Rails::Hyperdrive::LockFile::STATE_PRESENT && !present_on_disk
-                say_status :warn,
-                  "you removed #{INDEX_LINE} from CLAUDE.md; leaving it out (won't re-add)", :yellow
-                ::Rails::Hyperdrive::LockFile::STATE_REMOVED
-              elsif state == ::Rails::Hyperdrive::LockFile::STATE_REMOVED && present_on_disk
-                ::Rails::Hyperdrive::LockFile::STATE_PRESENT
-              else
-                state
-              end
-
-            @new_lock.claude_md_state = new_state
-          end
-
-          def write_lock
-            create_file LOCK_PATH, @new_lock.to_yaml, force: true
-          end
-
-          def print_warnings
-            return if Array(@warnings).empty?
-            say ""
-            say_status :warn, "discovery skipped #{@warnings.size} artifact(s):", :yellow
-            @warnings.each { |w| say "    - #{w}" }
-          end
-
-          def print_footprint
-            entries = Array(@eager_entries).dup
-            entries << { name: File.basename(STACK_PATH), body: @stack_body } if @stack_body
-            tokens = entries.sum { |e| approx_tokens(e[:body]) }
-            count = @index_guideline_count.to_i
-            say_status :eager, "#{count} guideline(s) + stack.md, ~#{tokens} tokens always in context", :cyan
-            warn_if_over_budget(entries, tokens)
-          end
-
-          def warn_if_over_budget(entries, tokens)
-            return unless tokens > TOTAL_WARN_TOKENS
-            top = entries.sort_by { |e| -approx_tokens(e[:body]) }.first(2)
-              .map { |e| "#{e[:name]} ~#{approx_tokens(e[:body])}" }
-            say_status :warn,
-              "eager context is over the ~#{TOTAL_WARN_TOKENS} token budget (largest: #{top.join(", ")}); trim them, or drop a line from #{INDEX_PATH} to opt one out",
-              :yellow
-          end
-
-          def warn_if_oversize(dest, body)
-            lines = body.lines.size
-            tokens = approx_tokens(body)
-            return unless lines > WARN_LINES || tokens > WARN_TOKENS
-            say_status :warn,
-              "#{dest} is large (#{lines} lines, ~#{tokens} tokens); guidelines are eager — move tutorial content to a skill",
-              :yellow
-          end
-
-          def approx_tokens(body)
-            (body.to_s.length / 4.0).ceil
-          end
-
-          # Rewrite a skill's frontmatter `name:` to match its postfixed dir.
-          def rename_skill(body, final_name)
-            body.sub(/^name:\s*.+$/, "name: #{final_name}")
-          end
-
-          def sha(content)
-            Digest::SHA256.hexdigest(content.to_s)
           end
         end
       end
