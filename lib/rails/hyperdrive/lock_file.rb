@@ -10,6 +10,15 @@ module Rails
 
       DISABLED_KEYS = { skill: "skills", guideline: "guidelines" }.freeze
 
+      # In-memory form of one files: entry. On disk, source_gem and
+      # source_version are a single "gem@version" string; the split/join lives
+      # in this file only.
+      Entry = Struct.new(:path, :kind, :source_gem, :source_version, :source_sha, :installed_at, keyword_init: true) do
+        def source_label
+          source_version ? "#{source_gem}@#{source_version}" : source_gem
+        end
+      end
+
       attr_reader :path
       attr_accessor :claude_md_state
 
@@ -21,7 +30,7 @@ module Rails
       def initialize(path)
         @path = path.to_s
         @claude_md_state = nil # nil = no lock has been written yet
-        @files = {}            # path(String) => entry Hash(symbol keys)
+        @files = {}            # path(String) => Entry
         @document = {}         # raw parsed YAML, kept so unknown keys survive
         @disabled = empty_disabled
       end
@@ -38,8 +47,8 @@ module Rails
         @disabled = parse_disabled(data["disabled"])
         Array(data["files"]).each do |raw|
           next unless raw.is_a?(Hash)
-          entry = symbolize(raw)
-          @files[entry[:path]] = entry if entry[:path]
+          entry = build_entry(raw)
+          @files[entry.path] = entry if entry.path
         end
         self
       rescue Psych::SyntaxError
@@ -51,7 +60,7 @@ module Rails
       end
 
       def guideline_paths
-        @files.values.select { |e| e[:artifact] == "guideline" }.map { |e| e[:path] }
+        @files.values.select { |e| e.kind == "guideline" }.map(&:path)
       end
 
       def each_entry(&block)
@@ -70,19 +79,20 @@ module Rails
         self
       end
 
-      def upsert(path:, artifact:, source:, source_sha:, installed_at:)
-        @files[path.to_s] = {
+      def upsert(path:, kind:, source_gem:, source_version:, source_sha:, installed_at:)
+        @files[path.to_s] = Entry.new(
           path: path.to_s,
-          artifact: artifact.to_s,
-          source: source.to_s,
+          kind: kind.to_s,
+          source_gem: source_gem.to_s,
+          source_version: source_version.to_s,
           source_sha: source_sha.to_s,
           installed_at: installed_at.to_s
-        }
+        )
       end
 
       def carry(entry)
-        return unless entry && entry[:path]
-        @files[entry[:path]] = entry
+        return unless entry && entry.path
+        @files[entry.path] = entry
       end
 
       def to_yaml
@@ -93,7 +103,7 @@ module Rails
           "version"   => SCHEMA_VERSION,
           "claude_md" => claude_md.merge("state" => (@claude_md_state || STATE_PRESENT)),
           "disabled"  => DISABLED_KEYS.each_with_object({}) { |(type, key), h| h[key] = @disabled[type] },
-          "files"     => @files.values.sort_by { |e| e[:path] }.map { |e| stringify(e) }
+          "files"     => @files.values.sort_by(&:path).map { |e| serialize_entry(e) }
         ).to_yaml
       end
 
@@ -121,17 +131,34 @@ module Rails
         end
       end
 
-      def symbolize(raw)
-        raw.each_with_object({}) { |(k, v), h| h[k.to_sym] = v }
+      def build_entry(raw)
+        source_gem, source_version = split_source(raw["source"])
+        Entry.new(
+          path: raw["path"],
+          kind: raw["artifact"],
+          source_gem: source_gem,
+          source_version: source_version,
+          source_sha: raw["source_sha"],
+          installed_at: raw["installed_at"]
+        )
       end
 
-      def stringify(entry)
+      # A source with no "@" (hand-edited) keeps its whole value as the gem
+      # part with a nil version, so serialization re-emits it unchanged.
+      def split_source(source)
+        return [nil, nil] if source.nil?
+        source = source.to_s
+        idx = source.index("@")
+        idx ? [source[0...idx], source[(idx + 1)..]] : [source, nil]
+      end
+
+      def serialize_entry(entry)
         {
-          "path"         => entry[:path],
-          "artifact"     => entry[:artifact],
-          "source"       => entry[:source],
-          "source_sha"   => entry[:source_sha],
-          "installed_at" => entry[:installed_at]
+          "path"         => entry.path,
+          "artifact"     => entry.kind,
+          "source"       => entry.source_label,
+          "source_sha"   => entry.source_sha,
+          "installed_at" => entry.installed_at
         }
       end
     end

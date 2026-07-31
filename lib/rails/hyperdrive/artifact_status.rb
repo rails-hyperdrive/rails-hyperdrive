@@ -53,26 +53,26 @@ module Rails
           locked = lock.entry(path)
           state =
             if locked.nil? then :missing
-            elsif locked[:source_sha] == gem_sha then :installed
+            elsif locked.source_sha == gem_sha then :installed
             else :outdated
             end
           @entries << Entry.new(
             path: path, state: state, artifact: type,
-            locked_source: locked && locked[:source], bundle_source: source_label
+            locked_source: locked&.source_label, bundle_source: source_label
           )
         end
 
         lock.each_entry do |locked|
-          next if offered.key?(locked[:path])
+          next if offered.key?(locked.path)
 
           # A disabled artifact left on disk was reported at install time; the
           # bundle still ships it, so it is not an orphan.
-          type = InstallPipeline::ARTIFACT_TYPES[locked[:artifact]]
-          next if type && InstallPlan.disabled_dest?(lock, type, locked[:path])
+          type = InstallPipeline::ARTIFACT_TYPES[locked.kind]
+          next if type && InstallPlan.disabled_dest?(lock, type, locked.path)
 
           @entries << Entry.new(
-            path: locked[:path], state: :orphaned, artifact: locked[:artifact]&.to_sym,
-            locked_source: locked[:source], bundle_source: nil
+            path: locked.path, state: :orphaned, artifact: locked.kind&.to_sym,
+            locked_source: locked.source_label, bundle_source: nil
           )
         end
 

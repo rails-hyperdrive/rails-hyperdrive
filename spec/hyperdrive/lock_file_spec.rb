@@ -10,8 +10,9 @@ RSpec.describe Rails::Hyperdrive::LockFile do
       lock.claude_md_state = described_class::STATE_PRESENT
       lock.upsert(
         path: ".claude/hyperdrive/guidelines/jobs-sidekiq.md",
-        artifact: "guideline",
-        source: "rails-hyperdrive-sidekiq@1.2.0",
+        kind: "guideline",
+        source_gem: "rails-hyperdrive-sidekiq",
+        source_version: "1.2.0",
         source_sha: "ab12cd34",
         installed_at: "2026-05-29T14:22:08Z"
       )
@@ -20,10 +21,138 @@ RSpec.describe Rails::Hyperdrive::LockFile do
       reloaded = described_class.load(path)
       expect(reloaded.claude_md_state).to eq("present")
       entry = reloaded.entry(".claude/hyperdrive/guidelines/jobs-sidekiq.md")
-      expect(entry[:source]).to eq("rails-hyperdrive-sidekiq@1.2.0")
-      expect(entry[:source_sha]).to eq("ab12cd34")
+      expect(entry.kind).to eq("guideline")
+      expect(entry.source_gem).to eq("rails-hyperdrive-sidekiq")
+      expect(entry.source_version).to eq("1.2.0")
+      expect(entry.source_label).to eq("rails-hyperdrive-sidekiq@1.2.0")
+      expect(entry.source_sha).to eq("ab12cd34")
+      expect(entry.installed_at).to eq("2026-05-29T14:22:08Z")
       expect(reloaded.guideline_paths).to eq([".claude/hyperdrive/guidelines/jobs-sidekiq.md"])
       expect(reloaded.entry(".claude/hyperdrive/guidelines/absent.md")).to be_nil
+    end
+  end
+
+  it "writes a byte-stable lock file" do
+    lock = described_class.new("/no/such/lock.yml")
+    lock.claude_md_state = described_class::STATE_PRESENT
+    lock.upsert(
+      path: ".claude/skills/vcr/SKILL.md",
+      kind: "skill",
+      source_gem: "gem-a",
+      source_version: "2.0.0",
+      source_sha: "ff00",
+      installed_at: "2026-05-29T14:22:09Z"
+    )
+    lock.upsert(
+      path: ".claude/hyperdrive/guidelines/jobs-sidekiq.md",
+      kind: "guideline",
+      source_gem: "rails-hyperdrive-sidekiq",
+      source_version: "1.2.0",
+      source_sha: "ab12cd34",
+      installed_at: "2026-05-29T14:22:08Z"
+    )
+
+    expect(lock.to_yaml).to eq(<<~YAML)
+      ---
+      version: 1
+      claude_md:
+        state: present
+      disabled:
+        skills: []
+        guidelines: []
+      files:
+      - path: ".claude/hyperdrive/guidelines/jobs-sidekiq.md"
+        artifact: guideline
+        source: rails-hyperdrive-sidekiq@1.2.0
+        source_sha: ab12cd34
+        installed_at: '2026-05-29T14:22:08Z'
+      - path: ".claude/skills/vcr/SKILL.md"
+        artifact: skill
+        source: gem-a@2.0.0
+        source_sha: ff00
+        installed_at: '2026-05-29T14:22:09Z'
+    YAML
+  end
+
+  it "restores every Entry field after an Entry → YAML → Entry round-trip" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "lock.yml")
+      lock = described_class.new(path)
+      lock.upsert(
+        path: ".claude/skills/vcr/SKILL.md",
+        kind: "skill",
+        source_gem: "gem-a",
+        source_version: "2.0.0",
+        source_sha: "ff00",
+        installed_at: "2026-05-29T14:22:09Z"
+      )
+      original = lock.entry(".claude/skills/vcr/SKILL.md")
+      File.write(path, lock.to_yaml)
+
+      reloaded = described_class.load(path).entry(".claude/skills/vcr/SKILL.md")
+      expect(reloaded).to eq(original)
+    end
+  end
+
+  it "loads a hand-written lock file into Entries" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "lock.yml")
+      File.write(path, <<~YAML)
+        version: 1
+        claude_md:
+          state: present
+        disabled:
+          skills: []
+          guidelines: []
+        files:
+        - path: ".claude/hyperdrive/stack.md"
+          artifact: stack
+          source: internal@0.3.0
+          source_sha: deadbeef
+          installed_at: '2026-05-29T14:22:08Z'
+      YAML
+
+      entry = described_class.load(path).entry(".claude/hyperdrive/stack.md")
+      expect(entry.kind).to eq("stack")
+      expect(entry.source_gem).to eq("internal")
+      expect(entry.source_version).to eq("0.3.0")
+      expect(entry.source_sha).to eq("deadbeef")
+      expect(entry.installed_at).to eq("2026-05-29T14:22:08Z")
+    end
+  end
+
+  it "carries degenerate hand-edited sources through unchanged" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "lock.yml")
+      File.write(path, <<~YAML)
+        version: 1
+        files:
+        - path: no-at-sign.md
+          artifact: guideline
+          source: some-gem
+          source_sha: aa
+          installed_at: '2026-05-29T14:22:08Z'
+        - path: no-source.md
+          artifact: guideline
+          source_sha: bb
+          installed_at: '2026-05-29T14:22:08Z'
+      YAML
+
+      lock = described_class.load(path)
+
+      no_at = lock.entry("no-at-sign.md")
+      expect(no_at.source_gem).to eq("some-gem")
+      expect(no_at.source_version).to be_nil
+      expect(no_at.source_label).to eq("some-gem")
+
+      no_source = lock.entry("no-source.md")
+      expect(no_source.source_gem).to be_nil
+      expect(no_source.source_version).to be_nil
+      expect(no_source.source_label).to be_nil
+
+      yaml = lock.to_yaml
+      expect(yaml).to include("source: some-gem\n")
+      expect(yaml).to include("- path: no-source.md\n  artifact: guideline\n  source:\n")
     end
   end
 

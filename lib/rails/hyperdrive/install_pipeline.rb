@@ -174,9 +174,9 @@ module Rails
         end
 
         disk_sha = sha(stripped_disk_body(file, type))
-        unedited = old && disk_sha == old[:source_sha]
+        unedited = old && disk_sha == old.source_sha
 
-        if unedited && old[:source_sha] == write[:gem_sha]
+        if unedited && old.source_sha == write[:gem_sha]
           @new_lock.carry(old)
           @result.unchanged << write[:dest]
           @shell.say_status :unchanged, write[:dest], :blue
@@ -194,7 +194,7 @@ module Rails
       def additive_install(write, old)
         if old
           @new_lock.carry(old)
-          (old[:source_sha] == write[:gem_sha] ? @result.unchanged : @result.skipped) << write[:dest]
+          (old.source_sha == write[:gem_sha] ? @result.unchanged : @result.skipped) << write[:dest]
         elsif File.exist?(abs(write[:dest]))
           @result.skipped << write[:dest]
         else
@@ -223,8 +223,9 @@ module Rails
         (existed ? @result.updated : @result.installed) << dest
         @new_lock.upsert(
           path: dest,
-          artifact: artifact_kind,
-          source: "#{source_gem}@#{version}",
+          kind: artifact_kind,
+          source_gem: source_gem,
+          source_version: version,
           source_sha: gem_sha,
           installed_at: installed_at.iso8601
         )
@@ -238,23 +239,23 @@ module Rails
         return if additive?
 
         old_lock.each_entry do |entry|
-          type = ARTIFACT_TYPES[entry[:artifact]]
+          type = ARTIFACT_TYPES[entry.kind]
           next unless type
-          next if @new_lock.entry(entry[:path])
+          next if @new_lock.entry(entry.path)
 
-          next unless InstallPlan.disabled_dest?(old_lock, type, entry[:path])
+          next unless InstallPlan.disabled_dest?(old_lock, type, entry.path)
 
-          file = abs(entry[:path])
+          file = abs(entry.path)
           next unless File.exist?(file)
 
-          if sha(stripped_disk_body(file, type)) == entry[:source_sha]
-            @shell.remove_file entry[:path]
-            @result.removed << entry[:path]
-            prune_empty_dirs(entry[:path])
+          if sha(stripped_disk_body(file, type)) == entry.source_sha
+            @shell.remove_file entry.path
+            @result.removed << entry.path
+            prune_empty_dirs(entry.path)
           else
-            @result.skipped << entry[:path]
+            @result.skipped << entry.path
             @shell.say_status :skip,
-              "#{entry[:path]} (disabled but locally modified; delete it by hand)", :yellow
+              "#{entry.path} (disabled but locally modified; delete it by hand)", :yellow
             @new_lock.carry(entry)
           end
         end
@@ -268,21 +269,21 @@ module Rails
         planned_skill_dirs = @plan.select { |e| e.type == :skill }.map { |e| File.dirname(e.dest) }
 
         old_lock.each_entry do |entry|
-          next unless entry[:artifact] == "skill_support"
-          next if @new_lock.entry(entry[:path])
-          next unless planned_skill_dirs.include?(skill_dir_of(entry[:path]))
+          next unless entry.kind == "skill_support"
+          next if @new_lock.entry(entry.path)
+          next unless planned_skill_dirs.include?(skill_dir_of(entry.path))
 
-          file = abs(entry[:path])
+          file = abs(entry.path)
           next unless File.exist?(file)
 
-          if sha(File.binread(file)) == entry[:source_sha]
-            @shell.remove_file entry[:path]
-            @result.removed << entry[:path]
-            prune_empty_dirs(entry[:path])
+          if sha(File.binread(file)) == entry.source_sha
+            @shell.remove_file entry.path
+            @result.removed << entry.path
+            prune_empty_dirs(entry.path)
           else
-            @result.skipped << entry[:path]
+            @result.skipped << entry.path
             @shell.say_status :skip,
-              "#{entry[:path]} (no longer shipped by #{entry[:source]} but locally modified; delete it by hand)",
+              "#{entry.path} (no longer shipped by #{entry.source_label} but locally modified; delete it by hand)",
               :yellow
             @new_lock.carry(entry)
           end
@@ -321,13 +322,13 @@ module Rails
       def carry_orphans
         planned = @plan.map(&:dest) + [STACK_PATH]
         old_lock.each_entry do |entry|
-          next if planned.include?(entry[:path])
-          next if @new_lock.entry(entry[:path])
-          next unless File.exist?(abs(entry[:path]))
+          next if planned.include?(entry.path)
+          next if @new_lock.entry(entry.path)
+          next unless File.exist?(abs(entry.path))
 
-          @result.orphaned << entry[:path]
+          @result.orphaned << entry.path
           @shell.say_status :orphan,
-            "#{entry[:path]} (source #{entry[:source]} no longer in bundle; left in place)", :yellow
+            "#{entry.path} (source #{entry.source_label} no longer in bundle; left in place)", :yellow
           @new_lock.carry(entry)
         end
       end

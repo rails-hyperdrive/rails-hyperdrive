@@ -12,7 +12,6 @@ module Rails
       module ContentSyncSupport
         KIND_WIDTH = "guideline".length
         KIND_ORDER = %w[skill guideline stack].freeze
-        INTERNAL_SOURCE_PREFIX = "internal@".freeze
 
         # Routes InstallPipeline's writes through Thor, so its output and
         # `--dry-run` handling cover installed content too.
@@ -95,12 +94,12 @@ module Rails
           @pipeline&.lock&.each_entry { |e| entries << e }
           return if entries.empty?
 
-          support, listed = entries.partition { |e| e[:artifact].to_s == "skill_support" }
+          support, listed = entries.partition { |e| e.kind.to_s == "skill_support" }
           # A carried SKILL.md entry can record an older source than its
           # supporting files, so counts key on the installed directory name,
           # which is unique across sources.
           support_counts = support
-            .group_by { |e| e[:path].to_s.split("/")[2] }
+            .group_by { |e| e.path.to_s.split("/")[2] }
             .transform_values(&:size)
 
           say "  #{installed_counts(listed)}"
@@ -109,31 +108,31 @@ module Rails
             say "    #{source}"
             group.each do |entry|
               name = display_name(entry)
-              count = entry[:artifact].to_s == "skill" ? support_counts[name].to_i : 0
+              count = entry.kind.to_s == "skill" ? support_counts[name].to_i : 0
               suffix = count.positive? ? " (+#{quantify(count, "file")})" : ""
-              say "      #{entry[:artifact].to_s.ljust(KIND_WIDTH)}  #{name}#{suffix}"
+              say "      #{entry.kind.to_s.ljust(KIND_WIDTH)}  #{name}#{suffix}"
             end
           end
         end
 
         def installed_counts(entries)
-          counts = entries.group_by { |e| e[:artifact].to_s }.transform_values(&:size)
+          counts = entries.group_by { |e| e.kind.to_s }.transform_values(&:size)
           summary = "Installed #{quantify(counts["skill"].to_i, "skill")}, #{quantify(counts["guideline"].to_i, "guideline")}"
           counts["stack"].to_i.positive? ? "#{summary} + stack.md" : summary
         end
 
         def group_by_source(entries)
           entries
-            .group_by { |e| e[:source].to_s }
-            .sort_by { |source, _| [source.start_with?(INTERNAL_SOURCE_PREFIX) ? 1 : 0, source] }
+            .group_by { |e| e.source_label.to_s }
+            .sort_by { |source, group| [group.first.source_gem == "internal" ? 1 : 0, source] }
             .map do |source, group|
-              [source, group.sort_by { |e| [KIND_ORDER.index(e[:artifact].to_s) || KIND_ORDER.size, display_name(e)] }]
+              [source, group.sort_by { |e| [KIND_ORDER.index(e.kind.to_s) || KIND_ORDER.size, display_name(e)] }]
             end
         end
 
         def display_name(entry)
-          path = entry[:path].to_s
-          case entry[:artifact].to_s
+          path = entry.path.to_s
+          case entry.kind.to_s
           when "skill" then File.basename(File.dirname(path))
           when "stack" then File.basename(path)
           else File.basename(path, ".md")
