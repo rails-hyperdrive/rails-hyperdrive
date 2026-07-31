@@ -260,9 +260,8 @@ module Rails
         end
       end
 
-      # A supporting file the bundle no longer ships, while its owning skill
-      # still installs, is removed only when its raw bytes still hash to the
-      # recorded sha; an edited copy is reported and its lock entry carried.
+      # Deletion is gated on the recorded sha, so a user-edited copy is never
+      # removed.
       def remove_stale_support_files
         return if additive?
 
@@ -295,8 +294,8 @@ module Rails
         File.join(*segments[0, 3]) # .claude/skills/<name>
       end
 
-      # Supporting files never carry an audit header, and strip's line matching
-      # can raise on binary content, so they compare as raw bytes.
+      # AuditHeader.strip's line matching can raise on binary content, so
+      # supporting files compare as raw bytes.
       def stripped_disk_body(file, type)
         return File.binread(file) if type == :skill_support
         AuditHeader.strip(File.read(file))

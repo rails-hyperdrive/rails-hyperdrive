@@ -14,8 +14,6 @@ module Rails
           body.sub(/^name:\s*.+$/, "name: #{final_name}")
         end
 
-        # Supporting-file bodies pass through byte-identical; only the relative
-        # layout is re-rooted under the (possibly postfixed) skill directory.
         def support_files
           return [] unless type == :skill
           dir = File.dirname(dest)

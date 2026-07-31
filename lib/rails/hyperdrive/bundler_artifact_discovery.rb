@@ -125,9 +125,8 @@ module Rails
       end
 
       # Everything in a skill's directory besides SKILL.md ships as raw bytes,
-      # with no frontmatter contract. Any file named SKILL.md is excluded at
-      # every depth; ".." segments are rejected to keep the tree inside the
-      # skill directory.
+      # with no frontmatter contract. ".." segments are rejected to keep the
+      # tree inside the skill directory.
       def support_files_for(skill_dir)
         Dir.glob(File.join(skill_dir, "**", "*")).filter_map do |file|
           next unless File.file?(file)

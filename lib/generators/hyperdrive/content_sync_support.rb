@@ -89,8 +89,7 @@ module Rails
         end
 
         # The lock is the authoritative set: it includes untouched,
-        # locally-modified, and orphaned files. Supporting files collapse into
-        # a count on their owning skill's line.
+        # locally-modified, and orphaned files.
         def print_installed_artifacts
           entries = []
           @pipeline&.lock&.each_entry { |e| entries << e }
