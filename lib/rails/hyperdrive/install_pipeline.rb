@@ -1,8 +1,8 @@
-require "digest"
 require "time"
 require "rails/hyperdrive/version"
 require "rails/hyperdrive/audit_header"
 require "rails/hyperdrive/bundler_artifact_discovery"
+require "rails/hyperdrive/drift_verdict"
 require "rails/hyperdrive/install_plan"
 require "rails/hyperdrive/lock_file"
 require "rails/hyperdrive/stack_document"
@@ -150,8 +150,6 @@ module Rails
         )
       end
 
-      # A file counts as unedited when its stripped body still hashes to what
-      # the lock recorded at install time, not to what the gem ships now.
       def install_file(dest: nil, type:, install_ready_body:, entry: nil, source_gem: nil, version: nil, artifact_kind: nil)
         write = {
           dest: dest || entry.dest,
@@ -159,7 +157,7 @@ module Rails
           body: install_ready_body,
           source_gem: source_gem || entry.source_gem,
           version: version || entry.version,
-          gem_sha: sha(install_ready_body),
+          gem_sha: DriftVerdict.body_sha(install_ready_body),
           artifact_kind: artifact_kind || entry.artifact_kind
         }
         old = old_lock.entry(write[:dest])
@@ -167,25 +165,24 @@ module Rails
         return additive_install(write, old) if additive?
 
         file = abs(write[:dest])
-        unless File.exist?(file)
+        case DriftVerdict.verdict(file: file, kind: write[:artifact_kind], lock_entry: old, gem_sha: write[:gem_sha])
+        when :missing
           @shell.say_status(:reinstall, "#{write[:dest]} (was missing)", :yellow) if old
           write_artifact(**write)
-          return
-        end
-
-        disk_sha = sha(stripped_disk_body(file, type))
-        unedited = old && disk_sha == old.source_sha
-
-        if unedited && old.source_sha == write[:gem_sha]
+        when :current
           @new_lock.carry(old)
           @result.unchanged << write[:dest]
           @shell.say_status :unchanged, write[:dest], :blue
-        elsif unedited || overwrite_mode?
+        when :outdated
           write_artifact(**write)
-        else
-          @result.skipped << write[:dest]
-          @shell.say_status :skip, "#{write[:dest]} (locally modified; run hyperdrive:sync --overwrite to overwrite)", :yellow
-          @new_lock.carry(old) if old
+        when :edited
+          if overwrite_mode?
+            write_artifact(**write)
+          else
+            @result.skipped << write[:dest]
+            @shell.say_status :skip, "#{write[:dest]} (locally modified; run hyperdrive:sync --overwrite to overwrite)", :yellow
+            @new_lock.carry(old) if old
+          end
         end
       end
 
@@ -207,7 +204,7 @@ module Rails
       # live in the lock alone.
       def write_artifact(dest:, type:, body:, source_gem:, version:, gem_sha:, artifact_kind:)
         installed_at = Time.now.utc
-        header_args = { source_gem: source_gem, version: version, body: body, installed_at: installed_at }
+        header_args = { source_gem: source_gem, version: version, sha256: gem_sha, installed_at: installed_at }
         on_disk =
           case type
           when :skill
@@ -248,7 +245,7 @@ module Rails
           file = abs(entry.path)
           next unless File.exist?(file)
 
-          if sha(stripped_disk_body(file, type)) == entry.source_sha
+          if DriftVerdict.unedited?(file, lock_entry: entry)
             @shell.remove_file entry.path
             @result.removed << entry.path
             prune_empty_dirs(entry.path)
@@ -276,7 +273,7 @@ module Rails
           file = abs(entry.path)
           next unless File.exist?(file)
 
-          if sha(File.binread(file)) == entry.source_sha
+          if DriftVerdict.unedited?(file, lock_entry: entry)
             @shell.remove_file entry.path
             @result.removed << entry.path
             prune_empty_dirs(entry.path)
@@ -293,13 +290,6 @@ module Rails
       def skill_dir_of(dest)
         segments = dest.split("/")
         File.join(*segments[0, 3]) # .claude/skills/<name>
-      end
-
-      # AuditHeader.strip's line matching can raise on binary content, so
-      # supporting files compare as raw bytes.
-      def stripped_disk_body(file, type)
-        return File.binread(file) if type == :skill_support
-        AuditHeader.strip(File.read(file))
       end
 
       # Skill directories go only once empty; any user file keeps the whole
@@ -324,7 +314,7 @@ module Rails
         old_lock.each_entry do |entry|
           next if planned.include?(entry.path)
           next if @new_lock.entry(entry.path)
-          next unless File.exist?(abs(entry.path))
+          next unless DriftVerdict.verdict(file: abs(entry.path), kind: entry.kind, lock_entry: entry, gem_sha: nil) == :orphaned
 
           @result.orphaned << entry.path
           @shell.say_status :orphan,
@@ -490,10 +480,6 @@ module Rails
 
       def approx_tokens(body)
         (body.to_s.length / 4.0).ceil
-      end
-
-      def sha(content)
-        Digest::SHA256.hexdigest(content.to_s)
       end
     end
   end

@@ -1,32 +1,29 @@
-require "digest"
 require "time"
 
 module Rails
   module Hyperdrive
-    # sha256 is computed over the install-ready body before injection, so
-    # SHA256(strip(installed_file)) reproduces it exactly.
     module AuditHeader
       YAML_LINE = /\A#\s*hyperdrive:/.freeze
       HTML_LINE = /\A<!--\s*hyperdrive:.*-->\s*\z/.freeze
 
       module_function
 
-      def fields(source_gem:, version:, body:, installed_at: Time.now.utc)
+      def fields(source_gem:, version:, sha256:, installed_at: Time.now.utc)
         [
           "source=#{source_gem}@#{version}",
-          "sha256=#{Digest::SHA256.hexdigest(body.to_s)}",
+          "sha256=#{sha256}",
           "installed_at=#{installed_at.iso8601}"
         ]
       end
 
-      def build(source_gem:, version:, body:, installed_at: Time.now.utc)
-        fields(source_gem: source_gem, version: version, body: body, installed_at: installed_at)
+      def build(source_gem:, version:, sha256:, installed_at: Time.now.utc)
+        fields(source_gem: source_gem, version: version, sha256: sha256, installed_at: installed_at)
           .map { |f| "# hyperdrive: #{f}" }
           .join("\n")
       end
 
-      def build_html(source_gem:, version:, body:, installed_at: Time.now.utc)
-        fields(source_gem: source_gem, version: version, body: body, installed_at: installed_at)
+      def build_html(source_gem:, version:, sha256:, installed_at: Time.now.utc)
+        fields(source_gem: source_gem, version: version, sha256: sha256, installed_at: installed_at)
           .map { |f| "<!-- hyperdrive: #{f} -->" }
           .join("\n")
       end

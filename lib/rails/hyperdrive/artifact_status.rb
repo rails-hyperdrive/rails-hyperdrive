@@ -1,5 +1,5 @@
-require "digest"
 require "rails/hyperdrive/version"
+require "rails/hyperdrive/drift_verdict"
 require "rails/hyperdrive/install_plan"
 require "rails/hyperdrive/install_pipeline"
 require "rails/hyperdrive/lock_file"
@@ -41,13 +41,13 @@ module Rails
         offered = {}
 
         InstallPlan.build(@artifacts, lock: lock).each do |plan_entry|
-          offered[plan_entry.dest] = [sha(plan_entry.install_ready_body), plan_entry.source_label, plan_entry.type]
+          offered[plan_entry.dest] = [DriftVerdict.body_sha(plan_entry.install_ready_body), plan_entry.source_label, plan_entry.type]
           plan_entry.support_files.each do |file|
-            offered[file[:dest]] = [sha(file[:body]), plan_entry.source_label, :skill_support]
+            offered[file[:dest]] = [DriftVerdict.body_sha(file[:body]), plan_entry.source_label, :skill_support]
           end
         end
         offered[InstallPipeline::STACK_PATH] =
-          [sha(StackDocument.render(@stack)), "internal@#{VERSION}", :stack]
+          [DriftVerdict.body_sha(StackDocument.render(@stack)), "internal@#{VERSION}", :stack]
 
         offered.each do |path, (gem_sha, source_label, type)|
           locked = lock.entry(path)
@@ -85,12 +85,6 @@ module Rails
 
       def stale?
         !missing.empty? || !outdated.empty? || !orphaned.empty?
-      end
-
-      private
-
-      def sha(content)
-        Digest::SHA256.hexdigest(content.to_s)
       end
     end
   end
