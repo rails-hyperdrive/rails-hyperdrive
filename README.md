@@ -55,9 +55,9 @@ $ bin/dev
 # → agent has 8 tools, the eager guidelines (via CLAUDE.md), and the lazy skills
 ```
 
-Re-run `hyperdrive:init` any time to re-sync; it leaves locally-modified files untouched (skip + warn). Run `hyperdrive:update` to force-overwrite them.
+Run `bin/rails hyperdrive:sync` any time (e.g. after `bundle update` or adding a companion gem) to refresh installed content to the current bundle. It touches no bootstrap artifact and leaves locally-modified files untouched (skip + warn); pass `--overwrite` to restore them to the gem-shipped content.
 
-Run `hyperdrive:discover` to find companion gems published for your stack that you haven't installed yet — it queries rubygems (read-only, results cached for 24h; `--refresh` re-queries) and prints the `bundle add` lines to run, then re-run `hyperdrive:init`. It never touches your Gemfile or makes network calls unless you invoke it.
+Run `hyperdrive:discover` to find companion gems published for your stack that you haven't installed yet — it queries rubygems (read-only, results cached for 24h; `--refresh` re-queries) and prints the `bundle add` lines to run, then run `bin/rails hyperdrive:sync`. It never touches your Gemfile or makes network calls unless you invoke it.
 
 ---
 
@@ -148,7 +148,7 @@ versions:
 
 Draw the listed targets from the gem's own `hyperdrive_targets` (below): the gem-level declaration decides whether a companion is suggested at all, and an artifact naming a target the gemspec omits is unreachable for apps that have only that target.
 
-Discovery never raises. An artifact with missing or malformed frontmatter, a missing required field, no declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:update` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there — read that section first when a gem you expected to contribute produces no files.
+Discovery never raises. An artifact with missing or malformed frontmatter, a missing required field, no declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there — read that section first when a gem you expected to contribute produces no files.
 
 To be discoverable by `hyperdrive:discover` **before** it is installed, a companion also declares gemspec metadata (read remotely from rubygems, so the frontmatter inside the gem isn't visible yet):
 

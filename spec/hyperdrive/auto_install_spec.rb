@@ -27,7 +27,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
   def initialize_app(artifacts)
     Rails::Hyperdrive::InstallPipeline.new(
       root: root, shell: Rails::Hyperdrive::InstallShell.new(root: root),
-      artifacts: artifacts, stack: stack, mode: :init
+      artifacts: artifacts, stack: stack, mode: :preserve
     ).call
   end
 
@@ -120,7 +120,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(result.installed).to be_empty
       expect(result.outdated.map(&:path)).to eq([".claude/hyperdrive/guidelines/auth-pundit.md"])
       expect(File.read(File.join(root, ".claude/hyperdrive/guidelines/auth-pundit.md"))).to include("rule.")
-      expect(result.messages.join("\n")).to include("bin/rails hyperdrive:update")
+      expect(result.messages.join("\n")).to include("bin/rails hyperdrive:sync")
     end
 
     it "reports an artifact whose source gem left the bundle" do

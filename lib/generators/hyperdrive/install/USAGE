@@ -11,12 +11,12 @@ Description:
         @-include line into CLAUDE.md
       - tracks everything in .hyperdrive/lock.yml
 
-    Re-running re-syncs and leaves locally-modified files untouched (skip + warn).
-    Use hyperdrive:update (or --update) to force-overwrite them.
+    Re-running re-syncs content and leaves locally-modified files untouched
+    (skip + warn). Routine content refresh is bin/rails hyperdrive:sync
+    (pass --overwrite to restore gem-shipped content).
 
 Examples:
     bin/rails hyperdrive:init
     bin/rails hyperdrive:init --mount-at /admin/hyperdrive
     bin/rails hyperdrive:init --skip-content
     bin/rails hyperdrive:init --dry-run
-    bin/rails hyperdrive:update

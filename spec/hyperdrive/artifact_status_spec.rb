@@ -23,7 +23,7 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
   def install(artifacts)
     Rails::Hyperdrive::InstallPipeline.new(
       root: root, shell: Rails::Hyperdrive::InstallShell.new(root: root),
-      artifacts: artifacts, stack: stack, mode: :init
+      artifacts: artifacts, stack: stack, mode: :preserve
     ).call
   end
 

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `hyperdrive:sync` — content-only actualization. Refreshes skills, guidelines,
+  `stack.md`, `index.md`, and `.hyperdrive/lock.yml` to match the current
+  bundle, and touches no bootstrap artifact (`.mcp.json`, the engine mount, the
+  optional initializer, the `.gitignore` rule). Locally-edited files are
+  preserved by default (skip + warn); pass `--overwrite` to restore the
+  gem-shipped content. Works with or without a prior `hyperdrive:init`.
 - An artifact's `gem:` frontmatter field can now declare **several** targets, as
   either a comma-separated string (`gem: "sidekiq, solid_queue"`) or a YAML list.
   The artifact installs when **any** listed target is in the bundle at a
@@ -70,6 +76,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   destination is ignored, so patterns, negations, and per-repository excludes
   are all honored; outside a git repository, or without git installed, it stays
   silent.
+
+### Changed
+
+- **BREAKING:** `hyperdrive:init` no longer accepts `--update` /
+  `--force-install`; it always preserves locally-edited files (skip + warn).
+  The conflict warning and the AutoInstall nudge now point at
+  `hyperdrive:sync`.
+
+### Removed
+
+- **BREAKING:** `hyperdrive:update` is removed (not deprecated) — use
+  `bin/rails hyperdrive:sync --overwrite`. Note the default flip: the routine
+  refresh (`hyperdrive:sync`) now preserves locally-edited files; overwriting
+  them is opt-in via `--overwrite`.
 
 ### Fixed
 

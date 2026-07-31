@@ -85,14 +85,14 @@ module Smoke
     end
   end
 
-  # Run `bin/rails hyperdrive:update` against the app — same pipeline as init
-  # but force-overwrites locally-modified files. Returns [stdout_plus_stderr,
-  # status].
-  def run_hyperdrive_update!(app_dir, *flags)
+  # Run `bin/rails hyperdrive:sync` against the app — content actualization
+  # only; preserves locally-modified files unless passed --overwrite. Same `--`
+  # plumbing as init. Returns [stdout_plus_stderr, status].
+  def run_hyperdrive_sync!(app_dir, *flags)
     Bundler.with_unbundled_env do
       Open3.capture2e(
         env_for(app_dir),
-        "bundle", "exec", "bin/rails", "hyperdrive:update", "--", *flags,
+        "bundle", "exec", "bin/rails", "hyperdrive:sync", "--", *flags,
         chdir: app_dir
       )
     end

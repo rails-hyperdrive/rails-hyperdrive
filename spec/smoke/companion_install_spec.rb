@@ -6,13 +6,13 @@ require_relative "smoke_helper"
 # install_generator smoke can't reach: actually discovering and installing a
 # companion gem's artifacts from a real bundle. These specs bundle the
 # fixture-only companion gems under spec/fixtures/smoke_companions/ as real path
-# gems, then drive `hyperdrive:init` / `hyperdrive:update` subprocesses.
+# gems, then drive `hyperdrive:init` / `hyperdrive:sync` subprocesses.
 #
 # Covers three previously unit-only / untested-E2E scenarios:
 #   1. Full companion install   — skill + guideline written with audit headers,
 #                                 index.md aggregation, lockfile provenance.
-#   2. hyperdrive:update        — force-overwrite of a locally-modified file
-#                                 (init skips + warns; update overwrites).
+#   2. hyperdrive:sync          — preserves a locally-modified file (skip +
+#                                 warn); --overwrite restores gem content.
 #   3. Cross-source collision   — two gems shipping a same-named skill install
 #                                 both, postfixed by source gem.
 RSpec.describe "hyperdrive companion install smoke", :smoke do
@@ -76,7 +76,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
     end
   end
 
-  describe "hyperdrive:update vs a locally-modified file" do
+  describe "hyperdrive:sync vs a locally-modified file" do
     let(:app_dir) { Smoke.copy_fixture("minimal") }
     let(:guide_path) { File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-guide.md") }
 
@@ -88,20 +88,20 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(status.success?).to be(true)
     end
 
-    it "init skips the edited file with a warning; update overwrites it" do
+    it "sync skips the edited file with a warning; --overwrite restores it" do
       pristine = File.read(guide_path)
       File.write(guide_path, pristine + "\n<!-- LOCAL EDIT, do not clobber -->\n")
 
-      # init: detects drift, skips + warns, preserves the local edit.
-      out_init, st_init = Smoke.run_hyperdrive_init!(app_dir)
-      expect(st_init.success?).to be(true), out_init
-      expect(out_init).to match(%r{skip.*alpha-guide\.md.*locally modified}m)
+      # plain sync: detects drift, skips + warns, preserves the local edit.
+      out_sync, st_sync = Smoke.run_hyperdrive_sync!(app_dir)
+      expect(st_sync.success?).to be(true), out_sync
+      expect(out_sync).to match(%r{skip.*alpha-guide\.md.*locally modified.*hyperdrive:sync --overwrite}m)
       expect(File.read(guide_path)).to include("LOCAL EDIT")
 
-      # update: force-overwrites, edit gone, canonical content + header restored.
-      out_up, st_up = Smoke.run_hyperdrive_update!(app_dir)
-      expect(st_up.success?).to be(true), out_up
-      expect(out_up).to match(/hyperdrive updated/)
+      # --overwrite: edit gone, canonical content + header restored.
+      out_ow, st_ow = Smoke.run_hyperdrive_sync!(app_dir, "--overwrite")
+      expect(st_ow.success?).to be(true), out_ow
+      expect(out_ow).to match(/hyperdrive synced/)
       restored = File.read(guide_path)
       expect(restored).not_to include("LOCAL EDIT")
       expect(restored).to start_with("<!-- hyperdrive: source=rails-hyperdrive-alpha@0.1.0 -->")

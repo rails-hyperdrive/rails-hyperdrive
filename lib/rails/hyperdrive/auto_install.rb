@@ -32,7 +32,7 @@ module Rails
           end
           stale = Array(outdated) + Array(orphaned)
           unless stale.empty?
-            lines << "#{stale.size} artifact(s) need attention — run bin/rails hyperdrive:update"
+            lines << "#{stale.size} artifact(s) need attention — run bin/rails hyperdrive:sync"
             stale.each { |entry| lines << "  #{entry}" }
           end
           lines

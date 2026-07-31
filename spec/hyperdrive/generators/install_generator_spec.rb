@@ -134,18 +134,6 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       expect(mcp_json.dig("mcpServers", "rails-hyperdrive", "url")).to eq("http://localhost:3000/_hyperdrive/mcp")
     end
 
-    it "preserves other servers under --update" do
-      write_mcp_json(other_server)
-      run_generator(["--update"])
-      expect(mcp_json["mcpServers"]).to have_key("my-other-server")
-    end
-
-    it "preserves other servers under --force-install" do
-      write_mcp_json(other_server)
-      run_generator(["--force-install"])
-      expect(mcp_json["mcpServers"]).to have_key("my-other-server")
-    end
-
     it "preserves other servers under --skip-content" do
       write_mcp_json(other_server)
       run_generator(["--skip-content"])
@@ -347,15 +335,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       expect(File.read(gpath)).to include("MY LOCAL EDIT")
     end
 
-    it "force-overwrites a user-edited file on update" do
-      run_generator([])
-      gpath = path(".claude/hyperdrive/guidelines/auth-pundit.md")
-      File.write(gpath, File.read(gpath) + "\nMY LOCAL EDIT\n")
-      run_generator(["--update"])
-      expect(File.read(gpath)).not_to include("MY LOCAL EDIT")
-    end
-
-    it "rewrites an unedited file when the gem ships new content (no --update needed)" do
+    it "rewrites an unedited file when the gem ships new content" do
       run_generator([])
       gpath = path(".claude/hyperdrive/guidelines/auth-pundit.md")
       expect(File.read(gpath)).to include("rule.")
