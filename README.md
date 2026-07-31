@@ -112,18 +112,33 @@ Every artifact carries four required YAML frontmatter fields:
 ---
 name: jobs-sidekiq                # kebab-case; determines the install path
 description: Background job conventions for Sidekiq.
-gem: sidekiq                      # the TARGET gem (resolved + version-matched in the bundle)
+gem: sidekiq                      # TARGET gem(s), resolved + version-matched in the bundle
 versions: ">= 7.0, < 9.0"         # Gem::Requirement matched against the target gem
 ---
 ```
 
 `name:` is the artifact's identity, not a label — it is what the installer writes to disk (`.claude/skills/<name>/SKILL.md`, `.claude/hyperdrive/guidelines/<name>.md`). Keep it equal to the file or directory stem: if the two disagree the install still succeeds, but the artifact lands under `name:`. Within one gem, two artifacts of the same type declaring the same `name:` collapse to a single installed file; which one survives is not a guarantee to build on, so give each a distinct `name:`.
 
-`versions:` accepts either a single comma-separated string (`">= 7.0, < 9.0"`) or a YAML list (`[">= 7.0", "< 9.0"]`).
+`versions:` accepts a single comma-separated string (`">= 7.0, < 9.0"`), a YAML list (`[">= 7.0", "< 9.0"]`), or — for multi-target artifacts — a map keyed by gem name.
 
-`gem:` is the **target** (must be present in the bundle; its resolved version is matched against `versions:`). Use `railties` for "every Rails app" or the quoted `"*"` for "always applicable" (it must be quoted — bare `*` is a YAML alias and the file is skipped). `hyperdrive:init` discovers every such file across the bundle, version-matches it, and installs it with an audit header naming `source`, `sha256`, and `installed_at`. Guidelines are installed with their frontmatter stripped (they are `@`-included eagerly). When two gems ship a same-named artifact, both install, each postfixed by source gem.
+`gem:` names the **targets** (each must be present in the bundle; its resolved version is matched against `versions:`). Use `railties` for "every Rails app" or the quoted `"*"` for "always applicable" (it must be quoted — bare `*` is a YAML alias and the file is skipped). `hyperdrive:init` discovers every such file across the bundle, version-matches it, and installs it with an audit header naming `source`, `sha256`, and `installed_at`. Guidelines are installed with their frontmatter stripped (they are `@`-included eagerly). When two gems ship a same-named artifact, both install, each postfixed by source gem.
 
-Discovery never raises. An artifact with missing or malformed frontmatter, a missing required field, a target gem absent from the bundle, or a resolved target version outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:update` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there — read that section first when a gem you expected to contribute produces no files.
+One artifact can cover several interchangeable libraries — write `gem:` as a comma-separated string or a YAML list, and it installs when **any** listed target is bundled at a satisfying version. `"*"` anywhere in the list makes the artifact universal. Give `versions:` a map keyed by gem name when the targets do not share a version cycle; targets the map omits are unconstrained.
+
+```yaml
+---
+name: jobs-conventions
+description: Background job conventions.
+gem: [sidekiq, solid_queue, good_job]
+versions:
+  sidekiq: ">= 7.0"
+  solid_queue: ">= 1.0"
+---
+```
+
+Draw the listed targets from the gem's own `hyperdrive_targets` (below): the gem-level declaration decides whether a companion is suggested at all, and an artifact naming a target the gemspec omits is unreachable for apps that have only that target.
+
+Discovery never raises. An artifact with missing or malformed frontmatter, a missing required field, no declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:update` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there — read that section first when a gem you expected to contribute produces no files.
 
 To be discoverable by `hyperdrive:discover` **before** it is installed, a companion also declares gemspec metadata (read remotely from rubygems, so the frontmatter inside the gem isn't visible yet):
 

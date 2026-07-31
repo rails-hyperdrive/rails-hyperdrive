@@ -28,7 +28,10 @@ module Rails
     # The pre-install `rails_hyperdrive_targets` hint is deliberately NOT reconciled
     # with the per-artifact frontmatter `gem:` the installer uses; once a
     # companion is in the bundle, the in-bundle walk (BundlerArtifactDiscovery)
-    # alone governs what installs.
+    # alone governs what installs. Companions are expected to keep each
+    # artifact's targets within this coarser set — a target declared only in
+    # frontmatter never reaches an app that has just that gem, because the
+    # companion is never suggested to it.
     class CompanionDiscovery
       PREFIX              = "rails-hyperdrive-".freeze
       SEARCH_ENDPOINT     = "https://rubygems.org/api/v1/search.json".freeze

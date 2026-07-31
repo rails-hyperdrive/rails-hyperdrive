@@ -28,7 +28,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
 
   def skill_artifact(name:, source:, body: nil)
     Artifact.new(
-      name: name, description: "d", target_gem: "dummy_gem", versions: "~> 1.0",
+      name: name, description: "d", target_gem: ["dummy_gem"], versions: "~> 1.0",
       artifact_type: :skill, source_gem: source, path: "/x/#{name}/SKILL.md",
       body: body || "---\nname: #{name}\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n# #{name}\n",
       spec_version: "1.0.0"
@@ -37,7 +37,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
 
   def guideline_artifact(name:, source:, body: nil)
     Artifact.new(
-      name: name, description: "d", target_gem: "dummy_gem", versions: "~> 1.0",
+      name: name, description: "d", target_gem: ["dummy_gem"], versions: "~> 1.0",
       artifact_type: :guideline, source_gem: source, path: "/x/#{name}.md",
       body: body || "---\nname: #{name}\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n# #{name}\n\nrule.\n",
       spec_version: "1.0.0"
