@@ -23,6 +23,9 @@ module Rails
 
       ARTIFACT_DESTINATIONS = [SKILLS_DIR, HYPERDRIVE_DIR, LOCK_PATH].freeze
 
+      # Lockfile `artifact:` value → discovery artifact type.
+      ARTIFACT_TYPES = { "skill" => :skill, "guideline" => :guideline }.freeze
+
       WARN_LINES = 150
       WARN_TOKENS = 1_500
 
@@ -32,7 +35,7 @@ module Rails
 
       MODES = %i[init update additive].freeze
 
-      Result = Struct.new(:installed, :updated, :unchanged, :skipped, :orphaned, keyword_init: true)
+      Result = Struct.new(:installed, :updated, :unchanged, :skipped, :orphaned, :removed, keyword_init: true)
 
       def initialize(root:, shell:, artifacts:, stack:, mode: :init, warnings: [])
         raise ArgumentError, "unknown mode #{mode.inspect}" unless MODES.include?(mode)
@@ -43,18 +46,19 @@ module Rails
         @stack = stack
         @mode = mode
         @warnings = warnings
-        @result = Result.new(installed: [], updated: [], unchanged: [], skipped: [], orphaned: [])
+        @result = Result.new(installed: [], updated: [], unchanged: [], skipped: [], orphaned: [], removed: [])
       end
 
       def call
-        @old_lock = LockFile.load(abs(LOCK_PATH))
-        @new_lock = LockFile.new(abs(LOCK_PATH))
-        @plan = InstallPlan.build(@artifacts)
+        @new_lock = LockFile.new(abs(LOCK_PATH)).carry_settings(old_lock)
+        @plan = plan
 
         report_collisions
+        report_disabled
         install_skills
         install_guidelines
         install_stack
+        remove_disabled
         carry_orphans
         write_index_md
         inject_claude_md
@@ -66,7 +70,7 @@ module Rails
       end
 
       def plan
-        @plan ||= InstallPlan.build(@artifacts)
+        @plan ||= InstallPlan.build(@artifacts, lock: old_lock)
       end
 
       # The lock as the run leaves it: source gem and version per installed file.
@@ -75,6 +79,10 @@ module Rails
       end
 
       private
+
+      def old_lock
+        @old_lock ||= LockFile.load(abs(LOCK_PATH))
+      end
 
       def additive?
         @mode == :additive
@@ -94,6 +102,13 @@ module Rails
           @shell.say_status :conflict,
             "#{type} '#{name}' shipped by #{group.map { |e| e.artifact.source_gem }.join(", ")}; installing all (postfixed)",
             :yellow
+        end
+      end
+
+      def report_disabled
+        planned = @plan.map(&:dest)
+        InstallPlan.build(@artifacts).reject { |e| planned.include?(e.dest) }.each do |entry|
+          @shell.say_status :disabled, "#{entry.type} '#{entry.final_name}' (listed in #{LOCK_PATH})", :blue
         end
       end
 
@@ -139,7 +154,7 @@ module Rails
           gem_sha: sha(install_ready_body),
           artifact_kind: artifact_kind || entry.artifact_kind
         }
-        old = @old_lock.entry(write[:dest])
+        old = old_lock.entry(write[:dest])
 
         return additive_install(write, old) if additive?
 
@@ -189,7 +204,7 @@ module Rails
             AuditHeader.prepend_html(body, AuditHeader.build_html(**header_args))
           end
 
-        existed = @old_lock.entry(dest)
+        existed = old_lock.entry(dest)
         @shell.create_file dest, on_disk
         (existed ? @result.updated : @result.installed) << dest
         @new_lock.upsert(
@@ -201,9 +216,50 @@ module Rails
         )
       end
 
+      # The pipeline's only delete path, so it is gated on the file still
+      # matching the content the lock recorded: hand-edited work is reported and
+      # left for its owner to remove. Runs before orphans are carried, or a
+      # removed file would read as one.
+      def remove_disabled
+        return if additive?
+
+        old_lock.each_entry do |entry|
+          type = ARTIFACT_TYPES[entry[:artifact]]
+          next unless type
+          next if @new_lock.entry(entry[:path])
+
+          next unless InstallPlan.disabled_dest?(old_lock, type, entry[:path])
+
+          file = abs(entry[:path])
+          next unless File.exist?(file)
+
+          if sha(AuditHeader.strip(File.read(file))) == entry[:source_sha]
+            @shell.remove_file entry[:path]
+            @result.removed << entry[:path]
+            prune_empty_skill_dir(entry[:path]) if type == :skill
+          else
+            @result.skipped << entry[:path]
+            @shell.say_status :skip,
+              "#{entry[:path]} (disabled but locally modified; delete it by hand)", :yellow
+            @new_lock.carry(entry)
+          end
+        end
+      end
+
+      # Skills install as a directory holding SKILL.md; anything else in there
+      # is the user's, so the directory goes only once it is empty.
+      def prune_empty_skill_dir(dest)
+        dir = File.dirname(dest)
+        return unless dir.start_with?("#{SKILLS_DIR}/")
+        return unless Dir.exist?(abs(dir))
+
+        remaining = Dir.children(abs(dir)) - [File.basename(dest)]
+        @shell.remove_file dir if remaining.empty?
+      end
+
       def carry_orphans
         planned = @plan.map(&:dest) + [STACK_PATH]
-        @old_lock.each_entry do |entry|
+        old_lock.each_entry do |entry|
           next if planned.include?(entry[:path])
           next if @new_lock.entry(entry[:path])
           next unless File.exist?(abs(entry[:path]))
@@ -222,7 +278,7 @@ module Rails
 
         index_abs = abs(INDEX_PATH)
         existing = File.exist?(index_abs) ? File.read(index_abs) : nil
-        old_known = @old_lock.guideline_paths.map { |p| File.basename(p) }
+        old_known = old_lock.guideline_paths.map { |p| File.basename(p) }
 
         included = @installed_guidelines.select do |g|
           if existing.nil?
@@ -269,7 +325,7 @@ module Rails
       end
 
       def inject_claude_md
-        state = @old_lock.claude_md_state
+        state = old_lock.claude_md_state
 
         # CLAUDE.md is the user's own file; only a generator they ran edits it.
         if additive?

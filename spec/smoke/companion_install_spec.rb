@@ -8,13 +8,15 @@ require_relative "smoke_helper"
 # fixture-only companion gems under spec/fixtures/smoke_companions/ as real path
 # gems, then drive `hyperdrive:init` / `hyperdrive:update` subprocesses.
 #
-# Covers three previously unit-only / untested-E2E scenarios:
+# Covers four previously unit-only / untested-E2E scenarios:
 #   1. Full companion install   — skill + guideline written with audit headers,
 #                                 index.md aggregation, lockfile provenance.
 #   2. hyperdrive:update        — force-overwrite of a locally-modified file
 #                                 (init skips + warns; update overwrites).
 #   3. Cross-source collision   — two gems shipping a same-named skill install
 #                                 both, postfixed by source gem.
+#   4. Per-artifact opt-out     — a hand-edited `disabled:` list uninstalls an
+#                                 artifact and survives the run that consumed it.
 RSpec.describe "hyperdrive companion install smoke", :smoke do
   describe "installing a single companion gem" do
     let(:app_dir) { Smoke.copy_fixture("minimal") }
@@ -106,6 +108,63 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(restored).not_to include("LOCAL EDIT")
       expect(restored).to start_with("<!-- hyperdrive: source=rails-hyperdrive-alpha@0.1.0 -->")
       expect(restored).to include("# Alpha Guideline")
+    end
+  end
+
+  describe "per-artifact opt-out" do
+    let(:app_dir) { Smoke.copy_fixture("minimal") }
+    let(:lock_path) { File.join(app_dir, ".hyperdrive/lock.yml") }
+    let(:skill_dir) { File.join(app_dir, ".claude/skills/alpha-skill") }
+    let(:guide_path) { File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-guide.md") }
+
+    before do
+      Smoke.add_path_gem!(app_dir)
+      Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-alpha")
+      Smoke.bundle_install!(app_dir)
+      _out, status = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status.success?).to be(true)
+    end
+
+    def rewrite_disabled(skills:, guidelines:)
+      lock = YAML.safe_load(File.read(lock_path))
+      lock["disabled"] = { "skills" => skills, "guidelines" => guidelines }
+      File.write(lock_path, lock.to_yaml)
+    end
+
+    it "uninstalls disabled artifacts, keeps them gone, and restores them when re-enabled" do
+      expect(File.exist?(File.join(skill_dir, "SKILL.md"))).to be(true)
+      expect(File.exist?(guide_path)).to be(true)
+
+      rewrite_disabled(skills: ["alpha-skill"], guidelines: ["alpha-guide"])
+
+      out, status = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status.success?).to be(true), out
+      expect(Dir.exist?(skill_dir)).to be(false), "disabled skill directory survived:\n#{out}"
+      expect(File.exist?(guide_path)).to be(false), "disabled guideline survived:\n#{out}"
+
+      # Disabling a guideline takes it out of eager context too.
+      index = File.read(File.join(app_dir, ".claude/hyperdrive/index.md"))
+      expect(index).to include("@stack.md")
+      expect(index).not_to include("@guidelines/alpha-guide.md")
+
+      # The hand-edited list survives the run that consumed it.
+      expect(YAML.safe_load(File.read(lock_path))["disabled"])
+        .to eq("skills" => ["alpha-skill"], "guidelines" => ["alpha-guide"])
+
+      # A second run does not bring either artifact back.
+      out2, status2 = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status2.success?).to be(true), out2
+      expect(Dir.exist?(skill_dir)).to be(false)
+      expect(File.exist?(guide_path)).to be(false)
+
+      # Clearing the list reinstalls both on the next run.
+      rewrite_disabled(skills: [], guidelines: [])
+      out3, status3 = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status3.success?).to be(true), out3
+      expect(File.exist?(File.join(skill_dir, "SKILL.md"))).to be(true), "skill not restored:\n#{out3}"
+      expect(File.exist?(guide_path)).to be(true), "guideline not restored:\n#{out3}"
+      expect(File.read(File.join(app_dir, ".claude/hyperdrive/index.md")))
+        .to include("@guidelines/alpha-guide.md")
     end
   end
 
