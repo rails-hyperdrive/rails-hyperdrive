@@ -3,6 +3,11 @@ name: alpha-skill
 description: A smoke-fixture skill shipped by rails-hyperdrive-alpha.
 gem: railties
 versions: ">= 7.0"
+conditional:
+  references/sqlite-notes.md:
+    gem: sqlite3
+  references/alba-notes.md:
+    gem: alba
 ---
 
 # Alpha Skill

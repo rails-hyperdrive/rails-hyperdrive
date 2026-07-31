@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Gem-conditional skill content.** A multi-file skill can now condition parts
+  of itself on the app's bundle, through two complementary mechanisms evaluated
+  at discovery time:
+  - A `conditional:` map in `SKILL.md` frontmatter gates individual supporting
+    files per gem. Keys are dir-relative shipped paths; values reuse the
+    artifact-level `gem:`/`versions:` forms (single target, comma-separated
+    string, YAML list, per-target `versions:` map, `"*"`), with `versions:`
+    optional (omitted = unconstrained). A gated file installs only when a
+    listed target is bundled at a satisfying version, and disappears on the
+    next `hyperdrive:sync` when its gate closes (unedited copies only). A
+    malformed condition fails open — the file installs and the problem is
+    reported as a discovery warning.
+  - Files named `*.md.erb` in a skill directory — including `SKILL.md.erb` in
+    place of `SKILL.md` — are rendered at install time with a sealed helper
+    binding (`gem?`, `any_gem?`, `gem_version`) over the resolved bundle, and
+    install as plain `.md`. A template that fails to render is skipped with a
+    warning (the whole skill, for `SKILL.md.erb`); a plain file always beats a
+    template rendering to the same path.
+
 - **Multi-file skills.** A companion skill directory can now ship more than
   `SKILL.md`: every other file in it (nested however deep — `workflows/`,
   `references/`, `examples/`, …) installs as a **supporting file** under

@@ -178,6 +178,28 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
     end
   end
 
+  describe "a supporting file the bundle stops offering" do
+    let(:spath) { path(".claude/skills/jobs-sidekiq/references/gated.md") }
+
+    it "removes the unedited file and its lock entry while the skill stays installed" do
+      stub_discovery([skill_artifact(
+        name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq",
+        support_files: [{ path: "references/gated.md", body: "# Gated\n" }]
+      )])
+      run_generator([])
+      expect(File.read(spath)).to eq("# Gated\n")
+
+      stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+      run_generator([])
+
+      expect(File.exist?(spath)).to be(false)
+      expect(File).to exist(path(".claude/skills/jobs-sidekiq/SKILL.md"))
+      lock = YAML.safe_load(File.read(path(".hyperdrive/lock.yml")))
+      expect(lock["files"].map { |f| f["path"] })
+        .not_to include(".claude/skills/jobs-sidekiq/references/gated.md")
+    end
+  end
+
   describe "--dry-run" do
     it "writes nothing" do
       run_generator(["--dry-run"])
