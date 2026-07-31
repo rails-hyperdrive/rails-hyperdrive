@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   A single requirement still applies to every listed target. Targets absent from
   the map are unconstrained.
+- Content installation is now callable without a booted Rails application.
+  `Rails::Hyperdrive::InstallPipeline` takes an explicit application root and
+  performs the whole install — skills, guidelines, `stack.md`, `index.md`, the
+  `CLAUDE.md` import line, and `.hyperdrive/lock.yml` — so any process that can
+  see the app's bundle can run it. `hyperdrive:init` and `hyperdrive:update`
+  call the same pipeline, and their behaviour is unchanged.
 
 - `hyperdrive:init` / `hyperdrive:update` now check the *combined* eager
   footprint against a budget, not just per-file size. When the guidelines

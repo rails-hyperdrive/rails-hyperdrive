@@ -27,8 +27,8 @@ module Rails
           @current = nil
         end
 
-        def from_lockfile(path)
-          new(path: path).tap(&:parse!)
+        def from_lockfile(path, app_root: nil)
+          new(path: path, app_root: app_root).tap(&:parse!)
         end
 
         def default_lockfile_path
@@ -42,8 +42,9 @@ module Rails
 
       attr_reader :path, :data
 
-      def initialize(path:)
+      def initialize(path:, app_root: nil)
         @path = path
+        @app_root = app_root
         @data = empty_profile
       end
 
@@ -113,9 +114,8 @@ module Rails
       end
 
       def adapter_from_database_yml
-        return nil unless defined?(::Rails) && ::Rails.respond_to?(:root) && ::Rails.root
-        yml_path = ::Rails.root.join("config", "database.yml")
-        return nil unless File.exist?(yml_path)
+        yml_path = database_yml_path
+        return nil unless yml_path && File.exist?(yml_path)
         # ERB-rendered config is common; permissive parse keeps us out of the
         # business of evaluating user code at generator time.
         raw = File.read(yml_path)
@@ -128,6 +128,14 @@ module Rails
         adapter&.to_s
       rescue StandardError
         nil
+      end
+
+      # An explicit app_root keeps the adapter resolvable with no Rails booted,
+      # so stack.md renders identically in every process that generates it.
+      def database_yml_path
+        return File.join(@app_root.to_s, "config", "database.yml") if @app_root
+        return nil unless defined?(::Rails) && ::Rails.respond_to?(:root) && ::Rails.root
+        ::Rails.root.join("config", "database.yml").to_s
       end
 
       def bucket(specs, category)
