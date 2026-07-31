@@ -9,7 +9,7 @@ It also ships a `hyperdrive:init` generator that discovers and installs **two ar
 - **Skills** — lazy, model-invoked via Claude Code's native description matcher. Procedural ("how to write an idempotent Sidekiq job"). Installed to `.claude/skills/<name>/SKILL.md`.
 - **Guidelines** — eager, always in context via `@`-include from `CLAUDE.md`. Declarative ("this app uses Pundit, not CanCanCan"). Installed to `.claude/hyperdrive/guidelines/<name>.md`.
 
-**rails-hyperdrive is the mechanism; companion gems are the content.** rails-hyperdrive itself ships no skills or guidelines — only the contract, the discovery/install engine, and a generated `stack.md`. Content comes from companion gems (`rails-hyperdrive-<library>`, e.g. `rails-hyperdrive-sidekiq`), following the [RuboCop ecosystem](https://github.com/rubocop/rubocop) precedent.
+**rails-hyperdrive is the mechanism; companion gems are the content.** rails-hyperdrive itself ships no skills or guidelines — only the contract, the discovery/install engine, and a generated `stack.md`. Content comes from companion gems, conventionally named `rails-hyperdrive-<library>` (e.g. `rails-hyperdrive-sidekiq`) following the [RuboCop ecosystem](https://github.com/rubocop/rubocop) precedent.
 
 Built on the official [`mcp` gem](https://github.com/modelcontextprotocol/ruby-sdk). MIT-licensed.
 
@@ -146,6 +146,8 @@ To be discoverable by `hyperdrive:discover` **before** it is installed, a compan
 spec.metadata["rails_hyperdrive_targets"]   = "sidekiq"          # required; comma-sep, or "*" for always-applicable
 spec.metadata["rails_hyperdrive_artifacts"] = "guideline,skill"  # optional; presentational hint
 ```
+
+`rails_hyperdrive_targets` is what makes a gem discoverable: `hyperdrive:discover` searches rubygems for gems declaring it, so a companion is found by what it declares rather than by what it is named. Naming it `rails-hyperdrive-<library>` is a recommended convention — it makes the gem legible in a Gemfile — but it plays no part in discovery, and a companion published under your own namespace is found on the same terms.
 
 `rails_hyperdrive_targets` is a coarse pre-install hint — it is never reconciled against the frontmatter `gem:`; once the gem is bundled, the frontmatter alone governs what installs.
 

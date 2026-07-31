@@ -11,15 +11,18 @@ module Rails
   module Hyperdrive
     # Read-only, networked discovery of *uninstalled* companion gems.
     #
-    # Queries the rubygems search API for gems under the `rails-hyperdrive-`
-    # prefix, reads their pre-install discovery metadata (`rails_hyperdrive_targets` /
-    # `rails_hyperdrive_artifacts`) straight from the API response (no `.gem`
-    # download), and matches the declared targets against the app's
-    # `Gemfile.lock`. The result is a list of suggestions the user can act on
-    # with `bundle add` + `hyperdrive:init`.
+    # Queries the rubygems search API for gems declaring
+    # `rails_hyperdrive_targets`, reads that key and `rails_hyperdrive_artifacts`
+    # straight from the API response (no `.gem` download), and matches the
+    # declared targets against the app's `Gemfile.lock`. The result is a list of
+    # suggestions the user can act on with `bundle add` + `hyperdrive:init`.
     #
-    # Ships **dormant**: until companions exist on rubygems under the prefix the
-    # search returns nothing and `run` yields an empty suggestion set.
+    # A companion is identified by the metadata it declares. The
+    # `rails-hyperdrive-` name prefix is a recommended naming convention, not a
+    # requirement.
+    #
+    # Ships **dormant**: until companions exist on rubygems the search returns
+    # nothing and `run` yields an empty suggestion set.
     #
     # Network is best-effort: results are cached to `.hyperdrive/discover_cache.json`
     # (24h TTL, `--refresh` busts). Offline / API-down falls back to a stale
@@ -33,7 +36,12 @@ module Rails
     # frontmatter never reaches an app that has just that gem, because the
     # companion is never suggested to it.
     class CompanionDiscovery
-      PREFIX              = "rails-hyperdrive-".freeze
+      TARGETS_KEY         = "rails_hyperdrive_targets".freeze
+      ARTIFACTS_KEY       = "rails_hyperdrive_artifacts".freeze
+      # Field-scoped metadata search is an undocumented passthrough to the
+      # rubygems search backend, so it fails open: if it ever stops matching, the
+      # query returns an empty 200 page and discovery reports no suggestions.
+      SEARCH_QUERY        = "metadata.#{TARGETS_KEY}:*".freeze
       SEARCH_ENDPOINT     = "https://rubygems.org/api/v1/search.json".freeze
       CACHE_RELATIVE_PATH = ".hyperdrive/discover_cache.json".freeze
       PER_PAGE            = 30
@@ -141,7 +149,7 @@ module Rails
         page = 1
         loop do
           batch = fetch_page(page)
-          candidates.concat(batch.select { |c| c[:name].start_with?(PREFIX) })
+          candidates.concat(batch)
           break if batch.size < PER_PAGE # short page → last page
           page += 1
           break if page > MAX_PAGES
@@ -152,7 +160,7 @@ module Rails
       end
 
       def fetch_page(page)
-        uri = "#{SEARCH_ENDPOINT}?query=#{URI.encode_www_form_component(PREFIX)}&page=#{page}"
+        uri = "#{SEARCH_ENDPOINT}?query=#{URI.encode_www_form_component(SEARCH_QUERY)}&page=#{page}"
         resp = @fetcher.get(uri)
 
         case resp.code
@@ -184,7 +192,7 @@ module Rails
       def build_suggestion(candidate, installed, warnings)
         name     = candidate[:name]
         metadata = candidate[:metadata] || {}
-        targets  = parse_list(metadata["rails_hyperdrive_targets"])
+        targets  = parse_list(metadata[TARGETS_KEY])
 
         if targets.empty?
           warnings << "#{name} #{candidate[:version]}: no targets declared (skipped)"
@@ -204,7 +212,7 @@ module Rails
           gem_name: name,
           version: candidate[:version],
           targets: targets,
-          artifacts: parse_list(metadata["rails_hyperdrive_artifacts"]),
+          artifacts: parse_list(metadata[ARTIFACTS_KEY]),
           matched_target: matched_target,
           matched_version: matched_version,
           installed: installed.key?(name)

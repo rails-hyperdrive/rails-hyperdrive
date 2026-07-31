@@ -9,15 +9,15 @@ module Rails
     module Hyperdrive
       # Backs `bin/rails hyperdrive:discover`.
       #
-      # Read-only and networked: queries rubygems for `rails-hyperdrive-*`
-      # companions, matches their declared targets against this app's
-      # Gemfile.lock, and prints which ones are worth `bundle add`-ing. Writes
-      # only the discover cache (via CompanionDiscovery) and a single
-      # `.gitignore` rule for it. Never modifies the Gemfile and never installs
-      # anything — the user runs `bundle add` + `hyperdrive:init` themselves.
+      # Read-only and networked: queries rubygems for companion gems, matches
+      # their declared targets against this app's Gemfile.lock, and prints which
+      # ones are worth `bundle add`-ing. Writes only the discover cache (via
+      # CompanionDiscovery) and a single `.gitignore` rule for it. Never modifies
+      # the Gemfile and never installs anything — the user runs `bundle add` +
+      # `hyperdrive:init` themselves.
       #
       # Ships dormant: returns an empty suggestion set until companion gems
-      # exist on rubygems under the prefix.
+      # exist on rubygems.
       class DiscoverGenerator < ::Rails::Generators::Base
         include GitignoreSupport
 

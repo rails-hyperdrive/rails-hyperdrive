@@ -57,14 +57,14 @@ RSpec.describe Rails::Hyperdrive::CompanionDiscovery do
         gem_entry("rails-hyperdrive-sidekiq", "1.2.0", targets: "sidekiq", artifacts: "skill"),
         gem_entry("rails-hyperdrive-devise", "0.4.0", targets: "devise", artifacts: "guideline,skill"),
         gem_entry("rails-hyperdrive-resque", "0.1.0", targets: "resque"), # not in stack
-        gem_entry("some-unrelated-gem", "9.9.9", targets: "sidekiq")       # wrong prefix
+        gem_entry("acme-conventions", "9.9.9", targets: "sidekiq")        # outside the naming convention
       ] })
     end
 
     it "suggests companions whose declared target is in Gemfile.lock" do
       result = discovery(fetcher: fetcher).run
       names = result.suggestions.map(&:gem_name)
-      expect(names).to contain_exactly("rails-hyperdrive-sidekiq", "rails-hyperdrive-devise")
+      expect(names).to contain_exactly("rails-hyperdrive-sidekiq", "rails-hyperdrive-devise", "acme-conventions")
     end
 
     it "records the matched target gem and its installed version" do
@@ -80,9 +80,25 @@ RSpec.describe Rails::Hyperdrive::CompanionDiscovery do
       expect(result.suggestions.map(&:gem_name)).not_to include("rails-hyperdrive-resque")
     end
 
-    it "filters out non-prefixed gems the substring search returns" do
+    it "suggests a companion published outside the `rails-hyperdrive-` naming convention" do
       result = discovery(fetcher: fetcher).run
-      expect(result.suggestions.map(&:gem_name)).not_to include("some-unrelated-gem")
+      expect(result.suggestions.map(&:gem_name)).to include("acme-conventions")
+    end
+  end
+
+  describe "the search query" do
+    it "asks rubygems for gems declaring the targets metadata key" do
+      fetcher = FakeFetcher.new(pages: { 1 => [] })
+      discovery(fetcher: fetcher).run
+      expect(fetcher.calls.first).to include(
+        URI.encode_www_form_component("metadata.rails_hyperdrive_targets:*")
+      )
+    end
+
+    it "does not query by gem name" do
+      fetcher = FakeFetcher.new(pages: { 1 => [] })
+      discovery(fetcher: fetcher).run
+      expect(fetcher.calls.first).not_to include("rails-hyperdrive-")
     end
   end
 
