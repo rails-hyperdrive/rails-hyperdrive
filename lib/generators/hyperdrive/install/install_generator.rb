@@ -18,6 +18,9 @@ module Rails
         MCP_JSON_PATH = ".mcp.json".freeze
         MCP_SERVER_KEY = "rails-hyperdrive".freeze
 
+        GEMFILE = "Gemfile".freeze
+        BUNDLER_PLUGIN = "bundler-hyperdrive".freeze
+
         source_root File.expand_path("templates", __dir__)
 
         class_option :mount_at,      type: :string,  default: DEFAULT_MOUNT_AT, desc: "Engine mount path."
@@ -60,6 +63,26 @@ module Rails
 
         def ignore_discover_cache
           ensure_gitignored(::Rails::Hyperdrive::CompanionDiscovery::CACHE_RELATIVE_PATH)
+        end
+
+        # Any existing directive counts as registered — a path- or
+        # version-qualified line is a deliberate choice this must not
+        # duplicate or rewrite.
+        def register_bundler_plugin
+          gemfile = ::Rails.root.join(GEMFILE)
+          unless File.exist?(gemfile)
+            say_status :skip, "no #{GEMFILE} found; add plugin #{BUNDLER_PLUGIN.inspect} manually", :yellow
+            return
+          end
+
+          body = File.read(gemfile)
+          if body.match?(/^\s*plugin\s+["']#{BUNDLER_PLUGIN}["']/)
+            say_status :identical, "#{GEMFILE} (#{BUNDLER_PLUGIN} plugin already registered)", :blue
+            return
+          end
+
+          prefix = body.end_with?("\n") || body.empty? ? "" : "\n"
+          append_to_file GEMFILE, "#{prefix}plugin #{BUNDLER_PLUGIN.inspect}\n"
         end
 
         def write_initializer

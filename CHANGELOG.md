@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `bundler-hyperdrive`, a Bundler plugin gem co-located in this repository
+  (`bundler-hyperdrive/`). Once registered, it runs after every
+  `bundle install` in development and installs the artifacts that newly
+  bundled companion gems ship — additive only (it never overwrites or
+  deletes a file) — and reports upgraded or orphaned artifacts with a
+  pointer to `bin/rails hyperdrive:sync`. It resolves rails-hyperdrive from
+  the application's bundle at runtime (supported range `>= 0.2`), stays
+  silent outside development, and never fails a `bundle install`.
+- `hyperdrive:init` now registers the plugin by appending
+  `plugin "bundler-hyperdrive"` to the application's Gemfile. Idempotent: an
+  existing directive (with any options) is left alone, and an app without a
+  Gemfile gets a skip status.
+
 - `hyperdrive:sync` — content-only actualization. Refreshes skills, guidelines,
   `stack.md`, `index.md`, and `.hyperdrive/lock.yml` to match the current
   bundle, and touches no bootstrap artifact (`.mcp.json`, the engine mount, the

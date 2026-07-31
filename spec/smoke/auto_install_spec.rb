@@ -25,10 +25,13 @@ RSpec.describe "hyperdrive auto-install smoke", :smoke do
     JSON.parse(out.lines.last, symbolize_names: true)
   end
 
+  # Every install disables Bundler's plugin system: with the bundler-hyperdrive
+  # hook active, `bundle install` would land the artifacts first and the
+  # entry-point assertions below would see nothing left to install.
   before do
     Smoke.add_path_gem!(app_dir)
     Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-alpha")
-    Smoke.bundle_install!(app_dir)
+    Smoke.bundle_install!(app_dir, {"BUNDLE_PLUGINS" => "false"})
 
     out, status = Smoke.run_hyperdrive_init!(app_dir)
     expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
@@ -36,7 +39,7 @@ RSpec.describe "hyperdrive auto-install smoke", :smoke do
 
   it "installs a newly bundled companion's artifacts without booting Rails" do
     Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-beta")
-    Smoke.bundle_install!(app_dir)
+    Smoke.bundle_install!(app_dir, {"BUNDLE_PLUGINS" => "false"})
 
     result = auto_install
 
@@ -58,7 +61,7 @@ RSpec.describe "hyperdrive auto-install smoke", :smoke do
     File.write(edited, File.read(edited) + "\nMY LOCAL EDIT\n")
 
     Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-beta")
-    Smoke.bundle_install!(app_dir)
+    Smoke.bundle_install!(app_dir, {"BUNDLE_PLUGINS" => "false"})
     auto_install
 
     expect(File.read(edited)).to include("MY LOCAL EDIT")
@@ -67,7 +70,7 @@ RSpec.describe "hyperdrive auto-install smoke", :smoke do
 
   it "installs nothing outside development" do
     Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-beta")
-    Smoke.bundle_install!(app_dir)
+    Smoke.bundle_install!(app_dir, {"BUNDLE_PLUGINS" => "false"})
 
     result = auto_install("RAILS_ENV" => "production")
 
