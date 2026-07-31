@@ -2,9 +2,6 @@ require "spec_helper"
 require "rails/hyperdrive/mcp_server"
 require "json"
 
-# Exercises each tool through the MCP::Server JSON-RPC entrypoint, matching
-# what the StreamableHTTP transport would invoke. Catches wiring issues
-# (schema typos, naming clashes) that pure-unit specs miss.
 RSpec.describe "MCP tools end-to-end" do
   let(:server) { Rails::Hyperdrive::McpServer.server }
 

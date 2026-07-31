@@ -2,13 +2,8 @@ require "rails/engine"
 
 module Rails
   module Hyperdrive
-    # Dev-only Rails engine that mounts the MCP server.
-    #
-    # The engine itself loads in any environment (so that running
-    # `bin/rails console -e production` doesn't blow up if `hyperdrive`
-    # was accidentally added to a non-dev group). Actual request handling
-    # is gated by `Rails::Hyperdrive::Safety::RackMiddleware`, which returns
-    # 403 outside development.
+    # Loads in every environment so an accidental non-dev bundle group doesn't
+    # break boot.
     class Engine < ::Rails::Engine
       isolate_namespace Rails::Hyperdrive
 
@@ -25,11 +20,6 @@ module Rails
           end
         end
       end
-
-      # Rake tasks are picked up from lib/tasks/*.rake automatically by
-      # Rails::Engine's task discovery; no explicit `rake_tasks` block.
-      # Engine routes are picked up from config/routes.rb at the gem root by
-      # Rails::Engine's `add_routing_paths` initializer.
     end
   end
 end

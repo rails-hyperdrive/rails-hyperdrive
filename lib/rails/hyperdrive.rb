@@ -16,7 +16,6 @@ module Rails
       @root ||= File.expand_path("..", __dir__)
     end
 
-    # Centralized so safety checks across the codebase cannot drift.
     def self.dev_mode?
       defined?(::Rails) && ::Rails.respond_to?(:env) && ::Rails.env.development?
     end

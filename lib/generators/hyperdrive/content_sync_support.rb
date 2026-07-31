@@ -34,6 +34,10 @@ module Rails
             @generator.append_to_file(path, content)
           end
 
+          def remove_file(path)
+            @generator.remove_file(path)
+          end
+
           def say_status(kind, message, color = nil)
             @generator.say_status(kind, message, color)
           end
@@ -55,8 +59,7 @@ module Rails
             warn "hyperdrive: must run with Rails.env=development (current: #{env})"
             raise Thor::Error, "hyperdrive: refuse to run outside development (Rails.env=#{env})"
           end
-          # Thor's create_file / inject_into_file / append_to_file all honor
-          # `options[:pretend]`. Translate our user-facing --dry-run to that.
+          # Thor's file-writing helpers honor options[:pretend], so --dry-run maps onto it.
           if options[:dry_run]
             self.options = options.merge(pretend: true).freeze
           end
@@ -90,9 +93,8 @@ module Rails
           @stack_profile.to_h
         end
 
-        # Reads the lock the pipeline leaves behind, so the listing states the
-        # app's resulting content: untouched, locally-modified, and orphaned
-        # files included.
+        # The lock is the authoritative set: it includes untouched,
+        # locally-modified, and orphaned files.
         def print_installed_artifacts
           entries = []
           @pipeline&.lock&.each_entry { |e| entries << e }

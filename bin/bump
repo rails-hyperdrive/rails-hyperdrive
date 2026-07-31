@@ -1,22 +1,8 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Bump the gem version following Semantic Versioning.
-#
-# `lib/rails/hyperdrive/version.rb` is the single source of truth — the gemspec
-# reads `Rails::Hyperdrive::VERSION` from it. This script edits that file, rolls
-# the CHANGELOG's `[Unreleased]` section into a dated, versioned section, and
-# (optionally) creates the release commit and tag.
-#
-# Usage:
-#   bin/bump patch|minor|major        # bump the matching SemVer component
-#   bin/bump 1.4.0                    # set an explicit version
-#   bin/bump patch --dry-run          # show what would change, write nothing
-#   bin/bump minor --commit           # also `git commit` version.rb + CHANGELOG.md
-#   bin/bump minor --commit --tag     # also create an annotated `vX.Y.Z` git tag
-#
-# Without --commit/--tag the script only edits files and prints the suggested
-# git commands, leaving the working tree for you to review.
+# lib/rails/hyperdrive/version.rb is the single source of truth — the gemspec
+# reads Rails::Hyperdrive::VERSION from it.
 
 require "optparse"
 require "date"
@@ -69,22 +55,18 @@ abort "New version #{new_version} is not greater than current #{current}" if new
 
 puts "Bumping #{current} -> #{new_version}"
 
-# --- version.rb ---------------------------------------------------------------
 new_source = source.sub(VERSION_RE, %(VERSION = "#{new_version}"))
 
-# --- CHANGELOG.md -------------------------------------------------------------
 changelog = File.exist?(CHANGELOG) ? File.read(CHANGELOG) : nil
 new_changelog = changelog&.dup
 
 if changelog
   today = Date.today.iso8601
   if changelog.include?("## [Unreleased]")
-    # Insert a fresh empty Unreleased section above the newly dated release.
     new_changelog = changelog.sub(
       "## [Unreleased]",
       "## [Unreleased]\n\n## [#{new_version}] - #{today}"
     )
-    # Refresh the link-reference footer if present.
     new_changelog = new_changelog
       .gsub(%r{\[Unreleased\]:.*compare/v[\d.]+\.\.\.HEAD},
             "[Unreleased]: https://github.com/Bakaface/rails-hyperdrive/compare/v#{new_version}...HEAD")

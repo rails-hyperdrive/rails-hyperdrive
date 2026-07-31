@@ -9,32 +9,6 @@ require "bundler"
 
 module Rails
   module Hyperdrive
-    # Read-only, networked discovery of *uninstalled* companion gems.
-    #
-    # Queries the rubygems search API for gems declaring
-    # `rails_hyperdrive_targets`, reads that key and `rails_hyperdrive_artifacts`
-    # straight from the API response (no `.gem` download), and matches the
-    # declared targets against the app's `Gemfile.lock`. The result is a list of
-    # suggestions the user can act on with `bundle add` + `hyperdrive:init`.
-    #
-    # A companion is identified by the metadata it declares. The
-    # `rails-hyperdrive-` name prefix is a recommended naming convention, not a
-    # requirement.
-    #
-    # Ships **dormant**: until companions exist on rubygems the search returns
-    # nothing and `run` yields an empty suggestion set.
-    #
-    # Network is best-effort: results are cached to `.hyperdrive/discover_cache.json`
-    # (24h TTL, `--refresh` busts). Offline / API-down falls back to a stale
-    # cache when present, otherwise reports "unavailable" — never raises.
-    #
-    # The pre-install `rails_hyperdrive_targets` hint is deliberately NOT reconciled
-    # with the per-artifact frontmatter `gem:` the installer uses; once a
-    # companion is in the bundle, the in-bundle walk (BundlerArtifactDiscovery)
-    # alone governs what installs. Companions are expected to keep each
-    # artifact's targets within this coarser set — a target declared only in
-    # frontmatter never reaches an app that has just that gem, because the
-    # companion is never suggested to it.
     class CompanionDiscovery
       TARGETS_KEY         = "rails_hyperdrive_targets".freeze
       ARTIFACTS_KEY       = "rails_hyperdrive_artifacts".freeze
@@ -50,10 +24,7 @@ module Rails
       OPEN_TIMEOUT        = 5
       READ_TIMEOUT        = 5
 
-      # A companion gem matched to the user's stack.
-      #   matched_target  — the in-bundle target gem that triggered the match
-      #                     (nil for a universal `*` companion)
-      #   installed       — whether the companion gem itself is already bundled
+      # matched_target is nil for a universal "*" companion.
       Suggestion = Struct.new(
         :gem_name, :version, :targets, :artifacts,
         :matched_target, :matched_version, :installed,
@@ -66,7 +37,6 @@ module Rails
       #           :unavailable — network failed and no cache to fall back to
       Result = Struct.new(:suggestions, :warnings, :status, :age_seconds, :detail, keyword_init: true)
 
-      # Raised internally when the network path can't produce candidates.
       class Unavailable < StandardError
         attr_reader :retry_after
 
@@ -76,8 +46,6 @@ module Rails
         end
       end
 
-      # Minimal HTTP client over Net::HTTP. Swappable in tests via the
-      # `fetcher:` keyword — any object responding to `get(uri) -> Response`.
       Response = Struct.new(:code, :body, :retry_after, keyword_init: true)
 
       class NetHttpFetcher
@@ -113,7 +81,6 @@ module Rails
 
       private
 
-      # Returns [candidates, status, age_seconds, detail].
       def resolve_candidates(now)
         cache = read_cache
         if !@refresh && cache && fresh?(cache, now)
@@ -142,15 +109,13 @@ module Rails
         end
       end
 
-      # ---------- network ----------
-
       def fetch_all
         candidates = []
         page = 1
         loop do
           batch = fetch_page(page)
           candidates.concat(batch)
-          break if batch.size < PER_PAGE # short page → last page
+          break if batch.size < PER_PAGE
           page += 1
           break if page > MAX_PAGES
         end
@@ -181,8 +146,6 @@ module Rails
         raise Unavailable, "malformed search response (#{e.message})"
       end
 
-      # ---------- matching ----------
-
       def match(candidates, warnings)
         installed = installed_gems
         candidates.filter_map { |c| build_suggestion(c, installed, warnings) }
@@ -204,7 +167,7 @@ module Rails
             [nil, nil]
           else
             hit = targets.find { |t| installed.key?(t) }
-            return nil unless hit # declared targets, none in this stack → not for us
+            return nil unless hit
             [hit, installed[hit]]
           end
 
@@ -232,8 +195,6 @@ module Rails
         # stack as empty (only `*`-target companions will then match).
         {}
       end
-
-      # ---------- cache ----------
 
       def read_cache
         return nil unless File.exist?(@cache_path)

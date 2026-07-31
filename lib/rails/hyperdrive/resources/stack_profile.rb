@@ -5,7 +5,6 @@ require_relative "../stack_profile"
 module Rails
   module Hyperdrive
     module Resources
-      # hyperdrive://stack-profile → JSON of the resolved StackProfile.
       module StackProfile
         URI = "hyperdrive://stack-profile"
 

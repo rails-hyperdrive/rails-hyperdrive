@@ -4,10 +4,6 @@ require "digest"
 
 module Rails
   module Hyperdrive
-    # Parses a Gemfile.lock into a stable, categorized snapshot of the app's
-    # technology stack. Shared between the `hyperdrive:init` generator and the
-    # `describe_app` MCP tool / `hyperdrive://stack-profile` resource so the installer
-    # and the running server cannot drift on what "this app's stack" means.
     class StackProfile
       CATEGORIES_PATH = File.expand_path("data/gem_categories.yml", __dir__)
 
@@ -22,7 +18,6 @@ module Rails
           @current ||= from_lockfile(default_lockfile_path)
         end
 
-        # Reset memoization between specs so fixture lockfiles can be swapped in.
         def reset!
           @current = nil
         end
@@ -160,10 +155,8 @@ module Rails
         end.uniq
       end
 
-      # Loaded lazily and rescued broadly so StackProfile stays usable in
-      # contexts where Bundler is absent or refuses to resolve. Lists every
-      # installed skill as a (name, source) pair — never collapses across
-      # source gems (see BundlerArtifactDiscovery Phase 1/2).
+      # Loaded lazily and rescued broadly so StackProfile stays usable where
+      # Bundler is absent or refuses to resolve.
       def gem_skills_info
         require "rails/hyperdrive/bundler_artifact_discovery"
         ::Rails::Hyperdrive::BundlerArtifactDiscovery.discover.select(&:skill?).map do |skill|

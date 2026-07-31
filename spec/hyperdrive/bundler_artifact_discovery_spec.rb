@@ -70,7 +70,6 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
   describe "universal artifacts (gem: '*')" do
     it "matches without resolving a target or consulting versions" do
       universal = described_class.discover(specs: [companion_spec]).find { |a| a.name == "universal" }
-      # universal lives in dummy_gem; with only companion_spec it is NOT walked.
       expect(universal).to be_nil
 
       universal = described_class.discover(specs: [dummy_spec]).find { |a| a.name == "universal" }

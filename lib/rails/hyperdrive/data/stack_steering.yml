@@ -1,8 +1,5 @@
 # Display labels + per-gem steering for the generated stack.md guideline.
-# Sibling to gem_categories.yml (which stays untouched). Adding entries here
-# only changes the prose stack.md renders — no runtime behavior.
 
-# Display labels per stack bucket (keys mirror gem_categories.yml buckets).
 labels:
   jobs:     "Background jobs"
   auth:     "Authn"

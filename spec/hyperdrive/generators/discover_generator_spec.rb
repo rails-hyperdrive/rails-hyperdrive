@@ -19,7 +19,6 @@ RSpec.describe Rails::Generators::Hyperdrive::DiscoverGenerator do
     allow(::Rails).to receive(:root).and_return(Pathname.new(path))
   end
 
-  # Bypass the real network: stub CompanionDiscovery#run to return a canned Result.
   def stub_discovery(result)
     fake = instance_double(Rails::Hyperdrive::CompanionDiscovery, run: result)
     allow(Rails::Hyperdrive::CompanionDiscovery).to receive(:new).and_return(fake)

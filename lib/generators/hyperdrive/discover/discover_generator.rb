@@ -7,17 +7,7 @@ require "generators/hyperdrive/gitignore_support"
 module Rails
   module Generators
     module Hyperdrive
-      # Backs `bin/rails hyperdrive:discover`.
-      #
-      # Read-only and networked: queries rubygems for companion gems, matches
-      # their declared targets against this app's Gemfile.lock, and prints which
-      # ones are worth `bundle add`-ing. Writes only the discover cache (via
-      # CompanionDiscovery) and a single `.gitignore` rule for it. Never modifies
-      # the Gemfile and never installs anything — the user runs `bundle add` +
-      # `hyperdrive:init` themselves.
-      #
-      # Ships dormant: returns an empty suggestion set until companion gems
-      # exist on rubygems.
+      # Read-only with respect to the app: never edits the Gemfile and never installs gems.
       class DiscoverGenerator < ::Rails::Generators::Base
         include GitignoreSupport
 
@@ -34,9 +24,6 @@ module Rails
           raise Thor::Error, "hyperdrive: not in a Rails app"
         end
 
-        # The discover cache is the one gitignored rails-hyperdrive artifact
-        # (the lockfile stays tracked). Ignore the specific file, not the
-        # directory.
         def ensure_cache_gitignored
           ensure_gitignored(CACHE_RULE)
         end
@@ -88,7 +75,6 @@ module Rails
                 "#{companion} (applies to any stack)"
               end
             status = suggestion.installed ? "(installed)" : "(suggested)"
-            # Show what an uninstalled companion would ship; installed ones omit it.
             artifacts =
               if suggestion.installed || suggestion.artifacts.empty?
                 ""

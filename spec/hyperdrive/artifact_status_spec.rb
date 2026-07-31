@@ -86,4 +86,30 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
       expect(compare(artifacts)).not_to be_stale
     end
   end
+
+  describe "a disabled artifact" do
+    def disable(*names)
+      lock_path = File.join(root, Rails::Hyperdrive::InstallPipeline::LOCK_PATH)
+      FileUtils.mkdir_p(File.dirname(lock_path))
+      data = File.exist?(lock_path) ? YAML.safe_load(File.read(lock_path)) : {}
+      (data["disabled"] ||= {})["guidelines"] = names
+      File.write(lock_path, data.to_yaml)
+    end
+
+    it "is not reported as missing" do
+      disable("auth-pundit")
+
+      status = compare([guideline(name: "auth-pundit")])
+
+      expect(status.missing.map(&:path)).to eq([".claude/hyperdrive/stack.md"])
+    end
+
+    it "left on disk is not reported as orphaned" do
+      artifacts = [guideline(name: "auth-pundit")]
+      install(artifacts)
+      disable("auth-pundit")
+
+      expect(compare(artifacts).orphaned).to be_empty
+    end
+  end
 end

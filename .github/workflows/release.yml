@@ -1,18 +1,8 @@
 name: Release
 
-# Publishes the gem to RubyGems via Trusted Publishing (OIDC) when a
-# `vX.Y.Z` tag is pushed. No API keys are stored in the repo — RubyGems
-# mints a short-lived token from this workflow's OIDC identity.
-#
-# ONE-TIME SETUP on rubygems.org (Gem → Trusted Publishers → GitHub Actions):
-#   Repository:    Bakaface/rails-hyperdrive
-#   Workflow:      release.yml
-#   Environment:   release
-# Until that is configured, the publish step will fail with an auth error.
-#
-# Release flow (see CLAUDE.md → Versioning):
-#   bin/bump <level> --commit --tag
-#   git push origin main --follow-tags
+# Requires a Trusted Publisher entry on rubygems.org (repo, workflow
+# release.yml, environment release); without it the publish step fails with an
+# auth error.
 
 on:
   push:

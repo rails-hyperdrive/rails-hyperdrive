@@ -8,15 +8,6 @@ require "generators/hyperdrive/gitignore_support"
 module Rails
   module Generators
     module Hyperdrive
-      # Backs `bin/rails hyperdrive:init` — bootstrap (.mcp.json, engine
-      # mount, optional initializer, .gitignore rule) plus the first content
-      # install, in preserve mode: locally-modified files are skipped + warned.
-      # Routine content refresh lives in `bin/rails hyperdrive:sync`.
-      #
-      # rails-hyperdrive ships no content. It walks the bundle for companion
-      # gems' skills + guidelines, installs them, generates stack.md, maintains
-      # the index.md aggregator, and injects exactly one `@`-include line into
-      # CLAUDE.md.
       class InstallGenerator < ::Rails::Generators::Base
         include ContentSyncSupport
         include GitignoreSupport
@@ -67,10 +58,6 @@ module Rails
           end
         end
 
-        # The `hyperdrive:discover` cache is the only gitignored
-        # rails-hyperdrive artifact — the lockfile `.hyperdrive/lock.yml` stays
-        # git-tracked. Ignore the specific file, not the `.hyperdrive/`
-        # directory.
         def ignore_discover_cache
           ensure_gitignored(::Rails::Hyperdrive::CompanionDiscovery::CACHE_RELATIVE_PATH)
         end
@@ -117,8 +104,6 @@ module Rails
           say "    3. Verify the connection: curl http://localhost:3000#{mount_path}/mcp"
         end
 
-        # ---------- helpers ----------
-
         no_tasks do
           def mcp_json_on_disk
             abs = ::Rails.root.join(MCP_JSON_PATH)
@@ -155,7 +140,6 @@ module Rails
             nil
           end
 
-          # Normalize the user-supplied mount path.
           def mount_path
             raw = options[:mount_at].to_s
             raw = "/" + raw unless raw.start_with?("/")

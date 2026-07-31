@@ -44,7 +44,6 @@ module Rails
         )
       end
 
-      # Reset memoization between specs to avoid singleton bleed.
       def reset!
         @server = nil
         @rack_app = nil

@@ -1,6 +1,4 @@
-# Maps well-known gem names to their architectural category. Pure metadata —
-# adding gems here only changes what `describe_app` and `hyperdrive://stack-profile`
-# report; it does not alter runtime behavior.
+# Category assignment is reporting metadata only; nothing here is executed.
 
 test:
   - rspec

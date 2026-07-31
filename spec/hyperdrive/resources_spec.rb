@@ -2,10 +2,6 @@ require "spec_helper"
 require "rails/hyperdrive/mcp_server"
 require "json"
 
-# Exercises the two MCP resource families through the MCP::Server JSON-RPC
-# entrypoint (resources/read), matching what the StreamableHTTP transport
-# would invoke. The sample skill under spec/internal/.claude/skills/sample/
-# is consumed here.
 RSpec.describe "MCP resources end-to-end" do
   let(:server) { Rails::Hyperdrive::McpServer.server }
 
@@ -25,8 +21,7 @@ RSpec.describe "MCP resources end-to-end" do
       contents = resp[:result][:contents].first
       expect(contents[:mimeType]).to eq("application/json")
       payload = JSON.parse(contents[:text])
-      # spec/internal does not ship a Gemfile.lock, so an :error sentinel is
-      # expected — but we still want the known top-level keys present.
+      # spec/internal ships no Gemfile.lock, so the profile resolves to the :error sentinel.
       expect(payload.keys).to include("rails", "ruby")
     end
   end

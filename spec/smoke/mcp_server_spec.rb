@@ -1,9 +1,6 @@
 require "json"
 require_relative "smoke_helper"
 
-# Boots a real Rails server with hyperdrive mounted and exercises the
-# MCP endpoint over HTTP. Catches breakage that the in-process Combustion
-# specs miss: middleware order, request streaming transport, real ri lookup.
 RSpec.describe "MCP server smoke", :smoke do
   let(:app_dir) { Smoke.copy_fixture("full_stack") }
 
@@ -40,11 +37,6 @@ RSpec.describe "MCP server smoke", :smoke do
   end
 
   it "lookup_doc returns a structured response (not a crash) for a stdlib symbol" do
-    # ri docs may or may not be installed on the host; what matters is the
-    # tool returns a well-formed MCP response. A successful lookup contains
-    # the text content; a missing-docs lookup returns an isError payload
-    # with "Nothing known about" or "ri not available". Either is fine —
-    # we just need to know it didn't blow up.
     resp = Smoke.mcp_call(@port, "tools/call", {name: "lookup_doc", arguments: {reference: "String#strip"}})
     content = resp.dig("result", "content", 0, "text")
     expect(content).to be_a(String)
