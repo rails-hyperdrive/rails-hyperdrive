@@ -16,9 +16,12 @@ module Rails
       CLAUDE_MD = "CLAUDE.md".freeze
       INDEX_LINE = "@.claude/hyperdrive/index.md".freeze
       HYPERDRIVE_DIR = ".claude/hyperdrive".freeze
+      SKILLS_DIR = ".claude/skills".freeze
       INDEX_PATH = ".claude/hyperdrive/index.md".freeze
       STACK_PATH = ".claude/hyperdrive/stack.md".freeze
       LOCK_PATH = ".hyperdrive/lock.yml".freeze
+
+      ARTIFACT_DESTINATIONS = [SKILLS_DIR, HYPERDRIVE_DIR, LOCK_PATH].freeze
 
       WARN_LINES = 150
       WARN_TOKENS = 1_500
@@ -58,11 +61,17 @@ module Rails
         write_lock
         print_warnings
         print_footprint
+        warn_if_destinations_gitignored
         @result
       end
 
       def plan
         @plan ||= InstallPlan.build(@artifacts)
+      end
+
+      # The lock as the run leaves it: source gem and version per installed file.
+      def lock
+        @new_lock
       end
 
       private
@@ -324,6 +333,31 @@ module Rails
         @shell.say_status :warn,
           "eager context is over the ~#{TOTAL_WARN_TOKENS} token budget (largest: #{top.join(", ")}); trim them, or drop a line from #{INDEX_PATH} to opt one out",
           :yellow
+      end
+
+      def warn_if_destinations_gitignored
+        return if additive?
+        ignored = gitignored_destinations
+        return if ignored.empty?
+
+        @shell.say_status :warn,
+          "#{ignored.join(", ")} #{ignored.one? ? "is" : "are"} gitignored; installed artifacts stay out of " \
+          "git status and pull-request diffs, so companion-shipped content reaches the agent unreviewed",
+          :yellow
+      end
+
+      # Patterns, negations, and per-repository excludes all decide ignore
+      # status, so git is the only correct oracle. Fail-open: no match, no
+      # repository, and no git alike exit non-zero and read as "not ignored".
+      def gitignored_destinations
+        output = IO.popen(
+          ["git", "check-ignore", "--", *ARTIFACT_DESTINATIONS],
+          chdir: @root, err: File::NULL, &:read
+        )
+        return [] unless $?&.success?
+        output.to_s.split("\n").map(&:strip).reject(&:empty?)
+      rescue SystemCallError
+        []
       end
 
       def warn_if_oversize(dest, body)

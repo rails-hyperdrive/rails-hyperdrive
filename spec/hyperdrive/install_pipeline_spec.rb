@@ -141,6 +141,44 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     end
   end
 
+  describe "gitignored install destination" do
+    def run_reporting(mode: :init, artifacts: [])
+      io = StringIO.new
+      described_class.new(
+        root: root,
+        shell: Rails::Hyperdrive::InstallShell.new(root: root, io: io),
+        artifacts: artifacts,
+        stack: stack,
+        mode: mode
+      ).call
+      io.string
+    end
+
+    before { system("git", "init", "--quiet", root, out: File::NULL, err: File::NULL) }
+
+    it "warns when the destinations are ignored" do
+      File.write(File.join(root, ".gitignore"), ".claude/\n")
+
+      out = run_reporting(artifacts: [guideline(name: "auth-pundit")])
+
+      expect(out).to include(".claude/skills", ".claude/hyperdrive")
+      expect(out).to match(/gitignored/)
+      expect(out).to match(/unreviewed/)
+    end
+
+    it "stays quiet when they are tracked" do
+      expect(run_reporting(artifacts: [guideline(name: "auth-pundit")])).not_to match(/gitignored/)
+    end
+
+    # An additive run has no terminal to warn at, and reports through its result.
+    it "stays quiet in additive mode" do
+      File.write(File.join(root, ".gitignore"), ".claude/\n")
+      run_reporting(artifacts: [guideline(name: "auth-pundit")])
+
+      expect(run_reporting(mode: :additive, artifacts: [])).not_to match(/gitignored/)
+    end
+  end
+
   it "rejects an unknown mode" do
     expect {
       described_class.new(root: root, shell: nil, artifacts: [], stack: stack, mode: :clobber)

@@ -30,14 +30,22 @@ $ bin/rails hyperdrive:init
   create  .mcp.json
   insert  config/routes.rb
   create  .claude/hyperdrive/stack.md
-  create  .claude/hyperdrive/guidelines/jobs-sidekiq.md   (from rails-hyperdrive-sidekiq@1.2.0)
-  create  .claude/skills/sidekiq-idempotency/SKILL.md      (from rails-hyperdrive-sidekiq@1.2.0)
+  create  .claude/hyperdrive/guidelines/jobs-sidekiq.md
+  create  .claude/skills/sidekiq-idempotency/SKILL.md
   create  .claude/hyperdrive/index.md
   create  CLAUDE.md
   create  .hyperdrive/lock.yml
    eager  1 guideline(s) + stack.md, ~420 tokens always in context
 
     done  hyperdrive initialized
+  Mount: /_hyperdrive (in config/routes.rb)
+  Installed 1 skill, 1 guideline + stack.md
+
+    rails-hyperdrive-sidekiq@1.2.0
+      skill      sidekiq-idempotency
+      guideline  jobs-sidekiq
+    internal@0.2.0
+      stack      stack.md
 
 # 4. Start the dev server
 $ bin/dev
@@ -88,6 +96,8 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
 .claude/skills/<name>/SKILL.md         # companion-shipped, frontmatter kept, audit-headered
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
+
+Everything a companion gem contributes lands here as git-tracked markdown, so a diff is where you review what it added — the install summary names each artifact's source gem and version, and every file carries the same provenance in an audit header. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
 
 ### Companion gem contract
 

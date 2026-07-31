@@ -47,6 +47,9 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
   before do
     prepare_destination
     @app_dir = destination_root
+    # spec/tmp/ is gitignored by this repo, so without its own repository the
+    # destination inherits that ignore and every run trips the gitignore warning.
+    system("git", "init", "--quiet", @app_dir, out: File::NULL, err: File::NULL)
     FileUtils.mkdir_p(File.join(@app_dir, "config"))
     File.write(File.join(@app_dir, "config", "routes.rb"), "Rails.application.routes.draw do\nend\n")
     File.write(File.join(@app_dir, "Gemfile.lock"), File.read(File.expand_path("../../fixtures/gemfile_lock/standard.lock", __dir__)))
@@ -430,6 +433,111 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
 
       File.write(path(".claude/hyperdrive/index.md"), "@stack.md\n@guidelines/tiny.md\n")
       expect(run_generator([])).not_to match(/token budget/)
+    end
+  end
+
+  describe "install summary provenance" do
+    it "groups each artifact under its source gem and version" do
+      stub_discovery([
+        skill_artifact(name: "sidekiq-idempotency", source: "rails-hyperdrive-sidekiq"),
+        guideline_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq"),
+        skill_artifact(name: "component-authoring", source: "rails-hyperdrive-view-component")
+      ])
+      out = run_generator([])
+
+      expect(out).to include("Installed 2 skills, 1 guideline + stack.md")
+      expect(out).to match(
+        /rails-hyperdrive-sidekiq@1\.0\.0\n\s+skill\s+sidekiq-idempotency\n\s+guideline\s+jobs-sidekiq/
+      )
+      expect(out).to match(/rails-hyperdrive-view-component@1\.0\.0\n\s+skill\s+component-authoring/)
+    end
+
+    it "lists the generated stack.md last, under its own source" do
+      stub_discovery([skill_artifact(name: "s1", source: "rails-hyperdrive-a")])
+      out = run_generator([])
+
+      expect(out).to match(/internal@#{Regexp.escape(Rails::Hyperdrive::VERSION)}\n\s+stack\s+stack\.md/)
+      expect(out.index("rails-hyperdrive-a@1.0.0")).to be < out.index("internal@")
+    end
+
+    it "singularizes the counts" do
+      stub_discovery([skill_artifact(name: "s1", source: "rails-hyperdrive-a")])
+      expect(run_generator([])).to include("Installed 1 skill, 0 guidelines + stack.md")
+    end
+
+    it "lists files a re-run left unchanged" do
+      stub_discovery([skill_artifact(name: "s1", source: "rails-hyperdrive-a")])
+      run_generator([])
+      out = run_generator([])
+
+      expect(out).to match(%r{unchanged.*\.claude/skills/s1/SKILL\.md})
+      expect(out).to match(/rails-hyperdrive-a@1\.0\.0\n\s+skill\s+s1/)
+    end
+
+    it "lists a locally-modified file that init skipped" do
+      stub_discovery([guideline_artifact(name: "g1", source: "rails-hyperdrive-a")])
+      run_generator([])
+      File.write(path(".claude/hyperdrive/guidelines/g1.md"), "hand-edited\n")
+      out = run_generator([])
+
+      expect(out).to match(/locally modified/)
+      expect(out).to match(/rails-hyperdrive-a@1\.0\.0\n\s+guideline\s+g1/)
+    end
+
+    it "lists an orphan whose source gem left the bundle" do
+      stub_discovery([skill_artifact(name: "gone", source: "rails-hyperdrive-a")])
+      run_generator([])
+      stub_discovery([])
+      out = run_generator([])
+
+      expect(out).to match(/no longer in bundle/)
+      expect(out).to match(/rails-hyperdrive-a@1\.0\.0\n\s+skill\s+gone/)
+    end
+
+    it "lists both variants of a cross-source collision under their own sources" do
+      stub_discovery([
+        skill_artifact(name: "dup", source: "rails-hyperdrive-a"),
+        skill_artifact(name: "dup", source: "rails-hyperdrive-b")
+      ])
+      out = run_generator([])
+
+      expect(out).to match(/rails-hyperdrive-a@1\.0\.0\n\s+skill\s+dup--rails-hyperdrive-a/)
+      expect(out).to match(/rails-hyperdrive-b@1\.0\.0\n\s+skill\s+dup--rails-hyperdrive-b/)
+    end
+
+    it "prints no listing under --skip-content" do
+      expect(run_generator(["--skip-content"])).not_to include("Installed")
+    end
+  end
+
+  describe "gitignored install destination" do
+    it "warns when .claude/ is gitignored" do
+      File.write(path(".gitignore"), ".claude/\n")
+      out = run_generator([])
+
+      expect(out).to match(/gitignored/)
+      expect(out).to include(".claude/skills")
+      expect(out).to include(".claude/hyperdrive")
+      expect(out).to match(/unreviewed/)
+    end
+
+    it "warns when the lockfile is gitignored" do
+      File.write(path(".gitignore"), ".hyperdrive/\n")
+      out = run_generator([])
+
+      expect(out).to match(%r{\.hyperdrive/lock\.yml is gitignored})
+    end
+
+    it "stays quiet when the destinations are git-tracked" do
+      expect(run_generator([])).not_to match(/gitignored/)
+    end
+
+    it "stays quiet when git is unavailable" do
+      allow(IO).to receive(:popen).and_call_original
+      allow(IO).to receive(:popen).with(array_including("check-ignore"), any_args).and_raise(Errno::ENOENT)
+      File.write(path(".gitignore"), ".claude/\n")
+
+      expect(run_generator([])).not_to match(/gitignored/)
     end
   end
 
