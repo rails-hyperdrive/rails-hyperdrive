@@ -42,6 +42,6 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "railties", ">= 7.2"
   spec.add_dependency "activerecord", ">= 7.2"
-  spec.add_dependency "mcp", "~> 0.17"
+  spec.add_dependency "mcp", "~> 0.25"
   spec.add_dependency "bundler", ">= 2.3"
 end

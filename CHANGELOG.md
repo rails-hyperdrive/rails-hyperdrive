@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The MCP endpoint no longer 403s local requests whose `Origin` port differs
+  from the server's (e.g. `Origin: http://localhost` against
+  `127.0.0.1:3000`). The `mcp` gem's `StreamableHTTPTransport` gained
+  default-on DNS-rebinding protection requiring a same-origin `host:port`
+  match; it is now disabled in favor of the engine's own Rack middleware,
+  which allows any `localhost` / `127.0.0.1` / `[::1]` origin regardless of
+  port. The `mcp` dependency floor moves to `~> 0.25` accordingly.
+
 - `BundlerArtifactDiscovery#version_matches?` now correctly parses the documented
   comma-separated single-string form of `versions:` (e.g. `">= 7.0, < 9.0"`).
   Previously, `Gem::Requirement.new` rejected that form with `BadRequirementError`
