@@ -79,6 +79,9 @@ module Rails
       def gem_name_for(entry)
         entry[:key].to_s
       end
+
+      private_class_method :steering_config, :labels, :steering, :fact_lines,
+                           :bucket_line, :display_member, :gem_name_for
     end
   end
 end

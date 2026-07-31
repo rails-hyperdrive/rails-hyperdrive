@@ -288,7 +288,7 @@ module Rails
 
       def version_satisfied?(versions, target, version)
         requirement = versions.is_a?(Hash) ? versions[target] : versions
-        requirement.nil? || version_matches?(requirement, version)
+        requirement.nil? || SkillTemplate.version_matches?(requirement, version)
       end
 
       def no_match_reason(targets, versions, resolved)
@@ -302,20 +302,19 @@ module Rails
         end
       end
 
-      # Gem::Requirement.new does not parse a single comma-separated string, so
-      # such strings are split into separate constraints first.
-      def version_matches?(requirement_str, version)
-        parts = Array(requirement_str).flat_map { |s| s.is_a?(String) ? s.split(",").map(&:strip) : s }
-        Gem::Requirement.new(*parts).satisfied_by?(Gem::Version.new(version.to_s))
-      rescue ArgumentError
-        false
-      end
-
       def safe_bundler_specs
         ::Bundler.load.specs.to_a
       rescue ::Bundler::BundlerError
         []
       end
+
+      private_class_method :each_artifact_path, :skill_paths, :guideline_paths,
+                           :skills_dir_override, :parse, :support_files_for,
+                           :conditioned_support_files, :apply_conditional_filter,
+                           :conditional_satisfied?, :malformed_requirements?,
+                           :render_support_templates, :erb_template?,
+                           :split_frontmatter, :parse_targets, :match_targets,
+                           :version_satisfied?, :no_match_reason, :safe_bundler_specs
     end
   end
 end

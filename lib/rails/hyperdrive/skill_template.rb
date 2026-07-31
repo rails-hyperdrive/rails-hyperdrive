@@ -1,5 +1,4 @@
 require "erb"
-require "rails/hyperdrive/bundler_artifact_discovery"
 
 module Rails
   module Hyperdrive
@@ -15,7 +14,7 @@ module Rails
         def gem?(name, requirement = nil)
           version = @resolved[name.to_s]
           return false unless version
-          requirement.nil? || BundlerArtifactDiscovery.version_matches?(requirement, version)
+          requirement.nil? || SkillTemplate.version_matches?(requirement, version)
         end
 
         def any_gem?(*names)
@@ -38,6 +37,15 @@ module Rails
       # skip and warn.
       def render(source, resolved:)
         ERB.new(source, trim_mode: "-").result(Context.new(resolved).template_binding)
+      end
+
+      # Gem::Requirement.new does not parse a single comma-separated string, so
+      # such strings are split into separate constraints first.
+      def version_matches?(requirement_str, version)
+        parts = Array(requirement_str).flat_map { |s| s.is_a?(String) ? s.split(",").map(&:strip) : s }
+        Gem::Requirement.new(*parts).satisfied_by?(Gem::Version.new(version.to_s))
+      rescue ArgumentError
+        false
       end
     end
   end

@@ -59,12 +59,21 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
     it "rejects a relative path containing a .. segment" do
       Dir.mktmpdir do |dir|
-        skill_dir = File.join(dir, "skills", "x")
+        skill_dir = File.join(dir, "lib", "dummy_gem", "hyperdrive", "skills", "x")
         FileUtils.mkdir_p(skill_dir)
-        File.write(File.join(dir, "evil.md"), "evil\n")
-        allow(Dir).to receive(:glob).and_return([File.join(skill_dir, "..", "..", "evil.md")])
+        File.write(File.join(skill_dir, "SKILL.md"),
+          "---\nname: x\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# x\n")
+        File.write(File.join(dir, "lib", "dummy_gem", "hyperdrive", "evil.md"), "evil\n")
 
-        expect(described_class.support_files_for(skill_dir)).to eq([])
+        # A real glob never emits ".." components; stub only the support-file
+        # glob to exercise the defense-in-depth guard.
+        allow(Dir).to receive(:glob).and_call_original
+        allow(Dir).to receive(:glob).with(File.join(skill_dir, "**", "*"))
+          .and_return([File.join(skill_dir, "..", "..", "evil.md")])
+
+        spec = spec_double("dummy_gem", "1.0.0", dir)
+        skill = described_class.discover(specs: [spec]).find { |a| a.name == "x" }
+        expect(skill.support_files).to eq([])
       end
     end
 
@@ -472,9 +481,19 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
   describe "rails_hyperdrive_skills_dir override" do
     it "rejects an override containing .. segments" do
-      spec = spec_double("dummy_gem", "1.4.2", dummy_root)
-      allow(spec).to receive(:metadata).and_return("rails_hyperdrive_skills_dir" => "../../etc")
-      expect(described_class.skills_dir_override(spec)).to be_nil
+      Dir.mktmpdir do |dir|
+        gem_root = File.join(dir, "gem_root")
+        FileUtils.mkdir_p(gem_root)
+        edir = File.join(dir, "outside", "evil")
+        FileUtils.mkdir_p(edir)
+        File.write(
+          File.join(edir, "SKILL.md"),
+          "---\nname: evil\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# evil\n"
+        )
+        spec = spec_double("dummy_gem", "1.0.0", gem_root)
+        allow(spec).to receive(:metadata).and_return("rails_hyperdrive_skills_dir" => "../outside")
+        expect(described_class.discover(specs: [spec])).to be_empty
+      end
     end
 
     it "discovers skills from a valid override directory (union with convention)" do
@@ -687,8 +706,8 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
   end
 
-  describe "safe_bundler_specs" do
-    it "returns [] when Bundler cannot resolve the bundle" do
+  describe "when Bundler cannot resolve the bundle" do
+    it "discovers nothing rather than raising" do
       allow(::Bundler).to receive(:load).and_raise(::Bundler::GemfileNotFound)
       expect(described_class.discover).to eq([])
     end
