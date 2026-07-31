@@ -10,6 +10,7 @@ module Smoke
   REPO_ROOT = File.expand_path("../..", __dir__).freeze
   FIXTURES_ROOT = File.join(REPO_ROOT, "spec/fixtures/smoke_apps").freeze
   COMPANIONS_ROOT = File.join(REPO_ROOT, "spec/fixtures/smoke_companions").freeze
+  PLUGIN_ROOT = File.join(REPO_ROOT, "bundler-hyperdrive").freeze
   TMP_ROOT = File.join(REPO_ROOT, "spec/tmp/smoke").freeze
   # Shared bundle cache across scenarios so only the first install pays the
   # full network cost; subsequent scenarios reuse the resolved gems.
@@ -28,10 +29,13 @@ module Smoke
     dest
   end
 
+  # Registering the plugin in every fixture makes each smoke `bundle install`
+  # a standing check that the hook never breaks an install.
   def add_path_gem!(app_dir)
     gemfile = File.join(app_dir, "Gemfile")
-    line = %(gem "rails-hyperdrive", path: #{REPO_ROOT.inspect}\n)
-    File.open(gemfile, "a") { |f| f.write(line) }
+    lines = %(gem "rails-hyperdrive", path: #{REPO_ROOT.inspect}\n) +
+            %(plugin "bundler-hyperdrive", path: #{PLUGIN_ROOT.inspect}\n)
+    File.open(gemfile, "a") { |f| f.write(lines) }
   end
 
   def add_companion_gem!(app_dir, gem_name)
@@ -45,15 +49,16 @@ module Smoke
 
   # Bundler.with_unbundled_env scrubs parent-process bundler vars so the
   # subprocess resolves the app's own Gemfile.
-  def bundle_install!(app_dir)
+  def bundle_install!(app_dir, env = {})
     FileUtils.mkdir_p(BUNDLE_PATH)
     Bundler.with_unbundled_env do
       out, status = Open3.capture2e(
-        env_for(app_dir),
+        env_for(app_dir).merge(env),
         "bundle", "install",
         chdir: app_dir
       )
       raise "bundle install failed:\n#{out}" unless status.success?
+      out
     end
   end
 

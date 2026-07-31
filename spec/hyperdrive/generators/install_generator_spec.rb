@@ -243,6 +243,56 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
+  describe "bundler plugin Gemfile directive" do
+    def gemfile = path("Gemfile")
+
+    it "appends the plugin directive to a fresh Gemfile" do
+      File.write(gemfile, %(source "https://rubygems.org"\n\ngem "rails"\n))
+      run_generator([])
+      expect(File.read(gemfile)).to end_with(%(gem "rails"\nplugin "bundler-hyperdrive"\n))
+    end
+
+    it "is idempotent — re-running appends exactly one directive" do
+      File.write(gemfile, %(source "https://rubygems.org"\n))
+      run_generator([])
+      run_generator([])
+      expect(File.read(gemfile).scan('plugin "bundler-hyperdrive"').length).to eq(1)
+    end
+
+    it "leaves an existing path-sourced directive byte-identical" do
+      body = %(source "https://rubygems.org"\nplugin "bundler-hyperdrive", path: "../bundler-hyperdrive"\n)
+      File.write(gemfile, body)
+      out = run_generator([])
+      expect(File.read(gemfile)).to eq(body)
+      expect(out).to match(/identical\s+Gemfile/)
+    end
+
+    it "skips with a status when there is no Gemfile" do
+      out = run_generator([])
+      expect(out).to match(/skip\s+no Gemfile found/)
+      expect(File).not_to exist(gemfile)
+    end
+
+    it "appends on its own line when the Gemfile lacks a trailing newline" do
+      File.write(gemfile, %(gem "rails"))
+      run_generator([])
+      expect(File.read(gemfile)).to end_with(%(gem "rails"\nplugin "bundler-hyperdrive"\n))
+    end
+
+    it "still writes the directive under --skip-content" do
+      File.write(gemfile, %(source "https://rubygems.org"\n))
+      run_generator(["--skip-content"])
+      expect(File.read(gemfile)).to include(%(plugin "bundler-hyperdrive"\n))
+    end
+
+    it "writes nothing under --dry-run" do
+      body = %(source "https://rubygems.org"\n)
+      File.write(gemfile, body)
+      run_generator(["--dry-run"])
+      expect(File.read(gemfile)).to eq(body)
+    end
+  end
+
   describe "skill install (frontmatter kept, YAML audit header)" do
     before { stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")]) }
 
