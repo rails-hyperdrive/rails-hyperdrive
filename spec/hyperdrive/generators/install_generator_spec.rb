@@ -382,6 +382,145 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
+  describe "per-artifact opt-out (disabled: in lock.yml)" do
+    def lock_path = path(".hyperdrive/lock.yml")
+
+    # Hand-edit the lockfile the way a user would.
+    def disable(key, *names)
+      FileUtils.mkdir_p(File.dirname(lock_path))
+      data = File.exist?(lock_path) ? YAML.safe_load(File.read(lock_path)) : {}
+      (data["disabled"] ||= {})[key] = names
+      File.write(lock_path, data.to_yaml)
+    end
+
+    it "never installs a skill disabled before the first run" do
+      disable("skills", "jobs-sidekiq")
+      stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+      out = run_generator([])
+      expect(File).not_to exist(path(".claude/skills/jobs-sidekiq/SKILL.md"))
+      expect(out).to include("disabled")
+    end
+
+    it "removes an already-installed skill once disabled, directory and all" do
+      stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+      run_generator([])
+      expect(File).to exist(path(".claude/skills/jobs-sidekiq/SKILL.md"))
+
+      disable("skills", "jobs-sidekiq")
+      run_generator([])
+      expect(File).not_to exist(path(".claude/skills/jobs-sidekiq/SKILL.md"))
+      expect(Dir).not_to exist(path(".claude/skills/jobs-sidekiq"))
+      expect(File.read(lock_path)).not_to include("jobs-sidekiq/SKILL.md")
+    end
+
+    it "keeps a user's own files in a disabled skill's directory" do
+      stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+      run_generator([])
+      File.write(path(".claude/skills/jobs-sidekiq/NOTES.md"), "mine\n")
+
+      disable("skills", "jobs-sidekiq")
+      run_generator([])
+      expect(File).not_to exist(path(".claude/skills/jobs-sidekiq/SKILL.md"))
+      expect(File.read(path(".claude/skills/jobs-sidekiq/NOTES.md"))).to eq("mine\n")
+    end
+
+    it "leaves a locally-modified disabled artifact in place and warns" do
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
+      run_generator([])
+      gpath = path(".claude/hyperdrive/guidelines/auth-pundit.md")
+      File.write(gpath, File.read(gpath) + "\nMY LOCAL EDIT\n")
+
+      disable("guidelines", "auth-pundit")
+      out = run_generator([])
+      expect(File.read(gpath)).to include("MY LOCAL EDIT")
+      expect(out).to include("locally modified")
+      expect(File.read(lock_path)).to include("auth-pundit")
+    end
+
+    it "does not force-remove a locally-modified disabled artifact on update" do
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
+      run_generator([])
+      gpath = path(".claude/hyperdrive/guidelines/auth-pundit.md")
+      File.write(gpath, File.read(gpath) + "\nMY LOCAL EDIT\n")
+
+      disable("guidelines", "auth-pundit")
+      run_generator(["--update"])
+      expect(File.read(gpath)).to include("MY LOCAL EDIT")
+    end
+
+    it "drops a disabled guideline from index.md" do
+      stub_discovery([
+        guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit"),
+        guideline_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")
+      ])
+      run_generator([])
+      expect(File.read(path(".claude/hyperdrive/index.md"))).to include("@guidelines/auth-pundit.md")
+
+      disable("guidelines", "auth-pundit")
+      run_generator([])
+      index = File.read(path(".claude/hyperdrive/index.md"))
+      expect(index).not_to include("@guidelines/auth-pundit.md")
+      expect(index).to include("@guidelines/jobs-sidekiq.md")
+      expect(File).not_to exist(path(".claude/hyperdrive/guidelines/auth-pundit.md"))
+    end
+
+    it "disables every variant of a cross-source collision by its shipped name" do
+      stub_discovery([
+        skill_artifact(name: "dummy-skill", source: "dummy_gem"),
+        skill_artifact(name: "dummy-skill", source: "companion_gem")
+      ])
+      run_generator([])
+      expect(File).to exist(path(".claude/skills/dummy-skill--dummy_gem/SKILL.md"))
+
+      disable("skills", "dummy-skill")
+      run_generator([])
+      expect(Dir).not_to exist(path(".claude/skills/dummy-skill--dummy_gem"))
+      expect(Dir).not_to exist(path(".claude/skills/dummy-skill--companion_gem"))
+    end
+
+    it "disables a single variant of a collision by its postfixed name" do
+      stub_discovery([
+        skill_artifact(name: "dummy-skill", source: "dummy_gem"),
+        skill_artifact(name: "dummy-skill", source: "companion_gem")
+      ])
+      run_generator([])
+
+      disable("skills", "dummy-skill--dummy_gem")
+      run_generator([])
+      expect(Dir).not_to exist(path(".claude/skills/dummy-skill--dummy_gem"))
+      expect(File).to exist(path(".claude/skills/dummy-skill--companion_gem/SKILL.md"))
+    end
+
+    it "reinstalls an artifact once its name leaves the list" do
+      stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+      run_generator([])
+      disable("skills", "jobs-sidekiq")
+      run_generator([])
+      expect(File).not_to exist(path(".claude/skills/jobs-sidekiq/SKILL.md"))
+
+      disable("skills")
+      run_generator([])
+      expect(File).to exist(path(".claude/skills/jobs-sidekiq/SKILL.md"))
+    end
+
+    it "carries the list forward across runs" do
+      stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+      run_generator([])
+      disable("skills", "jobs-sidekiq")
+      run_generator([])
+      run_generator([])
+      expect(YAML.safe_load(File.read(lock_path)).dig("disabled", "skills")).to eq(["jobs-sidekiq"])
+    end
+
+    it "writes nothing under --dry-run" do
+      stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+      run_generator([])
+      disable("skills", "jobs-sidekiq")
+      run_generator(["--dry-run"])
+      expect(File).to exist(path(".claude/skills/jobs-sidekiq/SKILL.md"))
+    end
+  end
+
   describe "discovery warnings surfaced in output" do
     it "prints a summary of skipped artifacts" do
       allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |warnings:, **_|

@@ -131,6 +131,33 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(result.orphaned.map(&:path)).to eq([".claude/hyperdrive/guidelines/auth-pundit.md"])
       expect(File).to exist(File.join(root, ".claude/hyperdrive/guidelines/auth-pundit.md"))
     end
+
+    it "never installs a disabled artifact" do
+      disable("jobs-sidekiq")
+      bundle_ships([guideline(name: "auth-pundit"), guideline(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+
+      result = described_class.run(root: root)
+
+      expect(result.installed).to be_empty
+      expect(File).not_to exist(File.join(root, ".claude/hyperdrive/guidelines/jobs-sidekiq.md"))
+    end
+
+    # Removing one is an explicit hyperdrive:init / hyperdrive:update.
+    it "leaves an installed artifact on disk when it is disabled" do
+      disable("auth-pundit")
+      bundle_ships([guideline(name: "auth-pundit")])
+
+      described_class.run(root: root)
+
+      expect(File).to exist(File.join(root, ".claude/hyperdrive/guidelines/auth-pundit.md"))
+    end
+  end
+
+  def disable(*names)
+    lock_path = File.join(root, Rails::Hyperdrive::InstallPipeline::LOCK_PATH)
+    data = YAML.safe_load(File.read(lock_path))
+    (data["disabled"] ||= {})["guidelines"] = names
+    File.write(lock_path, data.to_yaml)
   end
 
   def with_env(vars)

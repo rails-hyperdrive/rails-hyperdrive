@@ -21,6 +21,11 @@ module Rails
         say_status(:create, path)
       end
 
+      def remove_file(path)
+        FileUtils.rm_rf(File.join(@root, path)) unless @pretend
+        say_status(:remove, path)
+      end
+
       def append_to_file(path, content)
         abs = File.join(@root, path)
         File.open(abs, "a") { |f| f.write(content) } unless @pretend

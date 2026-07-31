@@ -99,6 +99,24 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
 
 Everything a companion gem contributes lands here as git-tracked markdown, so a diff is where you review what it added — the install summary names each artifact's source gem and version, and every file carries the same provenance in an audit header. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
 
+### Turning off a single artifact
+
+A companion gem you want for one skill but not another doesn't have to be all-or-nothing. Add the artifact's name to the `disabled:` list in `.hyperdrive/lock.yml` — it is written empty on every install, so the shape is already there:
+
+```yaml
+disabled:
+  skills:
+    - sidekiq-idempotency
+  guidelines:
+    - jobs-sidekiq
+```
+
+A disabled artifact is never installed, and one already on disk is removed on the next `hyperdrive:init` or `hyperdrive:update` — but only if you haven't edited it. A locally-modified file is reported and left alone, for you to delete when you're ready. Disabling a guideline also drops its line from `index.md`, so it leaves eager context along with the file.
+
+The list is yours to edit; the generator only reads it and carries it forward. Delete a name to get the artifact back on the next run. When two companion gems ship the same artifact name, both install under a `<name>--<source-gem>` suffix — the plain name disables both, the suffixed name disables one.
+
+To skip installed content wholesale instead, pass `--skip-content`.
+
 ### Companion gem contract
 
 A companion gem ships artifacts under:

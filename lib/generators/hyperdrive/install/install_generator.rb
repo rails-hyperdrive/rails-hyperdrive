@@ -50,6 +50,10 @@ module Rails
             @generator.append_to_file(path, content)
           end
 
+          def remove_file(path)
+            @generator.remove_file(path)
+          end
+
           def say_status(kind, message, color = nil)
             @generator.say_status(kind, message, color)
           end

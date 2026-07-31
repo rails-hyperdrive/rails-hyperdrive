@@ -41,7 +41,7 @@ module Rails
         lock = LockFile.load(File.join(@root, InstallPipeline::LOCK_PATH))
         offered = {}
 
-        InstallPlan.build(@artifacts).each do |plan_entry|
+        InstallPlan.build(@artifacts, lock: lock).each do |plan_entry|
           offered[plan_entry.dest] = [sha(plan_entry.install_ready_body), plan_entry.source_label, plan_entry.type]
         end
         offered[InstallPipeline::STACK_PATH] =
@@ -62,6 +62,12 @@ module Rails
 
         lock.each_entry do |locked|
           next if offered.key?(locked[:path])
+
+          # A disabled artifact left on disk was reported at install time; the
+          # bundle still ships it, so it is not an orphan.
+          type = InstallPipeline::ARTIFACT_TYPES[locked[:artifact]]
+          next if type && InstallPlan.disabled_dest?(lock, type, locked[:path])
+
           @entries << Entry.new(
             path: locked[:path], state: :orphaned, artifact: locked[:artifact]&.to_sym,
             locked_source: locked[:source], bundle_source: nil

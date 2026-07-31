@@ -71,6 +71,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are all honored; outside a git repository, or without git installed, it stays
   silent.
 
+- Per-artifact opt-out via a `disabled:` list in `.hyperdrive/lock.yml`, keyed by
+  artifact type (`skills:` / `guidelines:`). A listed artifact is never installed,
+  and one already on disk is removed on the next `hyperdrive:init` /
+  `hyperdrive:update` — but only when the file still matches the content the lock
+  recorded, so a locally-modified artifact is reported and left in place instead.
+  Disabling a guideline also drops its line from `index.md`. For a name shipped by
+  more than one companion gem, the shipped name disables every variant and the
+  `--<source-gem>` postfixed name disables one. The list is hand-edited: the
+  generator reads it, carries it forward, and writes the empty scaffold on every
+  install so the key is discoverable. Previously the only control was
+  `--skip-content`, which suppresses all installed content at once.
+
 ### Fixed
 
 - The MCP endpoint no longer 403s local requests whose `Origin` port differs
@@ -80,6 +92,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   match; it is now disabled in favor of the engine's own Rack middleware,
   which allows any `localhost` / `127.0.0.1` / `[::1]` origin regardless of
   port. The `mcp` dependency floor moves to `~> 0.25` accordingly.
+
+- `.hyperdrive/lock.yml` now round-trips top-level keys it does not recognize.
+  Reading it selected only the known keys and writing it rebuilt the document from
+  scratch, so anything hand-added to the file was erased on the next run. Entries
+  under `files:` remain fully generated.
 
 - `BundlerArtifactDiscovery#version_matches?` now correctly parses the documented
   comma-separated single-string form of `versions:` (e.g. `">= 7.0, < 9.0"`).

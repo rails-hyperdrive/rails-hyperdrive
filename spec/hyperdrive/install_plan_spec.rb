@@ -54,4 +54,56 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     expect(entry.install_ready_body).to start_with("# jobs")
     expect(entry.source_label).to eq("gem_a@1.0.0")
   end
+
+  describe "a disabled name" do
+    def lock(skills: [], guidelines: [])
+      instance_double(Rails::Hyperdrive::LockFile).tap do |double|
+        allow(double).to receive(:disabled?) do |type, name|
+          (type == :skill ? skills : guidelines).include?(name)
+        end
+      end
+    end
+
+    it "is left out of the plan" do
+      plan = described_class.build(
+        [skill(name: "jobs", source: "gem_a"), guideline(name: "auth", source: "gem_a")],
+        lock: lock(skills: ["jobs"])
+      )
+
+      expect(plan.map(&:final_name)).to eq(["auth"])
+    end
+
+    it "only disables the artifact type it is listed under" do
+      plan = described_class.build([skill(name: "jobs", source: "gem_a")], lock: lock(guidelines: ["jobs"]))
+
+      expect(plan.map(&:final_name)).to eq(["jobs"])
+    end
+
+    it "drops every variant of a collision when the shipped name is listed" do
+      plan = described_class.build(
+        [skill(name: "jobs", source: "gem_a"), skill(name: "jobs", source: "gem_b")],
+        lock: lock(skills: ["jobs"])
+      )
+
+      expect(plan).to be_empty
+    end
+
+    it "drops one variant of a collision when the postfixed name is listed" do
+      plan = described_class.build(
+        [skill(name: "jobs", source: "gem_a"), skill(name: "jobs", source: "gem_b")],
+        lock: lock(skills: ["jobs--gem_a"])
+      )
+
+      expect(plan.map(&:dest)).to eq([".claude/skills/jobs--gem_b/SKILL.md"])
+    end
+
+    it "matches an installed path back to the name that disables it" do
+      disabled = lock(skills: ["jobs"], guidelines: ["auth"])
+
+      expect(described_class.disabled_dest?(disabled, :skill, ".claude/skills/jobs/SKILL.md")).to be true
+      expect(described_class.disabled_dest?(disabled, :skill, ".claude/skills/jobs--gem_a/SKILL.md")).to be true
+      expect(described_class.disabled_dest?(disabled, :guideline, ".claude/hyperdrive/guidelines/auth.md")).to be true
+      expect(described_class.disabled_dest?(disabled, :skill, ".claude/skills/other/SKILL.md")).to be false
+    end
+  end
 end

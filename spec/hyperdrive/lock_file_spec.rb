@@ -52,4 +52,81 @@ RSpec.describe Rails::Hyperdrive::LockFile do
       expect(yaml).to include("state: present")
     end
   end
+
+  describe "the disabled list" do
+    it "serializes an empty list for both artifact types" do
+      yaml = YAML.safe_load(described_class.new("/no/such/lock.yml").to_yaml)
+      expect(yaml["disabled"]).to eq("skills" => [], "guidelines" => [])
+    end
+
+    it "reads a hand-written list and reports names as disabled" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "lock.yml")
+        File.write(path, <<~YAML)
+          version: 1
+          claude_md:
+            state: present
+          disabled:
+            skills:
+              - vcr-cassettes
+            guidelines:
+              - service-objects
+          files: []
+        YAML
+
+        lock = described_class.load(path)
+        expect(lock.disabled?(:skill, "vcr-cassettes")).to be(true)
+        expect(lock.disabled?(:guideline, "service-objects")).to be(true)
+        expect(lock.disabled?(:skill, "service-objects")).to be(false)
+        expect(lock.disabled?(:guideline, "vcr-cassettes")).to be(false)
+        expect(lock.disabled(:skill)).to eq(["vcr-cassettes"])
+      end
+    end
+
+    it "survives a read/write round-trip" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "lock.yml")
+        File.write(path, "disabled:\n  skills:\n    - vcr-cassettes\n")
+
+        rewritten = described_class.new(path).carry_settings(described_class.load(path))
+        File.write(path, rewritten.to_yaml)
+
+        expect(described_class.load(path).disabled?(:skill, "vcr-cassettes")).to be(true)
+      end
+    end
+
+    it "ignores blank entries and reads a bare name as a one-entry list" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "lock.yml")
+        File.write(path, "disabled:\n  skills:\n    - ''\n    - '  spaced  '\n  guidelines: service-objects\n")
+
+        lock = described_class.load(path)
+        expect(lock.disabled(:skill)).to eq(["spaced"])
+        expect(lock.disabled(:guideline)).to eq(["service-objects"])
+      end
+    end
+
+    it "tolerates a disabled key that is not a mapping" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "lock.yml")
+        File.write(path, "disabled: nonsense\n")
+
+        lock = described_class.load(path)
+        expect(lock.disabled(:skill)).to eq([])
+        expect(lock.disabled(:guideline)).to eq([])
+      end
+    end
+  end
+
+  it "preserves top-level keys it does not recognize" do
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "lock.yml")
+      File.write(path, "version: 1\nfuture_key:\n  kept: yes\nfiles: []\n")
+
+      rewritten = described_class.new(path).carry_settings(described_class.load(path))
+      File.write(path, rewritten.to_yaml)
+
+      expect(YAML.safe_load(File.read(path))["future_key"]).to eq("kept" => true)
+    end
+  end
 end
