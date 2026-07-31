@@ -26,6 +26,27 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(skill).to include("gem: railties") # frontmatter retained
       expect(skill).to include("# Alpha Skill")
 
+      support_path = File.join(app_dir, ".claude/skills/alpha-skill/references/deep-dive.md")
+      expect(File.exist?(support_path)).to be(true), "alpha-skill supporting file not installed:\n#{out}"
+      shipped = File.binread(File.expand_path(
+        "../fixtures/smoke_companions/rails-hyperdrive-alpha/lib/rails-hyperdrive-alpha/hyperdrive/skills/alpha-skill/references/deep-dive.md",
+        __dir__
+      ))
+      expect(File.binread(support_path)).to eq(shipped) # byte-identical, no audit header
+
+      gated_in = File.join(app_dir, ".claude/skills/alpha-skill/references/sqlite-notes.md")
+      expect(File.exist?(gated_in)).to be(true), "gated-in supporting file not installed:\n#{out}"
+      gated_out = File.join(app_dir, ".claude/skills/alpha-skill/references/alba-notes.md")
+      expect(File.exist?(gated_out)).to be(false), "gated-out supporting file installed:\n#{out}"
+
+      rendered = File.join(app_dir, ".claude/skills/alpha-skill/references/stack-notes.md")
+      expect(File.exist?(rendered)).to be(true), "rendered .md.erb not installed:\n#{out}"
+      stack_notes = File.read(rendered)
+      expect(stack_notes).to include("This app persists to SQLite (sqlite3 2.")
+      expect(stack_notes).not_to include("Alba")
+      expect(stack_notes).not_to include("<%")
+      expect(File.exist?(rendered + ".erb")).to be(false)
+
       guide_path = File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-guide.md")
       expect(File.exist?(guide_path)).to be(true), "alpha-guide not installed:\n#{out}"
       guide = File.read(guide_path)
@@ -40,8 +61,16 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
 
       lock = File.read(File.join(app_dir, ".hyperdrive/lock.yml"))
       expect(lock).to include(".claude/skills/alpha-skill/SKILL.md")
+      expect(lock).to include(".claude/skills/alpha-skill/references/deep-dive.md")
+      expect(lock).to include(".claude/skills/alpha-skill/references/sqlite-notes.md")
+      expect(lock).to include(".claude/skills/alpha-skill/references/stack-notes.md")
+      expect(lock).not_to include("alba-notes.md")
+      expect(lock).not_to include("stack-notes.md.erb")
+      expect(lock).to include("artifact: skill_support")
       expect(lock).to include(".claude/hyperdrive/guidelines/alpha-guide.md")
       expect(lock).to include("rails-hyperdrive-alpha@0.1.0")
+
+      expect(out).to match(/skill\s+alpha-skill \(\+3 files\)/)
 
       expect(out).to match(/1 guideline\(s\) \+ stack\.md, ~[1-9]\d* tokens always in context/)
 
@@ -49,6 +78,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(status2.success?).to be(true), out2
       expect(out2).to match(/unchanged/)
       expect(File.read(skill_path)).to eq(skill)
+      expect(File.binread(support_path)).to eq(shipped)
       expect(File.read(guide_path)).to eq(guide)
     end
   end
@@ -131,6 +161,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       out3, status3 = Smoke.run_hyperdrive_init!(app_dir)
       expect(status3.success?).to be(true), out3
       expect(File.exist?(File.join(skill_dir, "SKILL.md"))).to be(true), "skill not restored:\n#{out3}"
+      expect(File.exist?(File.join(skill_dir, "references/deep-dive.md"))).to be(true), "supporting file not restored:\n#{out3}"
       expect(File.exist?(guide_path)).to be(true), "guideline not restored:\n#{out3}"
       expect(File.read(File.join(app_dir, ".claude/hyperdrive/index.md")))
         .to include("@guidelines/alpha-guide.md")

@@ -24,12 +24,12 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       .to receive(:discover).and_return(artifacts)
   end
 
-  def skill_artifact(name:, source:, body: nil)
+  def skill_artifact(name:, source:, body: nil, support_files: [])
     Artifact.new(
       name: name, description: "d", target_gem: ["dummy_gem"], versions: "~> 1.0",
       artifact_type: :skill, source_gem: source, path: "/x/#{name}/SKILL.md",
       body: body || "---\nname: #{name}\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n# #{name}\n",
-      spec_version: "1.0.0"
+      spec_version: "1.0.0", support_files: support_files
     )
   end
 
@@ -301,6 +301,133 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       body = File.read(path(".claude/skills/jobs-sidekiq/SKILL.md"))
       expect(body).to start_with("---")
       expect(body).to include("# hyperdrive: source=rails-hyperdrive-sidekiq@1.0.0")
+    end
+  end
+
+  describe "multi-file skill install (supporting files)" do
+    let(:support) do
+      [
+        { path: "references/deep.md", body: "# Deep\n\nraw supporting bytes.\n" },
+        { path: "examples/sample.rb", body: "puts 1\n" }
+      ]
+    end
+
+    def stub_multi(files = support)
+      stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq", support_files: files)])
+    end
+
+    it "installs the tree under the skill dir, byte-identical with no audit header" do
+      stub_multi
+      run_generator([])
+
+      expect(File.read(path(".claude/skills/jobs-sidekiq/references/deep.md"))).to eq("# Deep\n\nraw supporting bytes.\n")
+      expect(File.read(path(".claude/skills/jobs-sidekiq/examples/sample.rb"))).to eq("puts 1\n")
+    end
+
+    it "locks each supporting file as skill_support with a per-file sha" do
+      stub_multi
+      run_generator([])
+
+      lock = YAML.safe_load(File.read(path(".hyperdrive/lock.yml")))
+      entries = lock["files"].select { |e| e["artifact"] == "skill_support" }
+      expect(entries.map { |e| e["path"] }).to contain_exactly(
+        ".claude/skills/jobs-sidekiq/references/deep.md",
+        ".claude/skills/jobs-sidekiq/examples/sample.rb"
+      )
+      expect(entries.map { |e| e["source_sha"] }.uniq.size).to eq(2)
+    end
+
+    it "rewrites an unedited supporting file when the gem ships new content" do
+      stub_multi
+      run_generator([])
+
+      stub_multi([{ path: "references/deep.md", body: "# Deep v2\n" }, support.last])
+      run_generator([])
+      expect(File.read(path(".claude/skills/jobs-sidekiq/references/deep.md"))).to eq("# Deep v2\n")
+    end
+
+    it "skips a user-edited supporting file (skip + warn)" do
+      stub_multi
+      run_generator([])
+      spath = path(".claude/skills/jobs-sidekiq/references/deep.md")
+      File.write(spath, "my rewrite\n")
+
+      out = run_generator([])
+      expect(File.read(spath)).to eq("my rewrite\n")
+      expect(out).to include("locally modified")
+    end
+
+    it "reinstalls a deleted supporting file" do
+      stub_multi
+      run_generator([])
+      File.delete(path(".claude/skills/jobs-sidekiq/examples/sample.rb"))
+
+      run_generator([])
+      expect(File.read(path(".claude/skills/jobs-sidekiq/examples/sample.rb"))).to eq("puts 1\n")
+    end
+
+    describe "gated delete of a dropped supporting file" do
+      before do
+        stub_multi
+        run_generator([])
+        stub_multi(support.first(1)) # the gem stops shipping examples/sample.rb
+      end
+
+      it "removes an unedited copy and prunes the emptied subdirectory" do
+        run_generator([])
+        expect(File).not_to exist(path(".claude/skills/jobs-sidekiq/examples/sample.rb"))
+        expect(Dir).not_to exist(path(".claude/skills/jobs-sidekiq/examples"))
+        expect(File).to exist(path(".claude/skills/jobs-sidekiq/references/deep.md"))
+        expect(File.read(path(".hyperdrive/lock.yml"))).not_to include("examples/sample.rb")
+      end
+
+      it "warns and leaves an edited copy, carrying its lock entry" do
+        File.write(path(".claude/skills/jobs-sidekiq/examples/sample.rb"), "puts 2 # mine\n")
+
+        out = run_generator([])
+        expect(File.read(path(".claude/skills/jobs-sidekiq/examples/sample.rb"))).to eq("puts 2 # mine\n")
+        expect(out).to include("no longer shipped")
+        expect(File.read(path(".hyperdrive/lock.yml"))).to include("examples/sample.rb")
+      end
+    end
+
+    describe "disabling the owning skill" do
+      def disable_skill
+        lock_path = path(".hyperdrive/lock.yml")
+        data = YAML.safe_load(File.read(lock_path))
+        (data["disabled"] ||= {})["skills"] = ["jobs-sidekiq"]
+        File.write(lock_path, data.to_yaml)
+      end
+
+      before do
+        stub_multi
+        run_generator([])
+        disable_skill
+      end
+
+      it "removes unedited supporting files along with SKILL.md, directory and all" do
+        run_generator([])
+        expect(Dir).not_to exist(path(".claude/skills/jobs-sidekiq"))
+      end
+
+      it "keeps a user-created file not in the lock, and the directory with it" do
+        File.write(path(".claude/skills/jobs-sidekiq/NOTES.md"), "mine\n")
+
+        run_generator([])
+        expect(File).not_to exist(path(".claude/skills/jobs-sidekiq/SKILL.md"))
+        expect(File).not_to exist(path(".claude/skills/jobs-sidekiq/references/deep.md"))
+        expect(File.read(path(".claude/skills/jobs-sidekiq/NOTES.md"))).to eq("mine\n")
+      end
+    end
+
+    it "summarizes supporting files as a count on the skill's line" do
+      stub_multi
+      out = run_generator([])
+
+      expect(out).to include("Installed 1 skill, 0 guidelines + stack.md")
+      expect(out).to match(/skill\s+jobs-sidekiq \(\+2 files\)/)
+      expect(out).not_to match(/skill_support/)
+      expect(out.scan("references/deep.md").size).to eq(1) # the create line only, no summary line
     end
   end
 

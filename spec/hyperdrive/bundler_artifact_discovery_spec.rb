@@ -31,6 +31,386 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
   end
 
+  describe "supporting files" do
+    it "captures every file in the skill dir besides SKILL.md, with dir-relative paths and raw bodies" do
+      skill = described_class.discover(specs: [dummy_spec]).find { |s| s.name == "dummy-skill" }
+      expect(skill.support_files.map { |f| f[:path] })
+        .to contain_exactly("examples/sample.rb", "references/deep-dive.md", "references/tips.md")
+
+      reference = skill.support_files.find { |f| f[:path] == "references/deep-dive.md" }
+      expect(reference[:body]).to eq(File.binread(File.join(File.dirname(skill.path), "references/deep-dive.md")))
+    end
+
+    it "excludes a nested file named SKILL.md" do
+      Dir.mktmpdir do |dir|
+        sdir = File.join(dir, "lib", "dummy_gem", "hyperdrive", "skills", "outer")
+        FileUtils.mkdir_p(File.join(sdir, "nested"))
+        File.write(File.join(sdir, "SKILL.md"),
+          "---\nname: outer\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# outer\n")
+        File.write(File.join(sdir, "nested", "SKILL.md"),
+          "---\nname: nested\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# nested\n")
+        File.write(File.join(sdir, "nested", "notes.md"), "notes\n")
+
+        spec = spec_double("dummy_gem", "1.0.0", dir)
+        outer = described_class.discover(specs: [spec]).find { |a| a.name == "outer" }
+        expect(outer.support_files.map { |f| f[:path] }).to eq(["nested/notes.md"])
+      end
+    end
+
+    it "rejects a relative path containing a .. segment" do
+      Dir.mktmpdir do |dir|
+        skill_dir = File.join(dir, "skills", "x")
+        FileUtils.mkdir_p(skill_dir)
+        File.write(File.join(dir, "evil.md"), "evil\n")
+        allow(Dir).to receive(:glob).and_return([File.join(skill_dir, "..", "..", "evil.md")])
+
+        expect(described_class.support_files_for(skill_dir)).to eq([])
+      end
+    end
+
+    it "is always empty for guidelines" do
+      guidelines = described_class.discover(specs: [dummy_spec]).select(&:guideline?)
+      expect(guidelines.map(&:support_files)).to all(eq([]))
+    end
+  end
+
+  describe "conditional supporting files (broad conditioning)" do
+    def dummy_skill(*specs, warnings: [])
+      described_class.discover(specs: specs, warnings: warnings)
+                     .find { |a| a.name == "dummy-skill" && a.source_gem == "dummy_gem" }
+    end
+
+    it "gates a file out when its condition gem is not in the bundle" do
+      skill = dummy_skill(dummy_spec)
+      expect(skill.support_files.map { |f| f[:path] }).not_to include("references/conditional.md")
+    end
+
+    it "gates a file in when its condition gem is bundled (versions: omitted = unconstrained)" do
+      skill = dummy_skill(dummy_spec, companion_spec)
+      expect(skill.support_files.map { |f| f[:path] }).to include("references/conditional.md")
+    end
+
+    context "with tmpdir-built trees" do
+      around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
+
+      let(:spec)    { spec_double("source_gem", "1.0.0", @dir) }
+      let(:sidekiq) { spec_double("sidekiq", "7.3.0", @dir.to_s + "/nope") }
+      let(:solid)   { spec_double("solid_queue", "1.1.0", @dir.to_s + "/nope") }
+
+      def write_skill(conditional_yaml, files: { "references/extra.md" => "extra\n" })
+        sdir = File.join(@dir, "lib", "source_gem", "hyperdrive", "skills", "cond")
+        FileUtils.mkdir_p(sdir)
+        files.each do |rel, body|
+          FileUtils.mkdir_p(File.dirname(File.join(sdir, rel)))
+          File.write(File.join(sdir, rel), body)
+        end
+        File.write(File.join(sdir, "SKILL.md"), <<~MD)
+          ---
+          name: cond
+          description: d
+          gem: "*"
+          versions: "*"
+          #{conditional_yaml.chomp}
+          ---
+
+          # cond
+        MD
+      end
+
+      def discover(*extra_specs, warnings: [])
+        results = described_class.discover(specs: [spec, *extra_specs], warnings: warnings)
+        [results.find { |a| a.name == "cond" }, warnings]
+      end
+
+      def paths(skill) = skill.support_files.map { |f| f[:path] }
+
+      it "matches any listed target (YAML list form)" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              gem:
+                - sidekiq
+                - solid_queue
+        YAML
+        skill, warnings = discover(solid)
+        expect(warnings).to be_empty
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "constrains each target independently with a map versions:" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              gem: "sidekiq, solid_queue"
+              versions:
+                sidekiq: ">= 8.0"
+                solid_queue: ">= 2.0"
+        YAML
+        skill, = discover(sidekiq, solid)
+        expect(paths(skill)).to be_empty
+
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              gem: "sidekiq, solid_queue"
+              versions:
+                sidekiq: ">= 8.0"
+                solid_queue: ">= 1.0"
+        YAML
+        skill, = discover(sidekiq, solid)
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "applies a scalar versions: requirement" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              gem: sidekiq
+              versions: ">= 8.0"
+        YAML
+        skill, warnings = discover(sidekiq)
+        expect(warnings).to be_empty
+        expect(paths(skill)).to be_empty
+      end
+
+      it "always installs a file conditioned on gem: \"*\"" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              gem: "*"
+        YAML
+        skill, warnings = discover
+        expect(warnings).to be_empty
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "fails open when an entry is not a map" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md: sidekiq
+        YAML
+        skill, warnings = discover
+        expect(warnings.join).to include("must be a map with gem:")
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "fails open when an entry has an empty value" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+        YAML
+        skill, warnings = discover
+        expect(warnings.join).to include("must be a map with gem:")
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "fails open when an entry has no usable gem:" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              versions: ">= 1.0"
+        YAML
+        skill, warnings = discover
+        expect(warnings.join).to include("needs gem:")
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "fails open when versions: is unparsable" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              gem: sidekiq
+              versions: garbage
+        YAML
+        skill, warnings = discover(sidekiq)
+        expect(warnings.join).to include("unparsable versions:")
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "installs everything when conditional: is not a map" do
+        write_skill("conditional: nope")
+        skill, warnings = discover
+        expect(warnings.join).to include("conditional: must be a map")
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "warns about a key naming no shipped supporting file" do
+        write_skill(<<~YAML)
+          conditional:
+            references/typo.md:
+              gem: sidekiq
+        YAML
+        skill, warnings = discover
+        expect(warnings.join).to include("names no shipped supporting file")
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "warns about and ignores a SKILL.md key" do
+        write_skill(<<~YAML)
+          conditional:
+            SKILL.md:
+              gem: sidekiq
+        YAML
+        skill, warnings = discover
+        expect(warnings.join).to include("gate the whole skill")
+        expect(skill).not_to be_nil
+      end
+    end
+  end
+
+  describe "ERB supporting files (surgical conditioning)" do
+    it "renders x.md.erb into support_files as x.md" do
+      skill = described_class.discover(specs: [dummy_spec]).find { |s| s.name == "dummy-skill" }
+      tips = skill.support_files.find { |f| f[:path] == "references/tips.md" }
+      expect(tips[:body]).to eq("# Tips\n\nDummy gem 1.4.2 is present.\n")
+      expect(skill.support_files.map { |f| f[:path] }).not_to include("references/tips.md.erb")
+    end
+
+    it "renders conditionally against the injected bundle" do
+      skill = described_class.discover(specs: [dummy_spec, companion_spec])
+                             .find { |s| s.name == "dummy-skill" && s.source_gem == "dummy_gem" }
+      tips = skill.support_files.find { |f| f[:path] == "references/tips.md" }
+      expect(tips[:body]).to include("Companion is bundled at 0.1.0.")
+    end
+
+    context "with tmpdir-built trees" do
+      around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
+
+      let(:spec) { spec_double("source_gem", "1.0.0", @dir) }
+
+      def skill_dir
+        File.join(@dir, "lib", "source_gem", "hyperdrive", "skills", "erb")
+      end
+
+      def write_skill(files, frontmatter_extra: "")
+        FileUtils.mkdir_p(skill_dir)
+        files.each do |rel, body|
+          FileUtils.mkdir_p(File.dirname(File.join(skill_dir, rel)))
+          File.write(File.join(skill_dir, rel), body)
+        end
+        File.write(File.join(skill_dir, "SKILL.md"), <<~MD)
+          ---
+          name: erb
+          description: d
+          gem: "*"
+          versions: "*"
+          #{frontmatter_extra.chomp}
+          ---
+
+          # erb
+        MD
+      end
+
+      def discover(warnings: [])
+        results = described_class.discover(specs: [spec], warnings: warnings)
+        [results.find { |a| a.name == "erb" }, warnings]
+      end
+
+      it "skips a supporting file whose ERB raises, keeps the skill and its other files" do
+        write_skill(
+          {
+            "references/broken.md.erb" => "<% raise 'boom' %>\n",
+            "references/ok.md"         => "ok\n"
+          }
+        )
+        skill, warnings = discover
+        expect(warnings.join).to include("broken.md.erb").and include("ERB render failed")
+        expect(skill.support_files.map { |f| f[:path] }).to contain_exactly("references/ok.md")
+      end
+
+      it "skips a supporting file whose ERB does not compile" do
+        write_skill({ "references/broken.md.erb" => "<% if %>\n" })
+        skill, warnings = discover
+        expect(warnings.join).to include("ERB render failed")
+        expect(skill.support_files).to eq([])
+      end
+
+      it "never renders a gated-out .md.erb file" do
+        write_skill(
+          { "references/boom.md.erb" => "<% raise 'must not render' %>\n" },
+          frontmatter_extra: "conditional:\n  references/boom.md.erb:\n    gem: not_bundled"
+        )
+        skill, warnings = discover
+        expect(warnings).to be_empty
+        expect(skill.support_files).to eq([])
+      end
+
+      it "prefers a plain x.md over x.md.erb rendering to the same path, with a warning" do
+        write_skill(
+          {
+            "references/tips.md"     => "plain\n",
+            "references/tips.md.erb" => "templated\n"
+          }
+        )
+        skill, warnings = discover
+        expect(warnings.join).to include("tips.md.erb").and include("takes precedence")
+        tips = skill.support_files.find { |f| f[:path] == "references/tips.md" }
+        expect(tips[:body]).to eq("plain\n")
+      end
+    end
+  end
+
+  describe "SKILL.md.erb skills" do
+    around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
+
+    let(:spec)    { spec_double("source_gem", "1.0.0", @dir) }
+    let(:sidekiq) { spec_double("sidekiq", "7.3.0", @dir.to_s + "/nope") }
+
+    def write(rel, body)
+      path = File.join(@dir, "lib", "source_gem", "hyperdrive", "skills", rel)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, body)
+    end
+
+    let(:template) { <<~MD }
+      ---
+      name: templated
+      description: d
+      gem: "*"
+      versions: "*"
+      ---
+
+      # Templated
+
+      <%- if gem?("sidekiq", ">= 7.0") -%>
+      Sidekiq <%= gem_version("sidekiq") %> notes.
+      <%- end -%>
+    MD
+
+    it "defines a skill whose body is the rendered markdown, frontmatter parsed post-render" do
+      write("templated/SKILL.md.erb", template)
+      skill = described_class.discover(specs: [spec, sidekiq]).find { |a| a.name == "templated" }
+      expect(skill.body).to include("Sidekiq 7.3.0 notes.")
+      expect(skill.body).not_to include("<%")
+      expect(skill.target_gem).to eq(["*"])
+    end
+
+    it "skips the whole skill when SKILL.md.erb fails to render" do
+      write("broken/SKILL.md.erb", "<% raise 'boom' %>\n")
+      warnings = []
+      results = described_class.discover(specs: [spec], warnings: warnings)
+      expect(results).to be_empty
+      expect(warnings.join).to include("SKILL.md.erb").and include("ERB render failed")
+    end
+
+    it "prefers a plain SKILL.md over SKILL.md.erb in the same directory, with a warning" do
+      write("both/SKILL.md", "---\nname: plain\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# plain\n")
+      write("both/SKILL.md.erb", template)
+      warnings = []
+      results = described_class.discover(specs: [spec], warnings: warnings)
+      expect(results.map(&:name)).to contain_exactly("plain")
+      expect(warnings.join).to include("SKILL.md.erb").and include("takes precedence")
+    end
+
+    it "excludes a nested SKILL.md.erb from the outer skill's supporting files" do
+      write("outer/SKILL.md", "---\nname: outer\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# outer\n")
+      write("outer/nested/SKILL.md.erb", template)
+      write("outer/nested/notes.md", "notes\n")
+      outer = described_class.discover(specs: [spec]).find { |a| a.name == "outer" }
+      expect(outer.support_files.map { |f| f[:path] }).to eq(["nested/notes.md"])
+    end
+  end
+
   describe "guidelines" do
     it "discovers guidelines as a distinct artifact type" do
       guidelines = described_class.discover(specs: [dummy_spec]).select(&:guideline?)
