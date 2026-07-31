@@ -399,6 +399,40 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
+  describe "total eager budget warning" do
+    def guideline_of(name, tokens)
+      "---\nname: #{name}\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n" + ("x" * (tokens * 4))
+    end
+
+    it "stays quiet while the assembled eager set is under the budget" do
+      stub_discovery([guideline_artifact(name: "small", source: "rails-hyperdrive-x", body: guideline_of("small", 100))])
+      expect(run_generator([])).not_to match(/token budget/)
+    end
+
+    it "warns and names the largest contributors when the total is over the budget" do
+      stub_discovery([
+        guideline_artifact(name: "huge", source: "rails-hyperdrive-x", body: guideline_of("huge", 9_000)),
+        guideline_artifact(name: "big", source: "rails-hyperdrive-x", body: guideline_of("big", 2_000)),
+        guideline_artifact(name: "tiny", source: "rails-hyperdrive-x", body: guideline_of("tiny", 10))
+      ])
+      out = run_generator([])
+      expect(out).to match(/eager context is over the ~10000 token budget/)
+      expect(out).to match(/largest: huge\.md ~\d+, big\.md ~\d+/)
+      expect(out).not_to include("tiny.md ~")
+    end
+
+    it "excludes guidelines the user opted out of" do
+      stub_discovery([
+        guideline_artifact(name: "huge", source: "rails-hyperdrive-x", body: guideline_of("huge", 12_000)),
+        guideline_artifact(name: "tiny", source: "rails-hyperdrive-x", body: guideline_of("tiny", 10))
+      ])
+      expect(run_generator([])).to match(/token budget/)
+
+      File.write(path(".claude/hyperdrive/index.md"), "@stack.md\n@guidelines/tiny.md\n")
+      expect(run_generator([])).not_to match(/token budget/)
+    end
+  end
+
   describe "CLAUDE.md opt-out state machine" do
     before { stub_discovery([]) }
 

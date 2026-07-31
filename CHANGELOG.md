@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A single requirement still applies to every listed target. Targets absent from
   the map are unconstrained.
 
+- `hyperdrive:init` / `hyperdrive:update` now check the *combined* eager
+  footprint against a budget, not just per-file size. When the guidelines
+  listed in `index.md` plus `stack.md` exceed ~10,000 tokens, the footprint
+  line is followed by a warning naming the two largest contributors, so it is
+  clear what to trim or which line to drop from `index.md` to opt a guideline
+  out. Individually reasonable guidelines could previously clear every per-file
+  check and still add up to real context-window pressure with nothing flagging
+  it. The install still proceeds — this is a warning, not a gate.
+
 ### Fixed
 
 - The MCP endpoint no longer 403s local requests whose `Origin` port differs
