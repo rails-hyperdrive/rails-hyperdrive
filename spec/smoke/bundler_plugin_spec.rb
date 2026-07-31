@@ -51,6 +51,34 @@ RSpec.describe "bundler-hyperdrive plugin smoke", :smoke do
     expect(File).to exist(File.join(app_dir, ".claude/hyperdrive/guidelines/beta-guide.md"))
   end
 
+  it "reports an upgraded companion's artifacts without touching them" do
+    # The shared fixture must stay pristine across scenarios, so the upgrade
+    # happens on a per-app copy of the companion.
+    fixture = File.join(Smoke::COMPANIONS_ROOT, "rails-hyperdrive-alpha")
+    upgraded = File.join(app_dir, "vendor/rails-hyperdrive-alpha")
+    FileUtils.mkdir_p(File.dirname(upgraded))
+    FileUtils.cp_r(fixture, upgraded)
+
+    gemfile = File.join(app_dir, "Gemfile")
+    File.write(gemfile, File.read(gemfile).sub(fixture.inspect, upgraded.inspect))
+
+    gemspec = File.join(upgraded, "rails-hyperdrive-alpha.gemspec")
+    File.write(gemspec, File.read(gemspec).sub('"0.1.0"', '"0.2.0"'))
+    guide_src = File.join(upgraded, "lib/rails-hyperdrive-alpha/hyperdrive/guidelines/alpha-guide.md")
+    File.write(guide_src, File.read(guide_src) + "\nUpgraded content.\n")
+
+    out = bundle!
+
+    expect(out).to match(/\[hyperdrive\] \d+ artifact\(s\) need attention — run bin\/rails hyperdrive:sync/)
+    expect(out).to include(
+      ".claude/hyperdrive/guidelines/alpha-guide.md " \
+      "(rails-hyperdrive-alpha@0.1.0 → rails-hyperdrive-alpha@0.2.0)"
+    )
+    expect(out).not_to include("[hyperdrive] installed")
+    installed = File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-guide.md")
+    expect(File.read(installed)).not_to include("Upgraded content.")
+  end
+
   it "installs nothing outside development" do
     Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-beta")
     out = bundle!("RAILS_ENV" => "production")
