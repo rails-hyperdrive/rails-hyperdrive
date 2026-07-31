@@ -1,1 +1,0 @@
-  mount Rails::Hyperdrive::Engine => "<%= mount_path %>" if Rails.env.development?

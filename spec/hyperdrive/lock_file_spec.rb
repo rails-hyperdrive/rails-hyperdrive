@@ -23,8 +23,7 @@ RSpec.describe Rails::Hyperdrive::LockFile do
       expect(entry[:source]).to eq("rails-hyperdrive-sidekiq@1.2.0")
       expect(entry[:source_sha]).to eq("ab12cd34")
       expect(reloaded.guideline_paths).to eq([".claude/hyperdrive/guidelines/jobs-sidekiq.md"])
-      expect(reloaded.known?(".claude/hyperdrive/guidelines/jobs-sidekiq.md")).to be(true)
-      expect(reloaded.known?(".claude/hyperdrive/guidelines/absent.md")).to be(false)
+      expect(reloaded.entry(".claude/hyperdrive/guidelines/absent.md")).to be_nil
     end
   end
 
@@ -42,7 +41,6 @@ RSpec.describe Rails::Hyperdrive::LockFile do
   it "reports an absent lock as having no claude_md state" do
     lock = described_class.load("/no/such/lock.yml")
     expect(lock.claude_md_state).to be_nil
-    expect(lock.exists?).to be(false)
   end
 
   it "defaults claude_md.state to present when serialized without one" do
@@ -79,7 +77,6 @@ RSpec.describe Rails::Hyperdrive::LockFile do
         expect(lock.disabled?(:guideline, "service-objects")).to be(true)
         expect(lock.disabled?(:skill, "service-objects")).to be(false)
         expect(lock.disabled?(:guideline, "vcr-cassettes")).to be(false)
-        expect(lock.disabled(:skill)).to eq(["vcr-cassettes"])
       end
     end
 
@@ -101,8 +98,9 @@ RSpec.describe Rails::Hyperdrive::LockFile do
         File.write(path, "disabled:\n  skills:\n    - ''\n    - '  spaced  '\n  guidelines: service-objects\n")
 
         lock = described_class.load(path)
-        expect(lock.disabled(:skill)).to eq(["spaced"])
-        expect(lock.disabled(:guideline)).to eq(["service-objects"])
+        expect(lock.disabled?(:skill, "spaced")).to be(true)
+        expect(lock.disabled?(:skill, "")).to be(false)
+        expect(lock.disabled?(:guideline, "service-objects")).to be(true)
       end
     end
 
@@ -112,8 +110,8 @@ RSpec.describe Rails::Hyperdrive::LockFile do
         File.write(path, "disabled: nonsense\n")
 
         lock = described_class.load(path)
-        expect(lock.disabled(:skill)).to eq([])
-        expect(lock.disabled(:guideline)).to eq([])
+        expect(lock.disabled?(:skill, "anything")).to be(false)
+        expect(lock.disabled?(:guideline, "anything")).to be(false)
       end
     end
   end

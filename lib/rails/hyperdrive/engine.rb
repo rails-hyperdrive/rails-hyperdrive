@@ -7,9 +7,6 @@ module Rails
     class Engine < ::Rails::Engine
       isolate_namespace Rails::Hyperdrive
 
-      config.hyperdrive = ActiveSupport::OrderedOptions.new
-      config.hyperdrive.mount_path = "/_hyperdrive"
-
       initializer "hyperdrive.warn_outside_development" do
         unless Rails::Hyperdrive.dev_mode?
           msg = "[hyperdrive] loaded outside development (Rails.env=#{::Rails.env}); MCP endpoints will return 403"

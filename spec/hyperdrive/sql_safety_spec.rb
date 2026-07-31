@@ -37,14 +37,4 @@ RSpec.describe Rails::Hyperdrive::SqlSafety do
       expect { described_class.assert_read_only!(sql) }.to raise_error(described_class::Error)
     end
   end
-
-  describe ".read_only?" do
-    it "returns true for SELECT" do
-      expect(described_class.read_only?("SELECT 1")).to be true
-    end
-
-    it "returns false for INSERT" do
-      expect(described_class.read_only?("INSERT INTO users (name) VALUES ('x')")).to be false
-    end
-  end
 end

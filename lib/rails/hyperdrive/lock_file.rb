@@ -46,16 +46,8 @@ module Rails
         self
       end
 
-      def exists?
-        File.exist?(@path)
-      end
-
       def entry(file_path)
         @files[file_path.to_s]
-      end
-
-      def known?(file_path)
-        @files.key?(file_path.to_s)
       end
 
       def guideline_paths
@@ -68,10 +60,6 @@ module Rails
 
       def disabled?(type, name)
         Array(@disabled[type.to_sym]).include?(name.to_s)
-      end
-
-      def disabled(type)
-        Array(@disabled[type.to_sym]).dup
       end
 
       # Adopt the state that is not derived from installed content, so

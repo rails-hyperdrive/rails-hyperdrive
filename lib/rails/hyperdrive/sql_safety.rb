@@ -23,13 +23,6 @@ module Rails
         end
         true
       end
-
-      def read_only?(sql)
-        assert_read_only!(sql)
-        true
-      rescue Error
-        false
-      end
     end
   end
 end
