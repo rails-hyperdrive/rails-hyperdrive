@@ -39,7 +39,8 @@ RSpec.describe "hyperdrive:discover smoke", :smoke do
     expect(lines).not_to include(".hyperdrive/", ".hyperdrive")
 
     expect(File.exist?(File.join(app_dir, ".mcp.json"))).to be(false)
-    expect(File.exist?(File.join(app_dir, ".claude/hyperdrive/stack.md"))).to be(false)
+    expect(File.exist?(File.join(app_dir, ".hyperdrive/lock.yml"))).to be(false)
+    expect(Dir.exist?(File.join(app_dir, ".claude"))).to be(false)
     expect(File.read(File.join(app_dir, "Gemfile"))).not_to match(/rails-hyperdrive-/)
   end
 

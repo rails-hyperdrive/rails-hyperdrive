@@ -2,8 +2,8 @@ require "rails/hyperdrive/install_layout"
 
 module Rails
   module Hyperdrive
-    # Sizes the always-in-context set — the index-included guidelines plus
-    # stack.md — and returns the report as lines for a shell to print.
+    # Sizes the always-in-context set — the index-included guidelines — and
+    # returns the report as lines for a shell to print.
     module EagerFootprint
       # Soft cap on the assembled eager set — roughly six at-the-limit
       # guidelines, or ~5% of a 200k context window.
@@ -17,17 +17,17 @@ module Rails
         (body.to_s.length / 4.0).ceil
       end
 
-      def lines(guidelines:, stack_body:)
-        entries = guidelines.dup
-        entries << { name: File.basename(InstallLayout::STACK_PATH), body: stack_body } if stack_body
-        tokens = entries.sum { |e| approx_tokens(e[:body]) }
+      def lines(guidelines:)
+        return [] if guidelines.empty?
+
+        tokens = guidelines.sum { |e| approx_tokens(e[:body]) }
 
         result = [Line.new(
           status: :eager,
-          message: "#{guidelines.size} guideline(s) + stack.md, ~#{tokens} tokens always in context",
+          message: "#{guidelines.size} guideline(s), ~#{tokens} tokens always in context",
           color: :cyan
         )]
-        result << over_budget_line(entries) if tokens > TOTAL_WARN_TOKENS
+        result << over_budget_line(guidelines) if tokens > TOTAL_WARN_TOKENS
         result
       end
 

@@ -1,24 +1,9 @@
 require "json"
 require_relative "smoke_helper"
 
-# These fixture apps ship no companion gems, so init is a zero-content install.
+# These fixture apps ship no companion gems, so init is a zero-companion install.
 RSpec.describe "hyperdrive:init smoke", :smoke do
-  scenarios = {
-    "minimal" => {
-      stack_includes: ["**Rails:**"],
-      stack_excludes: %w[devise sidekiq pundit]
-    },
-    "services" => {
-      stack_includes: ["**Rails:**"],
-      stack_excludes: %w[devise sidekiq pundit]
-    },
-    "full_stack" => {
-      stack_includes: %w[devise sidekiq pundit],
-      stack_excludes: []
-    }
-  }
-
-  scenarios.each do |fixture, expected|
+  %w[minimal services full_stack].each do |fixture|
     context "with the #{fixture} fixture" do
       let(:app_dir) { Smoke.copy_fixture(fixture) }
 
@@ -36,28 +21,16 @@ RSpec.describe "hyperdrive:init smoke", :smoke do
         expect(out.scan("hyperdrive initialized").length).to eq(1), "hyperdrive:init ran more than once:\n#{out}"
 
         expect(File.exist?(File.join(app_dir, ".mcp.json"))).to be(true)
-        expect(File.exist?(File.join(app_dir, "CLAUDE.md"))).to be(true)
-        expect(File.exist?(File.join(app_dir, ".claude/hyperdrive/stack.md"))).to be(true)
-        expect(File.exist?(File.join(app_dir, ".claude/hyperdrive/index.md"))).to be(true)
         expect(File.exist?(File.join(app_dir, ".hyperdrive/lock.yml"))).to be(true)
 
+        # Nothing an agent would read: the eager chain waits for a companion guideline.
+        expect(File.exist?(File.join(app_dir, "CLAUDE.md"))).to be(false)
+        expect(File.exist?(File.join(app_dir, ".claude/hyperdrive/index.md"))).to be(false)
+        expect(File.exist?(File.join(app_dir, ".claude/hyperdrive/stack.md"))).to be(false)
         expect(Dir.exist?(File.join(app_dir, ".claude/skills"))).to be(false)
 
         mcp_json = JSON.parse(File.read(File.join(app_dir, ".mcp.json")))
         expect(mcp_json.dig("mcpServers", "rails-hyperdrive", "url")).to include("/_hyperdrive/mcp")
-
-        claude_md = File.read(File.join(app_dir, "CLAUDE.md"))
-        expect(claude_md).to include("@.claude/hyperdrive/index.md")
-
-        expect(File.read(File.join(app_dir, ".claude/hyperdrive/index.md"))).to include("@stack.md")
-
-        stack_md = File.read(File.join(app_dir, ".claude/hyperdrive/stack.md"))
-        expected[:stack_includes].each do |tok|
-          expect(stack_md).to include(tok), "stack.md missing #{tok.inspect}:\n#{stack_md}"
-        end
-        expected[:stack_excludes].each do |tok|
-          expect(stack_md).not_to include(tok)
-        end
 
         routes = File.read(File.join(app_dir, "config/routes.rb"))
         expect(routes).to include("Rails::Hyperdrive::Engine")
@@ -75,7 +48,7 @@ RSpec.describe "hyperdrive:init smoke", :smoke do
         expect(status.success?).to be(true), out
         expect(File.exist?(File.join(app_dir, ".mcp.json"))).to be(false)
         expect(File.exist?(File.join(app_dir, "CLAUDE.md"))).to be(false)
-        expect(File.exist?(File.join(app_dir, ".claude/hyperdrive/stack.md"))).to be(false)
+        expect(File.exist?(File.join(app_dir, ".hyperdrive/lock.yml"))).to be(false)
         routes = File.read(File.join(app_dir, "config/routes.rb"))
         expect(routes).not_to include("Rails::Hyperdrive::Engine")
       end

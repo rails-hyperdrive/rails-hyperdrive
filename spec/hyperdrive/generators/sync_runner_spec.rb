@@ -57,17 +57,6 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
     end
   end
 
-  describe "#load_stack_profile" do
-    it "parses the app's Gemfile.lock once" do
-      expect(Rails::Hyperdrive::StackProfile).to receive(:from_lockfile)
-        .with(File.join(root, "Gemfile.lock"), app_root: root).once.and_call_original
-
-      profile = runner.load_stack_profile
-      expect(profile[:rails][:version]).to eq("8.0.1")
-      expect(runner.load_stack_profile).to equal(profile)
-    end
-  end
-
   describe "#discover_artifacts" do
     it "collects warnings for the pipeline to print" do
       expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
@@ -92,7 +81,6 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
 
       result = runner.install(mode: :preserve)
 
-      expect(exist?(".claude/hyperdrive/stack.md")).to be true
       expect(exist?(".hyperdrive/lock.yml")).to be true
       expect(result).to be_a(Rails::Hyperdrive::InstallPipeline::Result)
       expect(result.installed).to include(".claude/hyperdrive/guidelines/auth-pundit.md")
@@ -119,7 +107,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
       stub_discovery([guideline(name: "auth-pundit")])
       runner.install(mode: :preserve)
 
-      expect(runner.summary_lines.first).to eq("  Installed 0 skills, 1 guideline + stack.md")
+      expect(runner.summary_lines.first).to eq("  Installed 0 skills, 1 guideline")
     end
   end
 end

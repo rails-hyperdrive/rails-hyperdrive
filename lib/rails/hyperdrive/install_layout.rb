@@ -7,7 +7,6 @@ module Rails
       SKILLS_DIR = ".claude/skills".freeze
       HYPERDRIVE_DIR = ".claude/hyperdrive".freeze
       INDEX_PATH = "#{HYPERDRIVE_DIR}/index.md".freeze
-      STACK_PATH = "#{HYPERDRIVE_DIR}/stack.md".freeze
       LOCK_PATH = ".hyperdrive/lock.yml".freeze
 
       ARTIFACT_TYPES = { "skill" => :skill, "skill_support" => :skill_support, "guideline" => :guideline }.freeze

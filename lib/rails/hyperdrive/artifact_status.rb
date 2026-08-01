@@ -1,9 +1,7 @@
-require "rails/hyperdrive/version"
 require "rails/hyperdrive/drift_verdict"
 require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_plan"
 require "rails/hyperdrive/lock_file"
-require "rails/hyperdrive/stack_document"
 
 module Rails
   module Hyperdrive
@@ -23,16 +21,15 @@ module Rails
         end
       end
 
-      def self.compare(root:, artifacts:, stack:)
-        new(root: root, artifacts: artifacts, stack: stack).tap(&:compare)
+      def self.compare(root:, artifacts:)
+        new(root: root, artifacts: artifacts).tap(&:compare)
       end
 
       attr_reader :entries
 
-      def initialize(root:, artifacts:, stack:)
+      def initialize(root:, artifacts:)
         @root = File.expand_path(root.to_s)
         @artifacts = artifacts
-        @stack = stack
         @entries = []
       end
 
@@ -46,8 +43,6 @@ module Rails
             offered[file[:dest]] = [DriftVerdict.body_sha(file[:body]), plan_entry.source_label, :skill_support]
           end
         end
-        offered[InstallLayout::STACK_PATH] =
-          [DriftVerdict.body_sha(StackDocument.render(@stack)), "internal@#{VERSION}", :stack]
 
         offered.each do |path, (gem_sha, source_label, type)|
           locked = lock.entry(path)

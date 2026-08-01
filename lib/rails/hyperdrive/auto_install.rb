@@ -4,7 +4,6 @@ require "rails/hyperdrive/bundler_artifact_discovery"
 require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_pipeline"
 require "rails/hyperdrive/install_shell"
-require "rails/hyperdrive/stack_profile"
 
 module Rails
   module Hyperdrive
@@ -13,7 +12,7 @@ module Rails
     module AutoInstall
       DEVELOPMENT = "development".freeze
 
-      Result = Struct.new(:installed, :outdated, :orphaned, :skipped, :error, keyword_init: true) do
+      Result = Struct.new(:installed, :outdated, :orphaned, :unwired, :skipped, :error, keyword_init: true) do
         def ran?
           skipped.nil?
         end
@@ -29,6 +28,7 @@ module Rails
             lines << "installed #{installed.size} artifact(s):"
             installed.each { |path| lines << "  #{path}" }
           end
+          lines << "installed guideline(s) are not in context yet — run bin/rails hyperdrive:sync" if unwired
           stale = Array(outdated) + Array(orphaned)
           unless stale.empty?
             lines << "#{stale.size} artifact(s) need attention — run bin/rails hyperdrive:sync"
@@ -47,23 +47,26 @@ module Rails
         return skip(:not_initialized) unless File.exist?(File.join(root, InstallLayout::LOCK_PATH))
 
         artifacts = BundlerArtifactDiscovery.discover
-        stack = StackProfile.from_lockfile(File.join(root, "Gemfile.lock"), app_root: root).to_h
-        status = ArtifactStatus.compare(root: root, artifacts: artifacts, stack: stack)
+        status = ArtifactStatus.compare(root: root, artifacts: artifacts)
 
-        installed =
-          if status.missing.empty?
-            []
-          else
-            InstallPipeline.new(
-              root: root,
-              shell: InstallShell.new(root: root, io: io),
-              artifacts: artifacts,
-              stack: stack,
-              mode: :additive
-            ).call.installed
-          end
+        installed = []
+        unwired = false
 
-        Result.new(installed: installed, outdated: status.outdated, orphaned: status.orphaned)
+        unless status.missing.empty?
+          pipeline = InstallPipeline.new(
+            root: root,
+            shell: InstallShell.new(root: root, io: io),
+            artifacts: artifacts,
+            mode: :additive
+          )
+          installed = pipeline.call.installed
+          # This runs from a bundle install, which must not edit CLAUDE.md, so a
+          # guideline landing in an app with no import line stays out of context
+          # until the user runs a sync.
+          unwired = pipeline.lock.claude_md_state.nil? && (installed & pipeline.lock.guideline_paths).any?
+        end
+
+        Result.new(installed: installed, outdated: status.outdated, orphaned: status.orphaned, unwired: unwired)
       rescue StandardError => e
         skip(:error, e)
       end

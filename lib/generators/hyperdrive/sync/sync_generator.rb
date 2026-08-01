@@ -21,10 +21,6 @@ module Rails
           runner.verify_environment!
         end
 
-        def parse_stack_profile
-          runner.load_stack_profile
-        end
-
         def discover_artifacts
           runner.discover_artifacts
         end

@@ -7,7 +7,6 @@ require "fileutils"
 
 RSpec.describe Rails::Hyperdrive::ArtifactStatus do
   let(:root) { Dir.mktmpdir("hyperdrive-status") }
-  let(:stack) { { rails: { version: "8.0.0", major: 8 }, ruby: { version: "3.3.0" }, database: { adapter: "sqlite3" } } }
 
   after { FileUtils.remove_entry(root) if File.directory?(root) }
 
@@ -23,21 +22,18 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
   def install(artifacts)
     Rails::Hyperdrive::InstallPipeline.new(
       root: root, shell: Rails::Hyperdrive::InstallShell.new(root: root),
-      artifacts: artifacts, stack: stack, mode: :preserve
+      artifacts: artifacts, mode: :preserve
     ).call
   end
 
   def compare(artifacts)
-    described_class.compare(root: root, artifacts: artifacts, stack: stack)
+    described_class.compare(root: root, artifacts: artifacts)
   end
 
   it "reports everything as missing before anything is installed" do
     status = compare([guideline(name: "auth-pundit")])
 
-    expect(status.missing.map(&:path)).to contain_exactly(
-      ".claude/hyperdrive/guidelines/auth-pundit.md",
-      ".claude/hyperdrive/stack.md"
-    )
+    expect(status.missing.map(&:path)).to eq([".claude/hyperdrive/guidelines/auth-pundit.md"])
     expect(status).to be_stale
   end
 
@@ -137,7 +133,7 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
 
       status = compare([guideline(name: "auth-pundit")])
 
-      expect(status.missing.map(&:path)).to eq([".claude/hyperdrive/stack.md"])
+      expect(status.missing).to be_empty
     end
 
     it "left on disk is not reported as orphaned" do

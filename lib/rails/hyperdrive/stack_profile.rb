@@ -125,8 +125,7 @@ module Rails
         nil
       end
 
-      # An explicit app_root keeps the adapter resolvable with no Rails booted,
-      # so stack.md renders identically in every process that generates it.
+      # An explicit app_root keeps the adapter resolvable with no Rails booted.
       def database_yml_path
         return File.join(@app_root.to_s, "config", "database.yml") if @app_root
         return nil unless defined?(::Rails) && ::Rails.respond_to?(:root) && ::Rails.root

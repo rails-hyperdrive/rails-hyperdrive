@@ -4,9 +4,9 @@ Description:
       - discovers companion-gem skills + guidelines in the bundle and installs
         them with audit headers (skills to .claude/skills/, guidelines to
         .claude/hyperdrive/guidelines/)
-      - regenerates .claude/hyperdrive/stack.md (stack facts + steering)
       - maintains the .claude/hyperdrive/index.md aggregator and the single
-        @-include line in CLAUDE.md
+        @-include line in CLAUDE.md — both only while a companion gem ships a
+        guideline, and both removed when the last one goes
       - tracks everything in .hyperdrive/lock.yml
 
     Locally-modified files are left untouched (skip + warn). Pass --overwrite

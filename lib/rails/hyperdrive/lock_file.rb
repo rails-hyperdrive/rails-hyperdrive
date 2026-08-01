@@ -96,15 +96,20 @@ module Rails
       end
 
       def to_yaml
-        claude_md = @document["claude_md"]
-        claude_md = {} unless claude_md.is_a?(Hash)
+        carried = @document["claude_md"]
+        carried = {} unless carried.is_a?(Hash)
 
-        @document.merge(
+        document = @document.merge(
           "version"   => SCHEMA_VERSION,
-          "claude_md" => claude_md.merge("state" => (@claude_md_state || STATE_PRESENT)),
+          "claude_md" => carried.merge("state" => @claude_md_state),
           "disabled"  => DISABLED_KEYS.each_with_object({}) { |(type, key), h| h[key] = @disabled[type] },
           "files"     => @files.values.sort_by(&:path).map { |e| serialize_entry(e) }
-        ).to_yaml
+        )
+        # A nil state means no import line is being managed. Recording one anyway
+        # would make the next run read the absent line as a deletion the user
+        # made, and never add it back.
+        document.delete("claude_md") if @claude_md_state.nil?
+        document.to_yaml
       end
 
       protected

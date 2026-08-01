@@ -6,7 +6,7 @@ namespace :hyperdrive do
     Rails::Generators::Hyperdrive::InstallGenerator.start(ARGV.drop(1))
   end
 
-  desc "Sync Rails Hyperdrive content (skills, guidelines, stack.md, index.md, lockfile); locally-edited files are preserved — pass --overwrite to restore gem-shipped content"
+  desc "Sync Rails Hyperdrive content (skills, guidelines, index.md, lockfile); locally-edited files are preserved — pass --overwrite to restore gem-shipped content"
   task :sync do
     require "rails/generators"
     require "generators/hyperdrive/sync/sync_generator"

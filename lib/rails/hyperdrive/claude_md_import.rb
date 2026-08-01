@@ -16,8 +16,9 @@ module Rails
 
       REMOVED_WARNING = "you removed #{INDEX_LINE} from #{PATH}; leaving it out (won't re-add)".freeze
 
-      # action is :none, :create, or :append; body is the file content for
-      # :create and the appended fragment for :append, nil otherwise.
+      # action is :none, :create, :append, :delete, or :rewrite; body is the
+      # file content for :create and :rewrite and the appended fragment for
+      # :append, nil otherwise.
       Decision = Struct.new(:action, :body, :state, :warning, keyword_init: true)
 
       module_function
@@ -42,6 +43,27 @@ module Rails
           Decision.new(action: :none, state: state)
         end
       end
+
+      # Retracts the import line once nothing is left for it to pull in. A nil
+      # state means the machine is disarmed, so a later guideline-bearing run
+      # adds the line back.
+      def teardown(content:, state:)
+        # An opt-out the user made by hand outlives the line it removed.
+        return Decision.new(action: :none, state: LockFile::STATE_REMOVED) if state == LockFile::STATE_REMOVED
+        return Decision.new(action: :none, state: nil) if content.nil?
+        return Decision.new(action: :none, state: nil) unless content.include?(INDEX_LINE)
+        # Byte-identical to what we wrote proves nobody else owns the file.
+        return Decision.new(action: :delete, state: nil) if content == NEW_FILE
+
+        Decision.new(action: :rewrite, body: strip_index_line(content), state: nil)
+      end
+
+      def strip_index_line(content)
+        kept = content.lines.reject { |line| line.strip == INDEX_LINE }.join
+        kept.sub(/\n\n+\z/, "\n")
+      end
+
+      private_class_method :strip_index_line
     end
   end
 end
