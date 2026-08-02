@@ -9,7 +9,7 @@ It also ships a `hyperdrive:init` generator that discovers and installs **two ar
 - **Skills** — lazy, model-invoked via Claude Code's native description matcher. Procedural ("how to write an idempotent Sidekiq job"). Installed to `.claude/skills/<name>/SKILL.md`.
 - **Guidelines** — eager, always in context via `@`-include from `CLAUDE.md`. Declarative ("this app uses Pundit, not CanCanCan"). Installed to `.claude/hyperdrive/guidelines/<name>.md`.
 
-**rails-hyperdrive is the mechanism; companion gems are the content.** rails-hyperdrive itself ships no skills or guidelines — only the contract, the discovery/install engine, and a generated `stack.md`. Content comes from companion gems, conventionally named `rails-hyperdrive-<library>` (e.g. `rails-hyperdrive-sidekiq`) following the [RuboCop ecosystem](https://github.com/rubocop/rubocop) precedent.
+**rails-hyperdrive is the mechanism; companion gems are the content.** rails-hyperdrive itself ships no skills or guidelines — only the contract and the discovery/install engine. Content comes from companion gems, conventionally named `rails-hyperdrive-<library>` (e.g. `rails-hyperdrive-sidekiq`) following the [RuboCop ecosystem](https://github.com/rubocop/rubocop) precedent.
 
 Built on the official [`mcp` gem](https://github.com/modelcontextprotocol/ruby-sdk). MIT-licensed.
 
@@ -29,23 +29,21 @@ $ bin/rails hyperdrive:init
 
   create  .mcp.json
   insert  config/routes.rb
-  create  .claude/hyperdrive/stack.md
   create  .claude/hyperdrive/guidelines/jobs-sidekiq.md
   create  .claude/skills/sidekiq-idempotency/SKILL.md
   create  .claude/hyperdrive/index.md
   create  CLAUDE.md
   create  .hyperdrive/lock.yml
-   eager  1 guideline(s) + stack.md, ~420 tokens always in context
+   eager  1 guideline(s), ~240 tokens always in context
 
     done  hyperdrive initialized
   Mount: /_hyperdrive (in config/routes.rb)
-  Installed 1 skill, 1 guideline + stack.md
+  Server: 8 MCP tools at http://localhost:3000/_hyperdrive/mcp
+  Installed 1 skill, 1 guideline
 
     rails-hyperdrive-sidekiq@1.2.0
       skill      sidekiq-idempotency
       guideline  jobs-sidekiq
-    internal@0.2.0
-      stack      stack.md
 
 # 4. Start the dev server
 $ bin/dev
@@ -83,17 +81,12 @@ Run `hyperdrive:discover` to find companion gems published for your stack that y
 - `hyperdrive://stack-profile` — JSON of the resolved `StackProfile`
 - `hyperdrive://skills/{name}` — markdown body of each installed skill
 
-### Generated content
-
-rails-hyperdrive generates exactly one content file itself — `.claude/hyperdrive/stack.md`, a guideline derived from your `Gemfile.lock` (stack facts + steering + how to use the MCP tools). Everything else under `.claude/` comes from companion gems.
-
 ### Install layout
 
 ```
 CLAUDE.md                              # user-owned; ONE injected line: @.claude/hyperdrive/index.md
 .claude/hyperdrive/
-  index.md                             # managed aggregator: @stack.md + @guidelines/<name>.md
-  stack.md                             # rails-hyperdrive-generated stack guideline
+  index.md                             # managed aggregator: @guidelines/<name>.md
   guidelines/<name>.md                 # companion-shipped, frontmatter stripped, audit-headered
 .claude/skills/<name>/
   SKILL.md                             # companion-shipped, frontmatter kept, audit-headered
@@ -101,7 +94,9 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
 
-Everything a companion gem contributes lands here git-tracked, so a diff is where you review what it added — the install summary names each artifact's source gem and version, and every SKILL.md, guideline, and `stack.md` carries the same provenance in an audit header. A skill's supporting files carry no header — they install byte-identical to the install-ready body (the shipped bytes; for `*.md.erb` templates, the rendered output), and their provenance and content hash live in `.hyperdrive/lock.yml` alone. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
+`CLAUDE.md` and `index.md` are the **eager chain** — they exist only because a companion gem ships a guideline, and both go when the last one leaves the bundle (the guideline file itself is left on disk and reported as an orphan). With no companion gems installed, `hyperdrive:init` writes `.mcp.json`, the `.gitignore` rule, the optional initializer, the engine mount, and `.hyperdrive/lock.yml` — and nothing into the agent's context window.
+
+Everything a companion gem contributes lands here git-tracked, so a diff is where you review what it added — the install summary names each artifact's source gem and version, and every SKILL.md and guideline carries the same provenance in an audit header. A skill's supporting files carry no header — they install byte-identical to the install-ready body (the shipped bytes; for `*.md.erb` templates, the rendered output), and their provenance and content hash live in `.hyperdrive/lock.yml` alone. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
 
 ### Turning off a single artifact
 

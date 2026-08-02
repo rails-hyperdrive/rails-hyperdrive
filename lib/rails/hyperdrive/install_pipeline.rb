@@ -1,5 +1,4 @@
 require "time"
-require "rails/hyperdrive/version"
 require "rails/hyperdrive/audit_header"
 require "rails/hyperdrive/bundler_artifact_discovery"
 require "rails/hyperdrive/claude_md_import"
@@ -9,7 +8,6 @@ require "rails/hyperdrive/index_document"
 require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_plan"
 require "rails/hyperdrive/lock_file"
-require "rails/hyperdrive/stack_document"
 
 module Rails
   module Hyperdrive
@@ -26,13 +24,12 @@ module Rails
 
       Result = Struct.new(:installed, :updated, :unchanged, :skipped, :orphaned, :removed, keyword_init: true)
 
-      def initialize(root:, shell:, artifacts:, stack:, mode: :preserve, warnings: [])
+      def initialize(root:, shell:, artifacts:, mode: :preserve, warnings: [])
         raise ArgumentError, "unknown mode #{mode.inspect}" unless MODES.include?(mode)
 
         @root = File.expand_path(root.to_s)
         @shell = shell
         @artifacts = artifacts
-        @stack = stack
         @mode = mode
         @warnings = warnings
         @result = Result.new(installed: [], updated: [], unchanged: [], skipped: [], orphaned: [], removed: [])
@@ -46,15 +43,14 @@ module Rails
         report_disabled
         install_skills
         guidelines = install_guidelines
-        stack_body = install_stack
         remove_disabled
         remove_stale_support_files
         carry_orphans
         eager_guidelines = write_index_md(guidelines)
-        write_claude_md
+        write_claude_md(guidelines)
         write_lock
         print_warnings
-        print_footprint(guidelines: eager_guidelines, stack_body: stack_body)
+        print_footprint(guidelines: eager_guidelines)
         warn_if_destinations_gitignored
         @result
       end
@@ -127,20 +123,6 @@ module Rails
           install_file(entry: entry, type: :guideline, install_ready_body: body)
           { base: "#{entry.final_name}.md", dest: entry.dest, body: body }
         end
-      end
-
-      def install_stack
-        body = StackDocument.render(@stack)
-        warn_if_oversize(InstallLayout::STACK_PATH, body)
-        install_file(
-          dest: InstallLayout::STACK_PATH,
-          type: :stack,
-          install_ready_body: body,
-          source_gem: "internal",
-          version: VERSION,
-          artifact_kind: "stack"
-        )
-        body
       end
 
       def install_file(dest: nil, type:, install_ready_body:, entry: nil, source_gem: nil, version: nil, artifact_kind: nil)
@@ -298,7 +280,7 @@ module Rails
       end
 
       def carry_orphans
-        planned = @plan.map(&:dest) + [InstallLayout::STACK_PATH]
+        planned = @plan.map(&:dest)
         old_lock.each_entry do |entry|
           next if planned.include?(entry.path)
           next if @new_lock.entry(entry.path)
@@ -314,6 +296,7 @@ module Rails
       # Returns the eager set: the guidelines index.md ends up including.
       def write_index_md(guidelines)
         return amend_index_md(guidelines) if additive?
+        return teardown_index_md if guidelines.empty?
 
         existing = read_index
         rendered = IndexDocument.render(
@@ -337,22 +320,37 @@ module Rails
         [] # an additive run prints no footprint, so it reports no eager set
       end
 
+      # No sha gate: the file has no lock entry, and the only user input it
+      # carries is a deleted `@`-line, which is moot once no guideline is
+      # planned.
+      def teardown_index_md
+        if File.exist?(abs(InstallLayout::INDEX_PATH))
+          @shell.remove_file InstallLayout::INDEX_PATH
+          @result.removed << InstallLayout::INDEX_PATH
+        end
+        []
+      end
+
       def read_index
         file = abs(InstallLayout::INDEX_PATH)
         File.read(file) if File.exist?(file)
       end
 
-      def write_claude_md
+      def write_claude_md(guidelines)
         file = abs(ClaudeMdImport::PATH)
-        decision = ClaudeMdImport.decide(
-          content: (File.read(file) if File.exist?(file)),
-          state: old_lock.claude_md_state,
-          mode: @mode
-        )
+        content = File.read(file) if File.exist?(file)
+        decision =
+          if guidelines.empty? && !additive?
+            ClaudeMdImport.teardown(content: content, state: old_lock.claude_md_state)
+          else
+            ClaudeMdImport.decide(content: content, state: old_lock.claude_md_state, mode: @mode)
+          end
 
         case decision.action
-        when :create then @shell.create_file ClaudeMdImport::PATH, decision.body
-        when :append then @shell.append_to_file ClaudeMdImport::PATH, decision.body
+        when :create  then @shell.create_file ClaudeMdImport::PATH, decision.body
+        when :append  then @shell.append_to_file ClaudeMdImport::PATH, decision.body
+        when :rewrite then @shell.create_file ClaudeMdImport::PATH, decision.body
+        when :delete  then @shell.remove_file ClaudeMdImport::PATH
         end
         @shell.say_status :warn, decision.warning, :yellow if decision.warning
 
@@ -370,10 +368,10 @@ module Rails
         @warnings.each { |w| @shell.say "    - #{w}" }
       end
 
-      def print_footprint(guidelines:, stack_body:)
+      def print_footprint(guidelines:)
         return if additive?
 
-        EagerFootprint.lines(guidelines: guidelines, stack_body: stack_body).each do |line|
+        EagerFootprint.lines(guidelines: guidelines).each do |line|
           @shell.say_status line.status, line.message, line.color
         end
       end

@@ -7,7 +7,6 @@ require "fileutils"
 
 RSpec.describe Rails::Hyperdrive::AutoInstall do
   let(:root) { Dir.mktmpdir("hyperdrive-auto-install") }
-  let(:stack) { { rails: { version: "8.0.0", major: 8 }, ruby: { version: "3.3.0" }, database: { adapter: "sqlite3" } } }
 
   after { FileUtils.remove_entry(root) if File.directory?(root) }
 
@@ -27,7 +26,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
   def initialize_app(artifacts)
     Rails::Hyperdrive::InstallPipeline.new(
       root: root, shell: Rails::Hyperdrive::InstallShell.new(root: root),
-      artifacts: artifacts, stack: stack, mode: :preserve
+      artifacts: artifacts, mode: :preserve
     ).call
   end
 
@@ -37,7 +36,6 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
   before do
     allow(::Bundler).to receive(:frozen_bundle?).and_return(false)
     FileUtils.cp(File.expand_path("../fixtures/gemfile_lock/standard.lock", __dir__), File.join(root, "Gemfile.lock"))
-    allow(Rails::Hyperdrive::StackProfile).to receive(:from_lockfile).and_return(instance_double(Rails::Hyperdrive::StackProfile, to_h: stack))
   end
 
   describe "guards" do
@@ -100,6 +98,15 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(File.read(File.join(root, ".claude/hyperdrive/index.md"))).to include("@guidelines/jobs-sidekiq.md")
     end
 
+    it "leaves an installed guideline wired when the eager chain already exists" do
+      bundle_ships([guideline(name: "auth-pundit"), guideline(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+
+      result = described_class.run(root: root)
+
+      expect(result.unwired).to be false
+      expect(result.messages.join("\n")).not_to include("not in context yet")
+    end
+
     it "writes nothing at all when the lockfile is already current" do
       bundle_ships([guideline(name: "auth-pundit")])
       before_mtime = File.mtime(File.join(root, ".hyperdrive/lock.yml"))
@@ -148,6 +155,39 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
 
       expect(File).to exist(File.join(root, ".claude/hyperdrive/guidelines/auth-pundit.md"))
     end
+  end
+
+  describe "the first guideline to reach a zero-companion application" do
+    before { initialize_app([]) }
+
+    it "lands on disk, and says it is not in context until a sync" do
+      bundle_ships([guideline(name: "auth-pundit")])
+
+      result = described_class.run(root: root)
+
+      expect(result.installed).to eq([".claude/hyperdrive/guidelines/auth-pundit.md"])
+      expect(result.unwired).to be true
+      expect(result.messages.join("\n")).to include("not in context yet — run bin/rails hyperdrive:sync")
+      expect(File).not_to exist(File.join(root, "CLAUDE.md"))
+    end
+
+    it "says nothing about context when only a skill arrives" do
+      bundle_ships([skill(name: "jobs-sidekiq")])
+
+      result = described_class.run(root: root)
+
+      expect(result.installed).to eq([".claude/skills/jobs-sidekiq/SKILL.md"])
+      expect(result.unwired).to be false
+    end
+  end
+
+  def skill(name:, source: "rails-hyperdrive-x", version: "1.0.0")
+    Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact.new(
+      name: name, description: "d", target_gem: "*", versions: "*",
+      artifact_type: :skill, source_gem: source, path: "/x/#{name}/SKILL.md",
+      body: "---\nname: #{name}\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# #{name}\n\nhow to.\n",
+      spec_version: version
+    )
   end
 
   def disable(*names)

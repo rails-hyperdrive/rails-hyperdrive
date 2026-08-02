@@ -55,9 +55,10 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(guide).to include("# Alpha Guideline")
       expect(guide).not_to include("gem: railties") # frontmatter stripped
 
+      # The eager chain exists only because the companion shipped a guideline.
       index = File.read(File.join(app_dir, ".claude/hyperdrive/index.md"))
-      expect(index).to include("@stack.md")
-      expect(index).to include("@guidelines/alpha-guide.md")
+      expect(index).to eq("@guidelines/alpha-guide.md\n")
+      expect(File.read(File.join(app_dir, "CLAUDE.md"))).to include("@.claude/hyperdrive/index.md")
 
       lock = File.read(File.join(app_dir, ".hyperdrive/lock.yml"))
       expect(lock).to include(".claude/skills/alpha-skill/SKILL.md")
@@ -72,7 +73,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
 
       expect(out).to match(/skill\s+alpha-skill \(\+3 files\)/)
 
-      expect(out).to match(/1 guideline\(s\) \+ stack\.md, ~[1-9]\d* tokens always in context/)
+      expect(out).to match(/1 guideline\(s\), ~[1-9]\d* tokens always in context/)
 
       out2, status2 = Smoke.run_hyperdrive_init!(app_dir)
       expect(status2.success?).to be(true), out2
@@ -145,9 +146,10 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(Dir.exist?(skill_dir)).to be(false), "disabled skill directory survived:\n#{out}"
       expect(File.exist?(guide_path)).to be(false), "disabled guideline survived:\n#{out}"
 
-      index = File.read(File.join(app_dir, ".claude/hyperdrive/index.md"))
-      expect(index).to include("@stack.md")
-      expect(index).not_to include("@guidelines/alpha-guide.md")
+      # The last guideline going leaves nothing for the eager chain to carry.
+      # CLAUDE.md here is still byte-identical to the one init wrote, so it goes too.
+      expect(File.exist?(File.join(app_dir, ".claude/hyperdrive/index.md"))).to be(false)
+      expect(File.exist?(File.join(app_dir, "CLAUDE.md"))).to be(false)
 
       expect(YAML.safe_load(File.read(lock_path))["disabled"])
         .to eq("skills" => ["alpha-skill"], "guidelines" => ["alpha-guide"])
@@ -165,6 +167,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(File.exist?(guide_path)).to be(true), "guideline not restored:\n#{out3}"
       expect(File.read(File.join(app_dir, ".claude/hyperdrive/index.md")))
         .to include("@guidelines/alpha-guide.md")
+      expect(File.read(File.join(app_dir, "CLAUDE.md"))).to include("@.claude/hyperdrive/index.md")
     end
   end
 
@@ -203,7 +206,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       index = File.read(File.join(app_dir, ".claude/hyperdrive/index.md"))
       expect(index).to include("@guidelines/alpha-guide.md")
       expect(index).to include("@guidelines/beta-guide.md")
-      expect(out).to match(/2 guideline\(s\) \+ stack\.md, ~[1-9]\d* tokens always in context/)
+      expect(out).to match(/2 guideline\(s\), ~[1-9]\d* tokens always in context/)
 
       # The installed name rewrite must round-trip through the header strip,
       # or a second run would read as drift and rewrite the file.

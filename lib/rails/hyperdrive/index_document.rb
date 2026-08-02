@@ -4,7 +4,6 @@ module Rails
     # load eagerly. Pure: the caller supplies the existing content and writes
     # the result.
     module IndexDocument
-      STACK_LINE = "@stack.md".freeze
       GUIDELINE_PREFIX = "@guidelines/".freeze
 
       Rendered = Struct.new(:content, :guidelines, keyword_init: true)
@@ -21,10 +20,10 @@ module Rails
           existing.include?("#{GUIDELINE_PREFIX}#{g[:base]}")
         end
 
-        lines = [STACK_LINE] + included.map { |g| "#{GUIDELINE_PREFIX}#{g[:base]}" }.sort
+        lines = included.map { |g| "#{GUIDELINE_PREFIX}#{g[:base]}" }.sort
 
         Rendered.new(
-          content: lines.join("\n") + "\n",
+          content: lines.empty? ? "" : lines.join("\n") + "\n",
           # Only guidelines referenced by index.md load into context, so they
           # alone make up the eager footprint.
           guidelines: included.map { |g| { name: g[:base], body: g[:body] } }
@@ -43,9 +42,7 @@ module Rails
         current = existing.split("\n").map(&:strip).reject(&:empty?)
         return nil if (lines - current).empty?
 
-        guideline_lines = (current.reject { |l| l == STACK_LINE } + lines).uniq.sort
-        head = current.include?(STACK_LINE) ? [STACK_LINE] : []
-        (head + guideline_lines).join("\n") + "\n"
+        (current + lines).uniq.sort.join("\n") + "\n"
       end
     end
   end

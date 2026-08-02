@@ -105,16 +105,16 @@ RSpec.describe Rails::Hyperdrive::LockFile do
           skills: []
           guidelines: []
         files:
-        - path: ".claude/hyperdrive/stack.md"
-          artifact: stack
-          source: internal@0.3.0
+        - path: ".claude/hyperdrive/guidelines/service-objects.md"
+          artifact: guideline
+          source: rails-hyperdrive-alpha@0.3.0
           source_sha: deadbeef
           installed_at: '2026-05-29T14:22:08Z'
       YAML
 
-      entry = described_class.load(path).entry(".claude/hyperdrive/stack.md")
-      expect(entry.kind).to eq("stack")
-      expect(entry.source_gem).to eq("internal")
+      entry = described_class.load(path).entry(".claude/hyperdrive/guidelines/service-objects.md")
+      expect(entry.kind).to eq("guideline")
+      expect(entry.source_gem).to eq("rails-hyperdrive-alpha")
       expect(entry.source_version).to eq("0.3.0")
       expect(entry.source_sha).to eq("deadbeef")
       expect(entry.installed_at).to eq("2026-05-29T14:22:08Z")
@@ -172,11 +172,28 @@ RSpec.describe Rails::Hyperdrive::LockFile do
     expect(lock.claude_md_state).to be_nil
   end
 
-  it "defaults claude_md.state to present when serialized without one" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "lock.yml")
-      yaml = described_class.new(path).to_yaml
-      expect(yaml).to include("state: present")
+  describe "the claude_md key" do
+    it "is omitted entirely when no import line is being managed" do
+      yaml = YAML.safe_load(described_class.new("/no/such/lock.yml").to_yaml)
+      expect(yaml).not_to have_key("claude_md")
+    end
+
+    it "is dropped even when a stale state was carried in from disk" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "lock.yml")
+        File.write(path, "version: 1\nclaude_md:\n  state: present\nfiles: []\n")
+
+        rewritten = described_class.new(path).carry_settings(described_class.load(path))
+        expect(YAML.safe_load(rewritten.to_yaml)).not_to have_key("claude_md")
+      end
+    end
+
+    it "is emitted for every recorded state" do
+      [described_class::STATE_PRESENT, described_class::STATE_REMOVED].each do |state|
+        lock = described_class.new("/no/such/lock.yml")
+        lock.claude_md_state = state
+        expect(YAML.safe_load(lock.to_yaml)["claude_md"]).to eq("state" => state)
+      end
     end
   end
 

@@ -169,7 +169,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
         out = run_generator([])
         expect(File.read(path(".mcp.json"))).to eq("{ this is not json")
         expect(out).to match(/warn\s+\.mcp\.json left unchanged/)
-        expect(File).to exist(path(".claude/hyperdrive/stack.md"))
+        expect(File).to exist(path(".hyperdrive/lock.yml"))
         expect(File.read(path("config/routes.rb"))).to include("Rails::Hyperdrive::Engine")
       end
 
@@ -202,28 +202,21 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
-  describe "zero-content install (no companions)" do
-    it "generates stack.md, index.md, the lockfile, and a CLAUDE.md import line" do
+  describe "zero-companion install (no companions)" do
+    it "writes the bootstrap artifacts and the lockfile" do
       run_generator([])
-      expect(File).to exist(path(".claude/hyperdrive/stack.md"))
-      expect(File.read(path(".claude/hyperdrive/index.md"))).to include("@stack.md")
+      expect(File).to exist(path(".mcp.json"))
       expect(File).to exist(path(".hyperdrive/lock.yml"))
-      expect(File.read(path("CLAUDE.md"))).to include("@.claude/hyperdrive/index.md")
+      expect(File.read(path(".gitignore"))).to include(".hyperdrive/discover_cache.json")
+      expect(File.read(path("config/routes.rb"))).to include("Rails::Hyperdrive::Engine")
     end
 
-    it "writes stack.md with an HTML audit header and a facts section" do
+    it "puts nothing into the agent's context window" do
       run_generator([])
-      body = File.read(path(".claude/hyperdrive/stack.md"))
-      expect(body).to start_with("<!-- hyperdrive: source=internal@")
-      expect(body).to include("## Stack")
-      expect(body).to include("## MCP tools")
-    end
-
-    it "tracks stack.md in the lockfile as the internal source" do
-      run_generator([])
-      lock = File.read(path(".hyperdrive/lock.yml"))
-      expect(lock).to include("artifact: stack")
-      expect(lock).to include("source: internal@")
+      expect(File).not_to exist(path(".claude/hyperdrive/index.md"))
+      expect(File).not_to exist(path("CLAUDE.md"))
+      expect(File).not_to exist(path(".claude/skills"))
+      expect(YAML.safe_load(File.read(path(".hyperdrive/lock.yml")))).not_to have_key("claude_md")
     end
   end
 
@@ -424,7 +417,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       stub_multi
       out = run_generator([])
 
-      expect(out).to include("Installed 1 skill, 0 guidelines + stack.md")
+      expect(out).to include("Installed 1 skill, 0 guidelines")
       expect(out).to match(/skill\s+jobs-sidekiq \(\+2 files\)/)
       expect(out).not_to match(/skill_support/)
       expect(out.scan("references/deep.md").size).to eq(1) # the create line only, no summary line
@@ -460,11 +453,15 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
 
     it "does not re-add a guideline whose index.md line the user deleted (opt-out)" do
+      stub_discovery([
+        guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit"),
+        guideline_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")
+      ])
       run_generator([])
       index = path(".claude/hyperdrive/index.md")
-      File.write(index, "@stack.md\n")
+      File.write(index, "@guidelines/jobs-sidekiq.md\n")
       run_generator([])
-      expect(File.read(index)).not_to include("@guidelines/auth-pundit.md")
+      expect(File.read(index)).to eq("@guidelines/jobs-sidekiq.md\n")
     end
   end
 
@@ -720,12 +717,20 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       ])
       out = run_generator([])
 
-      expect(out).to include("Installed 2 skills, 1 guideline + stack.md")
+      expect(out).to include("Installed 2 skills, 1 guideline")
       expect(out).to match(/rails-hyperdrive-view-component@1\.0\.0\n\s+skill\s+component-authoring/)
     end
 
     it "prints no listing under --skip-content" do
       expect(run_generator(["--skip-content"])).not_to include("Installed")
+    end
+
+    it "reports the mount and the number of MCP tools behind it" do
+      count = Rails::Hyperdrive::McpServer::TOOLS.size
+      out = run_generator([])
+
+      expect(out).to include("Mount: /_hyperdrive (in config/routes.rb)")
+      expect(out).to include("Server: #{count} MCP tools at http://localhost:3000/_hyperdrive/mcp")
     end
   end
 
@@ -761,7 +766,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
   end
 
   describe "CLAUDE.md import line" do
-    before { stub_discovery([]) }
+    before { stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")]) }
 
     it "does not re-add the import line after the user deletes it (warn once)" do
       run_generator([])
@@ -784,23 +789,25 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     it "honors --dry-run by writing no files" do
       run_generator(["--dry-run"])
       expect(File).not_to exist(path(".mcp.json"))
-      expect(File).not_to exist(path(".claude/hyperdrive/stack.md"))
+      expect(File).not_to exist(path(".hyperdrive/lock.yml"))
       expect(File.read(path("config/routes.rb"))).not_to include("Rails::Hyperdrive::Engine")
     end
 
     it "honors --skip-content (no .claude content, no CLAUDE.md, no lockfile, still writes .mcp.json)" do
       run_generator(["--skip-content"])
       expect(File).to exist(path(".mcp.json"))
-      expect(File).not_to exist(path(".claude/hyperdrive/stack.md"))
       expect(File).not_to exist(path(".claude/hyperdrive/index.md"))
       expect(File).not_to exist(path("CLAUDE.md"))
       expect(File).not_to exist(path(".hyperdrive/lock.yml"))
     end
 
     it "reconstructs full content on a later init after --skip-content" do
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
       run_generator(["--skip-content"])
+      expect(File).not_to exist(path(".hyperdrive/lock.yml"))
+
       run_generator([])
-      expect(File).to exist(path(".claude/hyperdrive/stack.md"))
+      expect(File).to exist(path(".claude/hyperdrive/guidelines/auth-pundit.md"))
       expect(File).to exist(path(".claude/hyperdrive/index.md"))
       expect(File.read(path("CLAUDE.md"))).to include("@.claude/hyperdrive/index.md")
       expect(File.read(path(".hyperdrive/lock.yml"))).to include("state: present")

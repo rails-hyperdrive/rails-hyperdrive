@@ -1,6 +1,5 @@
 require "thor"
 require "rails/hyperdrive"
-require "rails/hyperdrive/stack_profile"
 require "rails/hyperdrive/bundler_artifact_discovery"
 require "rails/hyperdrive/install_pipeline"
 require "generators/hyperdrive/install_summary"
@@ -29,12 +28,6 @@ module Rails
           end
         end
 
-        def load_stack_profile
-          @stack ||= ::Rails::Hyperdrive::StackProfile
-            .from_lockfile(File.join(root, "Gemfile.lock"), app_root: root)
-            .to_h
-        end
-
         def discover_artifacts(skip: false)
           @artifacts ||= skip ? [] : ::Rails::Hyperdrive::BundlerArtifactDiscovery.discover(warnings: warnings)
         end
@@ -44,7 +37,6 @@ module Rails
             root: root,
             shell: @shell,
             artifacts: discover_artifacts,
-            stack: load_stack_profile,
             mode: mode,
             warnings: warnings
           )

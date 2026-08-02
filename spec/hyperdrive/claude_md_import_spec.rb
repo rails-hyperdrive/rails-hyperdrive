@@ -64,4 +64,48 @@ RSpec.describe Rails::Hyperdrive::ClaudeMdImport do
       expect(decision.warning).to eq(c[:warning])
     end
   end
+
+  describe ".teardown" do
+    it "deletes a CLAUDE.md byte-identical to the one it created" do
+      decision = described_class.teardown(content: created, state: present)
+
+      expect(decision.action).to eq(:delete)
+      expect(decision.state).to be_nil
+    end
+
+    it "strips only its own line out of a file the user also writes in" do
+      decision = described_class.teardown(content: "# notes\n\n#{line}\n\ntail\n", state: present)
+
+      expect(decision.action).to eq(:rewrite)
+      expect(decision.body).to eq("# notes\n\n\ntail\n")
+      expect(decision.state).to be_nil
+    end
+
+    it "leaves exactly one trailing newline when its line was last" do
+      decision = described_class.teardown(content: "# notes\n\n#{line}\n", state: present)
+
+      expect(decision.body).to eq("# notes\n")
+    end
+
+    it "does nothing when the file is absent" do
+      decision = described_class.teardown(content: nil, state: present)
+
+      expect(decision.action).to eq(:none)
+      expect(decision.state).to be_nil
+    end
+
+    it "does nothing when the line is not there" do
+      decision = described_class.teardown(content: without_line, state: present)
+
+      expect(decision.action).to eq(:none)
+      expect(decision.state).to be_nil
+    end
+
+    it "keeps an opt-out the user made by hand, so no later run re-adds the line" do
+      decision = described_class.teardown(content: created, state: removed)
+
+      expect(decision.action).to eq(:none)
+      expect(decision.state).to eq(removed)
+    end
+  end
 end

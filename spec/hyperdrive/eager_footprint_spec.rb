@@ -19,20 +19,17 @@ RSpec.describe Rails::Hyperdrive::EagerFootprint do
 
   describe ".lines" do
     it "reports the count and total under the budget" do
-      lines = described_class.lines(
-        guidelines: [entry("a.md", 100), entry("b.md", 50)], stack_body: "x" * 40
-      )
+      lines = described_class.lines(guidelines: [entry("a.md", 100), entry("b.md", 50)])
 
       expect(lines.size).to eq(1)
       expect(lines.first.status).to eq(:eager)
       expect(lines.first.color).to eq(:cyan)
-      expect(lines.first.message).to eq("2 guideline(s) + stack.md, ~160 tokens always in context")
+      expect(lines.first.message).to eq("2 guideline(s), ~150 tokens always in context")
     end
 
     it "warns and names only the two largest contributors over the budget" do
       lines = described_class.lines(
-        guidelines: [entry("huge.md", 9_000), entry("big.md", 2_000), entry("tiny.md", 10)],
-        stack_body: nil
+        guidelines: [entry("huge.md", 9_000), entry("big.md", 2_000), entry("tiny.md", 10)]
       )
 
       expect(lines.size).to eq(2)
@@ -44,24 +41,8 @@ RSpec.describe Rails::Hyperdrive::EagerFootprint do
       )
     end
 
-    it "counts no stack tokens when there is no stack body" do
-      lines = described_class.lines(guidelines: [entry("a.md", 100)], stack_body: nil)
-
-      expect(lines.first.message).to eq("1 guideline(s) + stack.md, ~100 tokens always in context")
-    end
-
-    it "reports a stack-only footprint" do
-      lines = described_class.lines(guidelines: [], stack_body: "x" * 400)
-
-      expect(lines.first.message).to eq("0 guideline(s) + stack.md, ~100 tokens always in context")
-    end
-
-    it "names stack.md among the largest when it dominates" do
-      lines = described_class.lines(
-        guidelines: [entry("a.md", 3_000), entry("tiny.md", 10)], stack_body: "x" * (9_000 * 4)
-      )
-
-      expect(lines.last.message).to include("largest: stack.md ~9000, a.md ~3000")
+    it "reports nothing at all when no guideline is eager" do
+      expect(described_class.lines(guidelines: [])).to eq([])
     end
   end
 end

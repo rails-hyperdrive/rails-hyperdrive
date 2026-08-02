@@ -5,7 +5,7 @@ module Rails
     module Hyperdrive
       module InstallSummary
         KIND_WIDTH = "guideline".length
-        KIND_ORDER = %w[skill guideline stack].freeze
+        KIND_ORDER = %w[skill guideline].freeze
 
         module_function
 
@@ -38,8 +38,7 @@ module Rails
 
         def installed_counts(entries)
           counts = entries.group_by { |e| e.kind.to_s }.transform_values(&:size)
-          summary = "Installed #{quantify(counts["skill"].to_i, "skill")}, #{quantify(counts["guideline"].to_i, "guideline")}"
-          counts["stack"].to_i.positive? ? "#{summary} + stack.md" : summary
+          "Installed #{quantify(counts["skill"].to_i, "skill")}, #{quantify(counts["guideline"].to_i, "guideline")}"
         end
 
         def group_by_source(entries)
@@ -53,7 +52,6 @@ module Rails
 
         def display_name(entry)
           path = entry.path.to_s
-          return File.basename(path) if entry.kind.to_s == "stack"
 
           # A kind outside the install layout can only come from a hand-edited
           # lock, so it degrades to the filename instead of printing nothing.

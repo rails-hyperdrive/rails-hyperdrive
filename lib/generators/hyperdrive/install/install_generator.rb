@@ -2,6 +2,7 @@ require "rails/generators"
 require "rails/generators/base"
 require "json"
 require "rails/hyperdrive/companion_discovery"
+require "rails/hyperdrive/mcp_server"
 require "generators/hyperdrive/content_sync_support"
 require "generators/hyperdrive/gitignore_support"
 
@@ -29,10 +30,6 @@ module Rails
 
         def verify_environment
           runner.verify_environment!
-        end
-
-        def parse_stack_profile
-          runner.load_stack_profile
         end
 
         def discover_artifacts
@@ -114,6 +111,7 @@ module Rails
           say ""
           say_status :done, "hyperdrive initialized", :green
           say "  Mount: #{mount_path} (in config/routes.rb)"
+          say "  Server: #{::Rails::Hyperdrive::McpServer::TOOLS.size} MCP tools at http://localhost:3000#{mount_path}/mcp"
           runner.summary_lines.each { |line| say line } unless options[:skip_content]
           say ""
           say "  Next steps:"

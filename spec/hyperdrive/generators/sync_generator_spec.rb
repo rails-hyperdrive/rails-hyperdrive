@@ -59,9 +59,10 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
 
   describe "content-only surface" do
     it "installs full content on a fresh app with no prior init and no lock" do
+      stub_discovery([guideline_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
       run_generator([])
-      expect(File).to exist(path(".claude/hyperdrive/stack.md"))
-      expect(File.read(path(".claude/hyperdrive/index.md"))).to include("@stack.md")
+      expect(File).to exist(path(".claude/hyperdrive/guidelines/jobs-sidekiq.md"))
+      expect(File.read(path(".claude/hyperdrive/index.md"))).to include("@guidelines/jobs-sidekiq.md")
       expect(File).to exist(path(".hyperdrive/lock.yml"))
       expect(File.read(path("CLAUDE.md"))).to include("@.claude/hyperdrive/index.md")
     end
@@ -203,7 +204,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
   describe "--dry-run" do
     it "writes nothing" do
       run_generator(["--dry-run"])
-      expect(File).not_to exist(path(".claude/hyperdrive/stack.md"))
+      expect(File).not_to exist(path(".claude/hyperdrive/index.md"))
       expect(File).not_to exist(path(".hyperdrive/lock.yml"))
       expect(File).not_to exist(path("CLAUDE.md"))
     end
@@ -218,11 +219,10 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       out = run_generator([])
 
       expect(out).to include("hyperdrive synced")
-      expect(out).to include("Installed 1 skill, 1 guideline + stack.md")
+      expect(out).to include("Installed 1 skill, 1 guideline")
       expect(out).to match(
         /rails-hyperdrive-sidekiq@1\.0\.0\n\s+skill\s+sidekiq-idempotency\n\s+guideline\s+jobs-sidekiq/
       )
-      expect(out).to match(/internal@#{Regexp.escape(Rails::Hyperdrive::VERSION)}\n\s+stack\s+stack\.md/)
       expect(out).not_to include("Mount:")
       expect(out).not_to include("Next steps")
     end

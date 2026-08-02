@@ -8,7 +8,6 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
   Artifact = Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact unless defined?(Artifact)
 
   let(:root) { Dir.mktmpdir("hyperdrive-pipeline") }
-  let(:stack) { { rails: { version: "8.0.0", major: 8 }, ruby: { version: "3.3.0" }, database: { adapter: "sqlite3" } } }
 
   after { FileUtils.remove_entry(root) if File.directory?(root) }
 
@@ -35,7 +34,6 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       root: root,
       shell: Rails::Hyperdrive::InstallShell.new(root: root),
       artifacts: artifacts,
-      stack: stack,
       mode: mode
     ).call
   end
@@ -46,7 +44,6 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       root: root,
       shell: Rails::Hyperdrive::InstallShell.new(root: root, io: io),
       artifacts: artifacts,
-      stack: stack,
       mode: mode
     ).call
     io.string
@@ -61,7 +58,6 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     it "installs a full content set into the given root" do
       run(artifacts: [guideline(name: "auth-pundit"), skill(name: "jobs-sidekiq")])
 
-      expect(exist?(".claude/hyperdrive/stack.md")).to be true
       expect(exist?(".claude/skills/jobs-sidekiq/SKILL.md")).to be true
       expect(read(".claude/hyperdrive/guidelines/auth-pundit.md")).to start_with("<!-- hyperdrive: source=rails-hyperdrive-x@1.0.0")
       expect(read(".claude/hyperdrive/index.md")).to include("@guidelines/auth-pundit.md")
@@ -72,7 +68,6 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     it "reports what it wrote" do
       result = run(artifacts: [guideline(name: "auth-pundit")])
       expect(result.installed).to include(".claude/hyperdrive/guidelines/auth-pundit.md")
-      expect(result.installed).to include(".claude/hyperdrive/stack.md")
     end
   end
 
@@ -94,7 +89,6 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       index = read(".claude/hyperdrive/index.md")
       expect(index).to include("@guidelines/jobs-sidekiq.md")
       expect(index).to include("@guidelines/auth-pundit.md")
-      expect(index.lines.first.strip).to eq("@stack.md")
     end
 
     it "leaves a locally-edited file alone" do
@@ -130,7 +124,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     end
 
     it "does not re-add an index.md line the user removed" do
-      File.write(File.join(root, ".claude/hyperdrive/index.md"), "@stack.md\n")
+      File.write(File.join(root, ".claude/hyperdrive/index.md"), "")
 
       run(mode: :additive, artifacts: [existing])
 
@@ -316,7 +310,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       run(artifacts: [guideline(name: "jobs-sidekiq"), guideline(name: "auth-pundit"), skill(name: "s1")])
 
       expect(read(".claude/hyperdrive/index.md"))
-        .to eq("@stack.md\n@guidelines/auth-pundit.md\n@guidelines/jobs-sidekiq.md\n")
+        .to eq("@guidelines/auth-pundit.md\n@guidelines/jobs-sidekiq.md\n")
       expect(read("CLAUDE.md")).to eq(
         "<!-- AI instructions for this project. Managed content lives in .claude/hyperdrive/. -->\n\n" \
         "@.claude/hyperdrive/index.md\n"
@@ -326,7 +320,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     it "prints the eager footprint" do
       out = run_reporting(artifacts: [guideline(name: "auth-pundit")])
 
-      expect(out).to match(/eager\s+1 guideline\(s\) \+ stack\.md, ~\d+ tokens always in context/)
+      expect(out).to match(/eager\s+1 guideline\(s\), ~\d+ tokens always in context/)
     end
 
     it "leaves index.md alone on a re-run" do
@@ -337,9 +331,86 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     end
   end
 
+  describe "the companion-driven eager chain" do
+    def lock_yaml = YAML.safe_load(read(".hyperdrive/lock.yml"))
+
+    it "writes nothing into the context window when no companion ships a guideline" do
+      out = run_reporting(artifacts: [skill(name: "jobs")])
+
+      expect(exist?(".claude/hyperdrive/index.md")).to be false
+      expect(exist?("CLAUDE.md")).to be false
+      expect(lock_yaml).not_to have_key("claude_md")
+      expect(out).not_to include("always in context")
+    end
+
+    it "arms the chain on the first run that lands a guideline" do
+      run(artifacts: [])
+
+      out = run_reporting(artifacts: [guideline(name: "auth-pundit")])
+
+      expect(read(".claude/hyperdrive/index.md")).to eq("@guidelines/auth-pundit.md\n")
+      expect(read("CLAUDE.md")).to include("@.claude/hyperdrive/index.md")
+      expect(lock_yaml["claude_md"]).to eq("state" => "present")
+      expect(out).not_to include("won't re-add")
+    end
+
+    it "tears the chain down when the last companion leaves the bundle" do
+      run(artifacts: [guideline(name: "auth-pundit")])
+
+      result = run(artifacts: [])
+
+      expect(exist?(".claude/hyperdrive/index.md")).to be false
+      expect(result.removed).to include(".claude/hyperdrive/index.md")
+      expect(exist?("CLAUDE.md")).to be false
+      expect(exist?(".claude/hyperdrive/guidelines/auth-pundit.md")).to be true
+      expect(result.orphaned).to include(".claude/hyperdrive/guidelines/auth-pundit.md")
+      expect(lock_yaml).not_to have_key("claude_md")
+    end
+
+    it "keeps every user byte of a CLAUDE.md it did not write, minus the import line" do
+      run(artifacts: [guideline(name: "auth-pundit")])
+      File.write(File.join(root, "CLAUDE.md"), "# My notes\n\n@.claude/hyperdrive/index.md\n\nMore of mine.\n")
+
+      run(artifacts: [])
+
+      expect(read("CLAUDE.md")).to eq("# My notes\n\n\nMore of mine.\n")
+    end
+
+    it "leaves exactly one trailing newline when the import line was last" do
+      run(artifacts: [guideline(name: "auth-pundit")])
+      File.write(File.join(root, "CLAUDE.md"), "# My notes\n\n@.claude/hyperdrive/index.md\n")
+
+      run(artifacts: [])
+
+      expect(read("CLAUDE.md")).to eq("# My notes\n")
+    end
+
+    it "keeps an emptied index.md while a guideline is still planned" do
+      run(artifacts: [guideline(name: "auth-pundit")])
+      File.write(File.join(root, ".claude/hyperdrive/index.md"), "")
+
+      run(artifacts: [guideline(name: "auth-pundit")])
+
+      expect(read(".claude/hyperdrive/index.md")).to eq("")
+      expect(read("CLAUDE.md")).to include("@.claude/hyperdrive/index.md")
+    end
+
+    it "never tears down in additive mode" do
+      run(artifacts: [guideline(name: "auth-pundit")])
+      claude_md = read("CLAUDE.md")
+
+      result = run(mode: :additive, artifacts: [])
+
+      expect(exist?(".claude/hyperdrive/index.md")).to be true
+      expect(read("CLAUDE.md")).to eq(claude_md)
+      expect(result.removed).to be_empty
+      expect(lock_yaml["claude_md"]).to eq("state" => "present")
+    end
+  end
+
   it "rejects an unknown mode" do
     expect {
-      described_class.new(root: root, shell: nil, artifacts: [], stack: stack, mode: :clobber)
+      described_class.new(root: root, shell: nil, artifacts: [], mode: :clobber)
     }.to raise_error(ArgumentError, /clobber/)
   end
 end

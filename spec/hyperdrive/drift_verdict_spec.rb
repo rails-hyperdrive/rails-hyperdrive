@@ -140,14 +140,13 @@ RSpec.describe Rails::Hyperdrive::DriftVerdict do
       expect(described_class.disk_sha(file, kind: "skill")).to eq(skill_sha)
     end
 
-    it "holds for the HTML-comment guideline/stack form" do
-      body = "# Stack\n\n- **Rails:** 8.0.1\n"
+    it "holds for the HTML-comment guideline form" do
+      body = "# Service objects\n\n- Keep them stateless.\n"
       recorded = described_class.body_sha(body)
-      header = audit_header.build_html(source_gem: "internal", version: "0.2.0", sha256: recorded)
-      file = File.join(@dir, "stack.md")
+      header = audit_header.build_html(source_gem: "rails-hyperdrive-alpha", version: "0.2.0", sha256: recorded)
+      file = File.join(@dir, "service-objects.md")
       File.write(file, audit_header.prepend_html(body, header))
       expect(described_class.disk_sha(file, kind: "guideline")).to eq(recorded)
-      expect(described_class.disk_sha(file, kind: "stack")).to eq(recorded)
     end
 
     it "holds for skill_support raw bytes written verbatim" do

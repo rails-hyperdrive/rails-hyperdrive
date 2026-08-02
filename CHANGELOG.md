@@ -57,8 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `(+N files)` count on the skill's line.
 
 - `hyperdrive:sync` — content-only actualization. Refreshes skills, guidelines,
-  `stack.md`, `index.md`, and `.hyperdrive/lock.yml` to match the current
-  bundle, and touches no bootstrap artifact (`.mcp.json`, the engine mount, the
+  `index.md`, and `.hyperdrive/lock.yml` to match the current bundle, and
+  touches no bootstrap artifact (`.mcp.json`, the engine mount, the
   optional initializer, the `.gitignore` rule). Locally-edited files are
   preserved by default (skip + warn); pass `--overwrite` to restore the
   gem-shipped content. Works with or without a prior `hyperdrive:init`.
@@ -82,8 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the map are unconstrained.
 - Content installation is now callable without a booted Rails application.
   `Rails::Hyperdrive::InstallPipeline` takes an explicit application root and
-  performs the whole install — skills, guidelines, `stack.md`, `index.md`, the
-  `CLAUDE.md` import line, and `.hyperdrive/lock.yml` — so any process that can
+  performs the whole install — skills, guidelines, `index.md`, the `CLAUDE.md`
+  import line, and `.hyperdrive/lock.yml` — so any process that can
   see the app's bundle can run it. `hyperdrive:init` and `hyperdrive:update`
   call the same pipeline, and their behaviour is unchanged.
 - `Rails::Hyperdrive::ArtifactStatus` compares what the bundle offers against
@@ -100,8 +100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `hyperdrive:init` / `hyperdrive:update` now check the *combined* eager
   footprint against a budget, not just per-file size. When the guidelines
-  listed in `index.md` plus `stack.md` exceed ~10,000 tokens, the footprint
-  line is followed by a warning naming the two largest contributors, so it is
+  listed in `index.md` exceed ~10,000 tokens, the footprint line is followed
+  by a warning naming the two largest contributors, so it is
   clear what to trim or which line to drop from `index.md` to opt a guideline
   out. Individually reasonable guidelines could previously clear every per-file
   check and still add up to real context-window pressure with nothing flagging
@@ -138,13 +138,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING:** the eager-content chain is now companion-driven.
+  `.claude/hyperdrive/index.md` and the `@.claude/hyperdrive/index.md` line in
+  `CLAUDE.md` are created only once a companion gem ships a guideline, and are
+  removed again when the last one leaves the bundle. A zero-companion
+  `hyperdrive:init` now writes `.mcp.json`, the `.gitignore` rule, the optional
+  initializer, the engine mount, and `.hyperdrive/lock.yml` — and nothing into
+  the agent's context window. On tear-down, `CLAUDE.md` is deleted only when it
+  is byte-identical to the file hyperdrive created; otherwise only hyperdrive's
+  own import line is removed and every other byte is left alone. An import line
+  you deleted by hand is still never re-added. `hyperdrive:sync` performs the
+  tear-down; the `bundler-hyperdrive` plugin (additive) never removes anything.
+  Because a `bundle install` must not edit `CLAUDE.md`, the plugin now says so
+  when it installs the first guideline into an app that has no import line yet:
+  the guideline is on disk but out of context until you run
+  `bin/rails hyperdrive:sync`.
 - **BREAKING:** `hyperdrive:init` no longer accepts `--update` /
   `--force-install`; it always preserves locally-edited files (skip + warn).
   The conflict warning and the AutoInstall nudge now point at
   `hyperdrive:sync`.
+- `hyperdrive:init`'s summary now reports the mounted MCP server and its tool
+  count.
+- `bundle install` (through the `bundler-hyperdrive` plugin) no longer parses
+  `Gemfile.lock`.
 
 ### Removed
 
+- **BREAKING:** `.claude/hyperdrive/stack.md` is no longer generated. Ask the
+  running server what the app's stack is instead — the `describe_app` MCP tool
+  and the `hyperdrive://stack-profile` resource answer it live, from the
+  resolved bundle, and can never go stale the way a written-once file does.
+
+  **Manual migration:** an app installed before this release keeps
+  `.claude/hyperdrive/stack.md` on disk, and `hyperdrive:init` / `hyperdrive:sync`
+  will report it as an orphan on every run. Delete the file and its
+  `.hyperdrive/lock.yml` entry by hand.
 - **BREAKING:** `hyperdrive:update` is removed (not deprecated) — use
   `bin/rails hyperdrive:sync --overwrite`. Note the default flip: the routine
   refresh (`hyperdrive:sync`) now preserves locally-edited files; overwriting
@@ -223,7 +251,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** renamed the `hyperdrive:init` / `hyperdrive:update` flag
   `--skip-skills` to `--skip-content`. The old name is removed outright, with no
   deprecated alias — it never described what the flag does. The flag skips *all*
-  installed content, not just skills: skills, guidelines, `stack.md`, `index.md`,
+  installed content, not just skills: skills, guidelines, `index.md`,
   the `CLAUDE.md` import line, and `.hyperdrive/lock.yml`, leaving only
   `.mcp.json`, the discover-cache `.gitignore` rule, the optional initializer,
   and the engine mount. Writing no lockfile is intentional and unchanged: the

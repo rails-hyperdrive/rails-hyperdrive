@@ -22,8 +22,8 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallSummary do
     entry(path: ".claude/hyperdrive/guidelines/#{name}.md", kind: "guideline", source_gem: source, source_version: version)
   end
 
-  def stack(version: "0.9.9")
-    entry(path: ".claude/hyperdrive/stack.md", kind: "stack", source_gem: "internal", source_version: version)
+  def internal_guideline(name, version: "0.9.9")
+    entry(path: ".claude/hyperdrive/guidelines/#{name}.md", kind: "guideline", source_gem: "internal", source_version: version)
   end
 
   it "returns nothing for an empty lock" do
@@ -47,7 +47,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallSummary do
     it "puts the internal group last regardless of alphabetical order" do
       lines = described_class.lines([
         skill("z1", source: "zeta-gem"),
-        stack,
+        internal_guideline("legacy"),
         skill("a1", source: "alpha-gem")
       ])
 
@@ -125,12 +125,6 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallSummary do
       expect(described_class.lines([guideline("g1", source: "a"), guideline("g2", source: "a")]).first)
         .to eq("  Installed 0 skills, 2 guidelines")
     end
-
-    it "mentions stack.md only when a stack entry is present" do
-      expect(described_class.lines([skill("sk", source: "a")]).first).not_to include("stack.md")
-      expect(described_class.lines([skill("sk", source: "a"), stack]).first)
-        .to eq("  Installed 1 skill, 0 guidelines + stack.md")
-    end
   end
 
   it "degrades an unknown kind from a hand-edited lock to the filename, listed last" do
@@ -148,8 +142,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallSummary do
       skill_support("sidekiq-idempotency", "ref/a.md", source: "rails-hyperdrive-sidekiq"),
       skill_support("sidekiq-idempotency", "ref/b.md", source: "rails-hyperdrive-sidekiq"),
       guideline("jobs-sidekiq", source: "rails-hyperdrive-sidekiq"),
-      skill("component-authoring", source: "rails-hyperdrive-view-component", version: "2.1.0"),
-      stack
+      skill("component-authoring", source: "rails-hyperdrive-view-component", version: "2.1.0")
     ]
     fixture = File.expand_path("../../fixtures/install_summary/multi_source.txt", __dir__)
 
