@@ -56,10 +56,10 @@ system("cp", "-a", "#{src}/.", dest) or die("copy failed")
 
 # The path-sourced plugin directive doubles as the one hyperdrive:init would
 # write — init sees it and leaves the Gemfile alone, so later bundle installs
-# never chase an unpublished bundler-hyperdrive on rubygems.
+# never chase an unpublished bundler-rails-hyperdrive on rubygems.
 File.open(File.join(dest, "Gemfile"), "a") do |f|
   f.write(%(gem "rails-hyperdrive", path: #{REPO_ROOT.inspect}\n))
-  f.write(%(plugin "bundler-hyperdrive", path: #{File.join(REPO_ROOT, "bundler-hyperdrive").inspect}\n))
+  f.write(%(plugin "bundler-rails-hyperdrive", path: #{File.join(REPO_ROOT, "bundler-rails-hyperdrive").inspect}\n))
 end
 
 puts "playground: created #{dest}"

@@ -242,18 +242,18 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     it "appends the plugin directive to a fresh Gemfile" do
       File.write(gemfile, %(source "https://rubygems.org"\n\ngem "rails"\n))
       run_generator([])
-      expect(File.read(gemfile)).to end_with(%(gem "rails"\nplugin "bundler-hyperdrive"\n))
+      expect(File.read(gemfile)).to end_with(%(gem "rails"\nplugin "bundler-rails-hyperdrive"\n))
     end
 
     it "is idempotent — re-running appends exactly one directive" do
       File.write(gemfile, %(source "https://rubygems.org"\n))
       run_generator([])
       run_generator([])
-      expect(File.read(gemfile).scan('plugin "bundler-hyperdrive"').length).to eq(1)
+      expect(File.read(gemfile).scan('plugin "bundler-rails-hyperdrive"').length).to eq(1)
     end
 
     it "leaves an existing path-sourced directive byte-identical" do
-      body = %(source "https://rubygems.org"\nplugin "bundler-hyperdrive", path: "../bundler-hyperdrive"\n)
+      body = %(source "https://rubygems.org"\nplugin "bundler-rails-hyperdrive", path: "../bundler-rails-hyperdrive"\n)
       File.write(gemfile, body)
       out = run_generator([])
       expect(File.read(gemfile)).to eq(body)
@@ -269,13 +269,13 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     it "appends on its own line when the Gemfile lacks a trailing newline" do
       File.write(gemfile, %(gem "rails"))
       run_generator([])
-      expect(File.read(gemfile)).to end_with(%(gem "rails"\nplugin "bundler-hyperdrive"\n))
+      expect(File.read(gemfile)).to end_with(%(gem "rails"\nplugin "bundler-rails-hyperdrive"\n))
     end
 
     it "still writes the directive under --skip-content" do
       File.write(gemfile, %(source "https://rubygems.org"\n))
       run_generator(["--skip-content"])
-      expect(File.read(gemfile)).to include(%(plugin "bundler-hyperdrive"\n))
+      expect(File.read(gemfile)).to include(%(plugin "bundler-rails-hyperdrive"\n))
     end
 
     it "writes nothing under --dry-run" do

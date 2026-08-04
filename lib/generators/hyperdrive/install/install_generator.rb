@@ -20,7 +20,7 @@ module Rails
         MCP_SERVER_KEY = "rails-hyperdrive".freeze
 
         GEMFILE = "Gemfile".freeze
-        BUNDLER_PLUGIN = "bundler-hyperdrive".freeze
+        BUNDLER_PLUGIN = "bundler-rails-hyperdrive".freeze
 
         source_root File.expand_path("templates", __dir__)
 

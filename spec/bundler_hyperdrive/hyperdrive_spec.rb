@@ -1,6 +1,6 @@
 require "spec_helper"
 require "rails/hyperdrive/auto_install"
-require_relative "../../bundler-hyperdrive/lib/bundler/hyperdrive"
+require_relative "../../bundler-rails-hyperdrive/lib/bundler/hyperdrive"
 
 RSpec.describe Bundler::Hyperdrive do
   def result(**attrs)

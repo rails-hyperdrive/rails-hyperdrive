@@ -10,7 +10,7 @@ module Smoke
   REPO_ROOT = File.expand_path("../..", __dir__).freeze
   FIXTURES_ROOT = File.join(REPO_ROOT, "spec/fixtures/smoke_apps").freeze
   COMPANIONS_ROOT = File.join(REPO_ROOT, "spec/fixtures/smoke_companions").freeze
-  PLUGIN_ROOT = File.join(REPO_ROOT, "bundler-hyperdrive").freeze
+  PLUGIN_ROOT = File.join(REPO_ROOT, "bundler-rails-hyperdrive").freeze
   TMP_ROOT = File.join(REPO_ROOT, "spec/tmp/smoke").freeze
   # Shared bundle cache across scenarios so only the first install pays the
   # full network cost; subsequent scenarios reuse the resolved gems.
@@ -34,7 +34,7 @@ module Smoke
   def add_path_gem!(app_dir)
     gemfile = File.join(app_dir, "Gemfile")
     lines = %(gem "rails-hyperdrive", path: #{REPO_ROOT.inspect}\n) +
-            %(plugin "bundler-hyperdrive", path: #{PLUGIN_ROOT.inspect}\n)
+            %(plugin "bundler-rails-hyperdrive", path: #{PLUGIN_ROOT.inspect}\n)
     File.open(gemfile, "a") { |f| f.write(lines) }
   end
 

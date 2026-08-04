@@ -25,7 +25,7 @@ RSpec.describe "hyperdrive auto-install smoke", :smoke do
     JSON.parse(out.lines.last, symbolize_names: true)
   end
 
-  # Every install disables Bundler's plugin system: with the bundler-hyperdrive
+  # Every install disables Bundler's plugin system: with the bundler-rails-hyperdrive
   # hook active, `bundle install` would land the artifacts first and the
   # entry-point assertions below would see nothing left to install.
   before do

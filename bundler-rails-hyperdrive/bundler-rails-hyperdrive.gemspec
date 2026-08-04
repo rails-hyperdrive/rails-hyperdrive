@@ -1,7 +1,7 @@
 require_relative "lib/bundler/hyperdrive/version"
 
 Gem::Specification.new do |spec|
-  spec.name        = "bundler-hyperdrive"
+  spec.name        = "bundler-rails-hyperdrive"
   spec.version     = Bundler::Hyperdrive::VERSION
   spec.authors     = ["Bakaface"]
   spec.email       = ["afaceisnomore@gmail.com"]

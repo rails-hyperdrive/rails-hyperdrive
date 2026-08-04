@@ -53,7 +53,7 @@ $ bin/dev
 # → agent has 8 tools, the eager guidelines (via CLAUDE.md), and the lazy skills
 ```
 
-`hyperdrive:init` also registers the `bundler-hyperdrive` Bundler plugin in your Gemfile. From then on, `bundle add rails-hyperdrive-<library>` lands the companion's artifacts on that very `bundle install` — no explicit sync. The plugin is additive only (it never touches an existing file); version bumps and orphaned artifacts are only reported, with a pointer to `bin/rails hyperdrive:sync`.
+`hyperdrive:init` also registers the `bundler-rails-hyperdrive` Bundler plugin in your Gemfile. From then on, `bundle add rails-hyperdrive-<library>` lands the companion's artifacts on that very `bundle install` — no explicit sync. The plugin is additive only (it never touches an existing file); version bumps and orphaned artifacts are only reported, with a pointer to `bin/rails hyperdrive:sync`.
 
 Run `bin/rails hyperdrive:sync` any time (e.g. after `bundle update` or adding a companion gem) to refresh installed content to the current bundle. It touches no bootstrap artifact and leaves locally-modified files untouched (skip + warn); pass `--overwrite` to restore them to the gem-shipped content.
 

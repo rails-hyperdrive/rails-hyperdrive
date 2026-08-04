@@ -1,9 +1,9 @@
 require_relative "smoke_helper"
 
-# End-to-end smoke for the bundler-hyperdrive plugin: a newly bundled
+# End-to-end smoke for the bundler-rails-hyperdrive plugin: a newly bundled
 # companion's artifacts land during `bundle install` itself, with no explicit
 # sync and no ruby invocation.
-RSpec.describe "bundler-hyperdrive plugin smoke", :smoke do
+RSpec.describe "bundler-rails-hyperdrive plugin smoke", :smoke do
   # A CI variable inherited from the runner would trip the plugin's
   # environment guard; these scenarios simulate a developer machine.
   DEV_ENV = {"CI" => nil}.freeze
@@ -25,7 +25,7 @@ RSpec.describe "bundler-hyperdrive plugin smoke", :smoke do
 
   it "installs a newly bundled companion's artifacts during bundle install" do
     plugin_lines = File.read(File.join(app_dir, "Gemfile"))
-      .scan(/^\s*plugin\s+["']bundler-hyperdrive["']/)
+      .scan(/^\s*plugin\s+["']bundler-rails-hyperdrive["']/)
     expect(plugin_lines.length).to eq(1)
 
     Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-beta")

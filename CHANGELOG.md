@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `bundler-hyperdrive`, a Bundler plugin gem co-located in this repository
-  (`bundler-hyperdrive/`). Once registered, it runs after every
+- `bundler-rails-hyperdrive`, a Bundler plugin gem co-located in this repository
+  (`bundler-rails-hyperdrive/`). Once registered, it runs after every
   `bundle install` in development and installs the artifacts that newly
   bundled companion gems ship — additive only (it never overwrites or
   deletes a file) — and reports upgraded or orphaned artifacts with a
@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the application's bundle at runtime (supported range `>= 0.2`), stays
   silent outside development, and never fails a `bundle install`.
 - `hyperdrive:init` now registers the plugin by appending
-  `plugin "bundler-hyperdrive"` to the application's Gemfile. Idempotent: an
+  `plugin "bundler-rails-hyperdrive"` to the application's Gemfile. Idempotent: an
   existing directive (with any options) is left alone, and an app without a
   Gemfile gets a skip status.
 - **Gem-conditional skill content.** A multi-file skill can now condition parts
@@ -148,7 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is byte-identical to the file hyperdrive created; otherwise only hyperdrive's
   own import line is removed and every other byte is left alone. An import line
   you deleted by hand is still never re-added. `hyperdrive:sync` performs the
-  tear-down; the `bundler-hyperdrive` plugin (additive) never removes anything.
+  tear-down; the `bundler-rails-hyperdrive` plugin (additive) never removes anything.
   Because a `bundle install` must not edit `CLAUDE.md`, the plugin now says so
   when it installs the first guideline into an app that has no import line yet:
   the guideline is on disk but out of context until you run
@@ -159,7 +159,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `hyperdrive:sync`.
 - `hyperdrive:init`'s summary now reports the mounted MCP server and its tool
   count.
-- `bundle install` (through the `bundler-hyperdrive` plugin) no longer parses
+- `bundle install` (through the `bundler-rails-hyperdrive` plugin) no longer parses
   `Gemfile.lock`.
 
 ### Removed
