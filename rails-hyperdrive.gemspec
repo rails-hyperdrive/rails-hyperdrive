@@ -15,7 +15,7 @@ Gem::Specification.new do |spec|
     and eager guidelines — shipped by companion gems under a documented contract.
     rails-hyperdrive is the mechanism; companion gems (rails-hyperdrive-<library>) are the content.
   DESC
-  spec.homepage    = "https://github.com/Bakaface/rails-hyperdrive"
+  spec.homepage    = "https://github.com/rails-hyperdrive/rails-hyperdrive"
   spec.license     = "MIT"
   spec.required_ruby_version = ">= 3.2.0"
 

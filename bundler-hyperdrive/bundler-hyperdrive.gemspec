@@ -14,7 +14,7 @@ Gem::Specification.new do |spec|
     overwriting or deleting a file — and reports anything that needs
     `bin/rails hyperdrive:sync`. It never fails an install.
   DESC
-  spec.homepage    = "https://github.com/Bakaface/rails-hyperdrive"
+  spec.homepage    = "https://github.com/rails-hyperdrive/rails-hyperdrive"
   spec.license     = "MIT"
   spec.required_ruby_version = ">= 3.2.0"
 

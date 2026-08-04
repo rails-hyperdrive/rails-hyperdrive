@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Usage question
-    url: https://github.com/Bakaface/rails-hyperdrive#readme
+    url: https://github.com/rails-hyperdrive/rails-hyperdrive#readme
     about: For "how do I use this" questions, start with the README — it walks through the full setup and golden path.

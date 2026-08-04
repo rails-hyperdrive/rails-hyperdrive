@@ -8,7 +8,7 @@ Publishing to RubyGems is **tag-triggered**: pushing a `vX.Y.Z` tag runs [`.gith
 
 Required before the **first** publish, or the workflow fails with an auth error. On rubygems.org, register a Trusted Publisher (GitHub Actions) with:
 
-- **Repository:** `Bakaface/rails-hyperdrive`
+- **Repository:** `rails-hyperdrive/rails-hyperdrive`
 - **Workflow filename:** `release.yml`
 - **Environment:** `release`
 

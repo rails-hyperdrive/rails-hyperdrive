@@ -69,9 +69,9 @@ if changelog
     )
     new_changelog = new_changelog
       .gsub(%r{\[Unreleased\]:.*compare/v[\d.]+\.\.\.HEAD},
-            "[Unreleased]: https://github.com/Bakaface/rails-hyperdrive/compare/v#{new_version}...HEAD")
+            "[Unreleased]: https://github.com/rails-hyperdrive/rails-hyperdrive/compare/v#{new_version}...HEAD")
       .sub(/(\[Unreleased\]:[^\n]*\n)/,
-           "\\1[#{new_version}]: https://github.com/Bakaface/rails-hyperdrive/releases/tag/v#{new_version}\n")
+           "\\1[#{new_version}]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/v#{new_version}\n")
   else
     warn "CHANGELOG.md has no '## [Unreleased]' section; skipping changelog update."
     new_changelog = changelog
