@@ -47,7 +47,7 @@ Record user-facing changes under `## [Unreleased]` in `CHANGELOG.md` as you go, 
 
 Publishing to RubyGems is tag-triggered (`bin/bump <level> --commit --tag` then push the tag). Do **not** combine `bin/bump --tag` with `rake release` — both create the `vX.Y.Z` tag. Full release runbook is in [`RELEASING.md`](RELEASING.md).
 
-`bin/bump` and the release tooling cover **only the root gem**. The `bundler-rails-hyperdrive` plugin gem (below) versions independently via `bundler-rails-hyperdrive/lib/bundler/hyperdrive/version.rb` and has no bump script, tags, or publish workflow yet.
+`bin/bump` covers **only the root gem**. The `bundler-rails-hyperdrive` plugin gem (below) versions independently via `bundler-rails-hyperdrive/lib/bundler/hyperdrive/version.rb` and has no bump script — its release is manual: edit the version, commit, push a `bundler-rails-hyperdrive/vX.Y.Z` tag (the namespace keeps it clear of the root gem's `v*` tags), which triggers `.github/workflows/release-plugin.yml`. See `RELEASING.md`.
 
 ## Architecture
 
