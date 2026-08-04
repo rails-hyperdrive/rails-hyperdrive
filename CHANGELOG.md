@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Orphan reports now say "no longer shipped by \<source\>" instead of
+  "source \<source\> no longer in bundle" — an artifact is also orphaned when
+  its gem is still bundled but stopped shipping it.
+
 ## [0.3.0] - 2026-08-04
 
 ### Added

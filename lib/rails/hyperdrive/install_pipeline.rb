@@ -288,7 +288,7 @@ module Rails
 
           @result.orphaned << entry.path
           @shell.say_status :orphan,
-            "#{entry.path} (source #{entry.source_label} no longer in bundle; left in place)", :yellow
+            "#{entry.path} (no longer shipped by #{entry.source_label}; left in place)", :yellow
           @new_lock.carry(entry)
         end
       end

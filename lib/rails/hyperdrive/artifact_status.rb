@@ -15,7 +15,7 @@ module Rails
           case state
           when :missing  then "#{path} (from #{bundle_source})"
           when :outdated then "#{path} (#{locked_source} → #{bundle_source})"
-          when :orphaned then "#{path} (source #{locked_source} no longer in bundle)"
+          when :orphaned then "#{path} (no longer shipped by #{locked_source})"
           else path
           end
         end
