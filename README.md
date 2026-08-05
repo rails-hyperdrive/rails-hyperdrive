@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/rails-hyperdrive/rails-hyperdrive/main/docs/logo-wide.png" alt="" width="480">
+</p>
+
 # Rails Hyperdrive
 
 > Dev-only Rails engine that bootstraps an MCP server + skills/guidelines for AI coding agents (Claude Code first).
