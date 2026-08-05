@@ -151,8 +151,11 @@ module Smoke
       "BUNDLE_GEMFILE" => File.join(app_dir, "Gemfile"),
       "BUNDLE_PATH" => BUNDLE_PATH,
       "RAILS_ENV" => "development",
-      # An inherited frozen/deployment flag would make the subprocess bundle
-      # refuse the appended path gems.
+      # Smoke subprocesses simulate a developer machine: a CI variable
+      # inherited from the runner would trip the auto-install environment
+      # guard, and an inherited frozen/deployment flag would make the
+      # subprocess bundle refuse the appended path gems.
+      "CI" => nil,
       "BUNDLE_FROZEN" => nil,
       "BUNDLE_DEPLOYMENT" => nil
     }

@@ -4,14 +4,10 @@ require_relative "smoke_helper"
 # companion's artifacts land during `bundle install` itself, with no explicit
 # sync and no ruby invocation.
 RSpec.describe "bundler-rails-hyperdrive plugin smoke", :smoke do
-  # A CI variable inherited from the runner would trip the plugin's
-  # environment guard; these scenarios simulate a developer machine.
-  DEV_ENV = {"CI" => nil}.freeze
-
   let(:app_dir) { Smoke.copy_fixture("minimal") }
 
   def bundle!(env = {})
-    Smoke.bundle_install!(app_dir, DEV_ENV.merge(env))
+    Smoke.bundle_install!(app_dir, env)
   end
 
   before do
