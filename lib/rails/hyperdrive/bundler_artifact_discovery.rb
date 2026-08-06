@@ -11,6 +11,7 @@ module Rails
       Artifact = Struct.new(
         :name, :description, :target_gem, :versions, :artifact_type,
         :source_gem, :path, :body, :spec_version, :support_files,
+        :source_root,
         keyword_init: true
       ) do
         def skill?
@@ -134,6 +135,7 @@ module Rails
           path: path,
           body: body,
           spec_version: source_spec.version.to_s,
+          source_root: source_spec.full_gem_path.to_s,
           support_files:
             if type == :skill
               conditioned_support_files(

@@ -20,6 +20,10 @@ module Rails
         end
       end
 
+      def sidecar_path(dest)
+        "#{dest}.new"
+      end
+
       def installed_name(type, dest)
         case type
         when :skill         then File.basename(File.dirname(dest))

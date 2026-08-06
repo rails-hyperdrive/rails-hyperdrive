@@ -1,8 +1,10 @@
 require "time"
+require "rails/hyperdrive/ancestor_locator"
 require "rails/hyperdrive/audit_header"
 require "rails/hyperdrive/bundler_artifact_discovery"
 require "rails/hyperdrive/claude_md_import"
 require "rails/hyperdrive/drift_verdict"
+require "rails/hyperdrive/three_way_merge"
 require "rails/hyperdrive/eager_footprint"
 require "rails/hyperdrive/index_document"
 require "rails/hyperdrive/install_layout"
@@ -20,9 +22,10 @@ module Rails
       WARN_LINES = 150
       WARN_TOKENS = 1_500
 
-      MODES = %i[preserve overwrite additive].freeze
+      MODES = %i[preserve overwrite additive sidecar merge].freeze
 
-      Result = Struct.new(:installed, :updated, :unchanged, :skipped, :orphaned, :removed, keyword_init: true)
+      Result = Struct.new(:installed, :updated, :unchanged, :skipped, :orphaned, :removed, :merged, :sidecars,
+        keyword_init: true)
 
       def initialize(root:, shell:, artifacts:, mode: :preserve, warnings: [])
         raise ArgumentError, "unknown mode #{mode.inspect}" unless MODES.include?(mode)
@@ -32,7 +35,9 @@ module Rails
         @artifacts = artifacts
         @mode = mode
         @warnings = warnings
-        @result = Result.new(installed: [], updated: [], unchanged: [], skipped: [], orphaned: [], removed: [])
+        @result = Result.new(
+          installed: [], updated: [], unchanged: [], skipped: [], orphaned: [], removed: [], merged: [], sidecars: []
+        )
       end
 
       def call
@@ -81,6 +86,14 @@ module Rails
         @mode == :overwrite
       end
 
+      def merge_mode?
+        @mode == :merge
+      end
+
+      def reconcile_mode?
+        @mode == :sidecar || @mode == :merge
+      end
+
       def abs(path)
         File.join(@root, path)
       end
@@ -102,7 +115,9 @@ module Rails
 
       def install_skills
         @plan.select { |e| e.type == :skill }.each do |entry|
-          install_file(entry: entry, type: :skill, install_ready_body: entry.install_ready_body)
+          skill_relpath = source_relpath_for(entry.artifact)
+          install_file(entry: entry, type: :skill, install_ready_body: entry.install_ready_body,
+            source_relpath: skill_relpath, final_name: entry.final_name)
           entry.support_files.each do |file|
             install_file(
               dest: file[:dest],
@@ -110,7 +125,8 @@ module Rails
               install_ready_body: file[:body],
               source_gem: entry.source_gem,
               version: entry.version,
-              artifact_kind: "skill_support"
+              artifact_kind: "skill_support",
+              source_relpath: skill_relpath && File.join(File.dirname(skill_relpath), file[:path])
             )
           end
         end
@@ -120,12 +136,28 @@ module Rails
         @plan.select { |e| e.type == :guideline }.map do |entry|
           body = entry.install_ready_body
           warn_if_oversize(entry.dest, body)
-          install_file(entry: entry, type: :guideline, install_ready_body: body)
+          install_file(entry: entry, type: :guideline, install_ready_body: body,
+            source_relpath: source_relpath_for(entry.artifact), final_name: entry.final_name)
           { base: "#{entry.final_name}.md", dest: entry.dest, body: body }
         end
       end
 
-      def install_file(dest: nil, type:, install_ready_body:, entry: nil, source_gem: nil, version: nil, artifact_kind: nil)
+      # The shipped file's path relative to its gem root, normalized to the
+      # install-target form (.md.erb -> .md).
+      def source_relpath_for(artifact)
+        root = artifact.source_root
+        return nil if root.nil? || root.to_s.empty?
+
+        prefix = "#{File.expand_path(root.to_s)}/"
+        expanded = File.expand_path(artifact.path.to_s)
+        return nil unless expanded.start_with?(prefix)
+
+        rel = expanded.delete_prefix(prefix)
+        rel.end_with?(".md.erb") ? rel.delete_suffix(".erb") : rel
+      end
+
+      def install_file(dest: nil, type:, install_ready_body:, entry: nil, source_gem: nil, version: nil,
+                       artifact_kind: nil, source_relpath: nil, final_name: nil)
         write = {
           dest: dest || entry.dest,
           type: type,
@@ -144,20 +176,151 @@ module Rails
         when :missing
           @shell.say_status(:reinstall, "#{write[:dest]} (was missing)", :yellow) if old
           write_artifact(**write)
+          sweep_sidecar(write, old)
         when :current
           @new_lock.carry(old)
           @result.unchanged << write[:dest]
           @shell.say_status :unchanged, write[:dest], :blue
+          sweep_sidecar(write, old)
         when :outdated
           write_artifact(**write)
+          sweep_sidecar(write, old)
         when :edited
           if overwrite_mode?
             write_artifact(**write)
+            sweep_sidecar(write, old)
+          elsif reconcile_mode?
+            reconcile_edited(write, old, source_relpath: source_relpath, final_name: final_name)
           else
-            @result.skipped << write[:dest]
-            @shell.say_status :skip, "#{write[:dest]} (locally modified; run hyperdrive:sync --overwrite to overwrite)", :yellow
-            @new_lock.carry(old) if old
+            skip_edited(write, old)
           end
+        end
+      end
+
+      def skip_edited(write, old)
+        @result.skipped << write[:dest]
+        @shell.say_status :skip,
+          "#{write[:dest]} (locally modified; run hyperdrive:sync with --merge, --sidecar, or --overwrite to reconcile)",
+          :yellow
+        @new_lock.carry(old) if old
+      end
+
+      # Reconciliation for a locally-modified destination in :sidecar/:merge
+      # mode. The lock records the newest upstream *delivered* — installed
+      # live, merged in, or written as a sidecar — never the live file's own
+      # hash, so the same upstream version is offered exactly once.
+      def reconcile_edited(write, old, source_relpath:, final_name:)
+        dest = write[:dest]
+        sidecar = InstallLayout.sidecar_path(dest)
+
+        if old && old.source_sha == write[:gem_sha]
+          skip_edited(write, old)
+          if File.exist?(abs(sidecar))
+            @shell.say_status :warn, "#{sidecar} (unresolved sidecar; reconcile it with #{dest}, then delete it)", :yellow
+          end
+          return
+        end
+
+        # An edited sidecar is user work: leave it, and leave the lock at the
+        # old upstream so this delivery is re-offered once the user clears it.
+        if File.exist?(abs(sidecar)) && !sidecar_pristine?(sidecar, write, old)
+          @result.skipped << dest
+          @shell.say_status :warn, "#{sidecar} (sidecar locally modified; resolve or delete it)", :yellow
+          @new_lock.carry(old) if old
+          return
+        end
+
+        reason = nil
+        if merge_mode?
+          if File.exist?(abs(sidecar))
+            # A pending sidecar means the last delivered upstream never reached
+            # the live file, so the reconstructable ancestor is stale; merging
+            # over it would silently revert that delivery.
+            reason = "previous delivery still unresolved"
+          else
+            merged, reason = attempt_merge(write, old, source_relpath: source_relpath, final_name: final_name)
+            if merged
+              write_merged(write, merged)
+              sweep_sidecar(write, old)
+              return
+            end
+          end
+        end
+
+        write_sidecar(write, reason)
+      end
+
+      def attempt_merge(write, old, source_relpath:, final_name:)
+        return [nil, "no previous install recorded"] unless old
+
+        ancestor = AncestorLocator.locate(
+          kind: write[:artifact_kind], relpath: source_relpath, lock_entry: old, final_name: final_name
+        )
+        return [nil, "#{old.source_label} not found in installed gems"] unless ancestor
+
+        ours = live_body(write)
+        if ours.nil? || [ours, ancestor, write[:body]].any? { |b| ThreeWayMerge.binary?(b) }
+          return [nil, "binary content"]
+        end
+
+        outcome = ThreeWayMerge.merge(ours: ours, base: ancestor, theirs: write[:body])
+        case outcome.status
+        when :clean      then [outcome.body, nil]
+        when :conflicted then [nil, "conflicting edits"]
+        else                  [nil, "git merge-file unavailable"]
+        end
+      end
+
+      def live_body(write)
+        file = abs(write[:dest])
+        return File.binread(file) if write[:type] == :skill_support
+        AuditHeader.strip(File.read(file))
+      rescue StandardError
+        nil
+      end
+
+      def write_merged(write, merged_body)
+        installed_at = Time.now.utc
+        on_disk = on_disk_body(**write.slice(:type, :source_gem, :version, :gem_sha), body: merged_body, installed_at: installed_at)
+        @shell.create_file write[:dest], on_disk
+        @result.merged << write[:dest]
+        @shell.say_status :merged, "#{write[:dest]} (local edits merged with #{write[:source_gem]}@#{write[:version]})", :green
+        upsert_lock(write, installed_at)
+      end
+
+      # The sidecar is byte-identical to what a live install of the new
+      # upstream would write, so `mv <dest>.new <dest>` accepts it wholesale
+      # and the lock already verifies it.
+      def write_sidecar(write, reason)
+        sidecar = InstallLayout.sidecar_path(write[:dest])
+        installed_at = Time.now.utc
+        on_disk = on_disk_body(**write.slice(:type, :source_gem, :version, :gem_sha), body: write[:body], installed_at: installed_at)
+        @shell.create_file sidecar, on_disk
+        @result.sidecars << write[:dest]
+        message = "#{write[:dest]} (locally modified; new upstream delivered to #{sidecar}"
+        message += "; #{reason}" if reason
+        @shell.say_status :sidecar, "#{message})", :yellow
+        upsert_lock(write, installed_at)
+      end
+
+      # Only a machine-pristine sidecar — one still hashing to a delivered
+      # upstream — may be refreshed or removed; anything else is user work.
+      def sidecar_pristine?(sidecar, write, old)
+        sha = DriftVerdict.disk_sha(abs(sidecar), kind: write[:artifact_kind])
+        [old&.source_sha, write[:gem_sha]].compact.include?(sha)
+      rescue StandardError
+        false
+      end
+
+      def sweep_sidecar(write, old)
+        sidecar = InstallLayout.sidecar_path(write[:dest])
+        return unless File.exist?(abs(sidecar))
+
+        if sidecar_pristine?(sidecar, write, old)
+          @shell.remove_file sidecar
+          @result.removed << sidecar
+        else
+          @shell.say_status :warn, "#{sidecar} (sidecar locally modified; resolve or delete it)", :yellow
         end
       end
 
@@ -174,21 +337,12 @@ module Rails
         end
       end
 
-      # Supporting files land byte-identical to what the gem ships — no audit
-      # header, since they may be non-markdown or binary; provenance and sha
-      # live in the lock alone.
       def write_artifact(dest:, type:, body:, source_gem:, version:, gem_sha:, artifact_kind:)
         installed_at = Time.now.utc
-        header_args = { source_gem: source_gem, version: version, sha256: gem_sha, installed_at: installed_at }
-        on_disk =
-          case type
-          when :skill
-            AuditHeader.inject_into_frontmatter(body, AuditHeader.build(**header_args))
-          when :skill_support
-            body
-          else
-            AuditHeader.prepend_html(body, AuditHeader.build_html(**header_args))
-          end
+        on_disk = on_disk_body(
+          type: type, body: body, source_gem: source_gem, version: version,
+          gem_sha: gem_sha, installed_at: installed_at
+        )
 
         existed = old_lock.entry(dest)
         @shell.create_file dest, on_disk
@@ -199,6 +353,33 @@ module Rails
           source_gem: source_gem,
           source_version: version,
           source_sha: gem_sha,
+          installed_at: installed_at.iso8601
+        )
+      end
+
+      # Supporting files land byte-identical to what the gem ships — no audit
+      # header, since they may be non-markdown or binary; provenance and sha
+      # live in the lock alone. sha256 is always the install-ready body's
+      # hash, even when the written body is a merge result.
+      def on_disk_body(type:, body:, source_gem:, version:, gem_sha:, installed_at:)
+        header_args = { source_gem: source_gem, version: version, sha256: gem_sha, installed_at: installed_at }
+        case type
+        when :skill
+          AuditHeader.inject_into_frontmatter(body, AuditHeader.build(**header_args))
+        when :skill_support
+          body
+        else
+          AuditHeader.prepend_html(body, AuditHeader.build_html(**header_args))
+        end
+      end
+
+      def upsert_lock(write, installed_at)
+        @new_lock.upsert(
+          path: write[:dest],
+          kind: write[:artifact_kind],
+          source_gem: write[:source_gem],
+          source_version: write[:version],
+          source_sha: write[:gem_sha],
           installed_at: installed_at.iso8601
         )
       end
