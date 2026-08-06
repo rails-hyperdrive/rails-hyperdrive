@@ -104,7 +104,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
 
       out_sync, st_sync = Smoke.run_hyperdrive_sync!(app_dir)
       expect(st_sync.success?).to be(true), out_sync
-      expect(out_sync).to match(%r{skip.*alpha-guide\.md.*locally modified.*hyperdrive:sync --overwrite}m)
+      expect(out_sync).to match(%r{skip.*alpha-guide\.md.*locally modified.*--merge, --sidecar, or --overwrite}m)
       expect(File.read(guide_path)).to include("LOCAL EDIT")
 
       out_ow, st_ow = Smoke.run_hyperdrive_sync!(app_dir, "--overwrite")
@@ -114,6 +114,55 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(restored).not_to include("LOCAL EDIT")
       expect(restored).to start_with("<!-- hyperdrive: source=rails-hyperdrive-alpha@0.1.0 -->")
       expect(restored).to include("# Alpha Guideline")
+    end
+  end
+
+  describe "hyperdrive:sync --sidecar vs a locally-modified file" do
+    let(:app_dir) { Smoke.copy_fixture("minimal") }
+    let(:companion_dir) { File.join(app_dir, "vendor-alpha") }
+    let(:guide_path) { File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-guide.md") }
+    let(:shipped_guide) do
+      File.join(companion_dir, "lib/rails-hyperdrive-alpha/hyperdrive/guidelines/alpha-guide.md")
+    end
+
+    before do
+      # A mutable copy of the companion, so the shipped body can change
+      # underneath the app; delivery is keyed on the content hash the lock
+      # records, not on a version bump.
+      FileUtils.mkdir_p(companion_dir)
+      Smoke.sh!("cp", "-a", "#{File.join(Smoke::COMPANIONS_ROOT, "rails-hyperdrive-alpha")}/.", companion_dir)
+      Smoke.add_path_gem!(app_dir)
+      File.open(File.join(app_dir, "Gemfile"), "a") do |f|
+        f.write(%(gem "rails-hyperdrive-alpha", path: #{companion_dir.inspect}\n))
+      end
+      Smoke.bundle_install!(app_dir)
+      _out, status = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status.success?).to be(true)
+    end
+
+    it "delivers the upstream to <file>.new, re-locks it, and mv accepts it" do
+      edited_live = File.read(guide_path) + "\n<!-- LOCAL EDIT, do not clobber -->\n"
+      File.write(guide_path, edited_live)
+      File.write(shipped_guide, File.read(shipped_guide) + "\nUpstream v2 addition.\n")
+
+      out, st = Smoke.run_hyperdrive_sync!(app_dir, "--sidecar")
+      expect(st.success?).to be(true), out
+      expect(out).to match(%r{sidecar.*alpha-guide\.md.*delivered to}m)
+
+      expect(File.read(guide_path)).to eq(edited_live) # live file byte-untouched
+      sidecar = File.read("#{guide_path}.new")
+      expect(sidecar).to start_with("<!-- hyperdrive: source=rails-hyperdrive-alpha@0.1.0 -->")
+      expect(sidecar).to include("Upstream v2 addition.")
+      expect(sidecar).not_to include("LOCAL EDIT")
+
+      lock = File.read(File.join(app_dir, ".hyperdrive/lock.yml"))
+      expect(lock).not_to include("alpha-guide.md.new")
+
+      FileUtils.mv("#{guide_path}.new", guide_path)
+      out2, st2 = Smoke.run_hyperdrive_sync!(app_dir)
+      expect(st2.success?).to be(true), out2
+      expect(out2).to match(%r{unchanged.*alpha-guide\.md})
+      expect(File.read(guide_path)).to include("Upstream v2 addition.")
     end
   end
 

@@ -95,7 +95,17 @@ With no companion gems, `hyperdrive:init` sets up just the server plumbing (`.mc
 
 **After `bundle install` — automatic.** `hyperdrive:init` registers the [`bundler-rails-hyperdrive`](bundler-rails-hyperdrive/) Bundler plugin in your Gemfile. From then on, `bundle add rails-hyperdrive-<library>` lands the companion's artifacts on that very `bundle install` — no extra command. The plugin is additive only (it never touches an existing file); version bumps and orphaned artifacts are only reported, with a pointer to `hyperdrive:sync`.
 
-**`bin/rails hyperdrive:sync` — on demand.** Run it any time (e.g. after `bundle update`) to refresh installed content to the current bundle. It touches no bootstrap artifact and leaves locally-modified files untouched (skip + warn); pass `--overwrite` to restore them to the gem-shipped content.
+**`bin/rails hyperdrive:sync` — on demand.** Run it any time (e.g. after `bundle update`) to refresh installed content to the current bundle. It touches no bootstrap artifact and leaves locally-modified files untouched (skip + warn). When you *have* edited an installed file and its gem ships a new version, three mutually-exclusive flags reconcile the two:
+
+| Strategy | What happens to the live file | What happens to your edits |
+|---|---|---|
+| `--merge` | Rewritten with a git three-way merge when it applies cleanly; otherwise untouched and the upstream lands as a `--sidecar` delivery | Kept — a merge that would need conflict markers falls back to the sidecar instead, so nothing half-merged ever goes live |
+| `--sidecar` | Untouched; the new upstream body is written next to it as `<file>.new` | Kept, byte-for-byte |
+| `--overwrite` | Restored to the gem-shipped content | Discarded |
+
+A sidecar is inert — Claude Code loads only `SKILL.md` and the `index.md` `@`-lines, never a `.new` file — and it shows up in `git status` as your prompt to resolve. Resolve it by folding what you want into the live file and deleting the `.new`, or `mv <file>.new <file>` to accept the upstream wholesale. Either way the lockfile already records that delivery, so the next sync doesn't re-offer the same version (and a leftover sidecar you haven't touched is cleaned up once the live file catches up). `--merge` needs the previously installed gem version still present on disk to reconstruct the merge ancestor; when it isn't (CI, after `gem cleanup`), it degrades to the sidecar with a note saying why.
+
+The sidecar pair is also how an AI coding agent reconciles for you, with no extra machinery: run `bin/rails hyperdrive:sync --sidecar`, have the agent merge the live/`.new` pair semantically (it has both full texts), then delete the sidecar.
 
 **`bin/rails hyperdrive:discover` — find what you're missing.** Queries rubygems for companion gems published for your stack that you haven't installed yet, and prints the `bundle add` lines to run. Read-only, results cached for 24h (`--refresh` re-queries), and it never touches your Gemfile or makes network calls unless you invoke it.
 

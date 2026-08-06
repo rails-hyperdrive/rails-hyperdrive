@@ -24,20 +24,20 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       .to receive(:discover).and_return(artifacts)
   end
 
-  def guideline_artifact(name:, source:, body: nil)
+  def guideline_artifact(name:, source:, body: nil, version: "1.0.0", source_root: nil, path: nil)
     Artifact.new(
       name: name, description: "d", target_gem: ["dummy_gem"], versions: "~> 1.0",
-      artifact_type: :guideline, source_gem: source, path: "/x/#{name}.md",
+      artifact_type: :guideline, source_gem: source, path: path || "/x/#{name}.md",
       body: body || "---\nname: #{name}\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n# #{name}\n\nrule.\n",
-      spec_version: "1.0.0"
+      spec_version: version, source_root: source_root
     )
   end
 
-  def skill_artifact(name:, source:, support_files: [], version: "1.0.0")
+  def skill_artifact(name:, source:, support_files: [], version: "1.0.0", body: nil)
     Artifact.new(
       name: name, description: "d", target_gem: ["dummy_gem"], versions: "~> 1.0",
       artifact_type: :skill, source_gem: source, path: "/x/#{name}/SKILL.md",
-      body: "---\nname: #{name}\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n# #{name}\n",
+      body: body || "---\nname: #{name}\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n# #{name}\n",
       spec_version: version, support_files: support_files
     )
   end
@@ -92,11 +92,11 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
 
     let(:gpath) { path(".claude/hyperdrive/guidelines/auth-pundit.md") }
 
-    it "skips a locally-edited file by default, warns, and preserves the edit" do
+    it "skips a locally-edited file by default, warning with every reconcile flag, and preserves the edit" do
       run_generator([])
       File.write(gpath, File.read(gpath) + "\nMY LOCAL EDIT\n")
       out = run_generator([])
-      expect(out).to include("locally modified; run hyperdrive:sync --overwrite to overwrite")
+      expect(out).to include("locally modified; run hyperdrive:sync with --merge, --sidecar, or --overwrite to reconcile")
       expect(File.read(gpath)).to include("MY LOCAL EDIT")
     end
 
@@ -207,6 +207,208 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       expect(File).not_to exist(path(".claude/hyperdrive/index.md"))
       expect(File).not_to exist(path(".hyperdrive/lock.yml"))
       expect(File).not_to exist(path("CLAUDE.md"))
+    end
+  end
+
+  describe "reconcile flag exclusivity" do
+    [%w[--merge --overwrite], %w[--merge --sidecar], %w[--sidecar --overwrite],
+     %w[--merge --sidecar --overwrite]].each do |flags|
+      it "refuses #{flags.join(" ")} before any step runs" do
+        stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
+        err = capture(:stderr) { run_generator(flags) }
+        expect(err).to include("mutually exclusive")
+        expect(File).not_to exist(path(".hyperdrive/lock.yml"))
+      end
+    end
+  end
+
+  describe "--sidecar" do
+    let(:gpath) { path(".claude/hyperdrive/guidelines/auth-pundit.md") }
+    let(:spath) { path(".claude/skills/jobs-sidekiq/SKILL.md") }
+    let(:refpath) { path(".claude/skills/jobs-sidekiq/references/deep.md") }
+
+    def v1_artifacts
+      [
+        guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit"),
+        skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq",
+          support_files: [{ path: "references/deep.md", body: "# Deep v1\n" }])
+      ]
+    end
+
+    def v2_artifacts
+      [
+        guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit", version: "2.0.0",
+          body: "---\nname: auth-pundit\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n# auth-pundit\n\nv2 rule.\n"),
+        skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq", version: "2.0.0",
+          body: "---\nname: jobs-sidekiq\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n# jobs-sidekiq v2\n",
+          support_files: [{ path: "references/deep.md", body: "# Deep v2\n" }])
+      ]
+    end
+
+    before do
+      stub_discovery(v1_artifacts)
+      run_generator([])
+      File.write(gpath, File.read(gpath) + "\nMY GUIDE EDIT\n")
+      File.write(spath, File.read(spath) + "\nMY SKILL EDIT\n")
+      File.write(refpath, "MY REF REWRITE\n")
+      stub_discovery(v2_artifacts)
+    end
+
+    it "delivers sidecars for a guideline, a skill, and a supporting file, leaving all live files untouched" do
+      out = run_generator(["--sidecar"])
+
+      expect(out).to match(/sidecar.*auth-pundit\.md.*delivered to/)
+      expect(File.read(gpath)).to include("MY GUIDE EDIT")
+      expect(File.read(spath)).to include("MY SKILL EDIT")
+      expect(File.read(refpath)).to eq("MY REF REWRITE\n")
+
+      expect(File.read("#{gpath}.new")).to start_with("<!-- hyperdrive: source=rails-hyperdrive-pundit@2.0.0 -->")
+      expect(File.read("#{gpath}.new")).to include("v2 rule.")
+      expect(File.read("#{spath}.new")).to include("# hyperdrive: source=rails-hyperdrive-sidekiq@2.0.0")
+      expect(File.read("#{spath}.new")).to include("# jobs-sidekiq v2")
+      expect(File.read("#{refpath}.new")).to eq("# Deep v2\n")
+
+      lock = YAML.safe_load(File.read(path(".hyperdrive/lock.yml")))
+      sources = lock["files"].to_h { |f| [f["path"], f["source"]] }
+      expect(sources[".claude/hyperdrive/guidelines/auth-pundit.md"]).to eq("rails-hyperdrive-pundit@2.0.0")
+      expect(sources[".claude/skills/jobs-sidekiq/SKILL.md"]).to eq("rails-hyperdrive-sidekiq@2.0.0")
+      expect(sources[".claude/skills/jobs-sidekiq/references/deep.md"]).to eq("rails-hyperdrive-sidekiq@2.0.0")
+      expect(lock["files"].map { |f| f["path"] }.grep(/\.new\z/)).to be_empty
+    end
+
+    it "mv .new over the live file accepts the upstream; the next plain sync reads it current" do
+      run_generator(["--sidecar"])
+      mv("#{gpath}.new", gpath)
+
+      out = run_generator([])
+
+      expect(out).to match(%r{unchanged.*auth-pundit\.md})
+      expect(File.read(gpath)).to include("v2 rule.")
+      expect(File).not_to exist("#{gpath}.new")
+    end
+
+    it "does not re-offer the delivered upstream on a second --sidecar run" do
+      run_generator(["--sidecar"])
+      out = run_generator(["--sidecar"])
+
+      expect(out).to include("unresolved sidecar")
+      expect(File.read("#{gpath}.new")).to include("v2 rule.")
+    end
+
+    it "writes nothing under --dry-run" do
+      run_generator(["--sidecar", "--dry-run"])
+
+      expect(File).not_to exist("#{gpath}.new")
+      expect(File).not_to exist("#{spath}.new")
+      lock = YAML.safe_load(File.read(path(".hyperdrive/lock.yml")))
+      sources = lock["files"].to_h { |f| [f["path"], f["source"]] }
+      expect(sources[".claude/hyperdrive/guidelines/auth-pundit.md"]).to eq("rails-hyperdrive-pundit@1.0.0")
+    end
+  end
+
+  describe "--merge" do
+    let(:gpath) { path(".claude/hyperdrive/guidelines/auth-pundit.md") }
+    let(:gem_home) { File.join(@app_dir, "fake-gem-home") }
+    let(:relpath) { "lib/rails-hyperdrive-pundit/hyperdrive/guidelines/auth-pundit.md" }
+    let(:v1_shipped) do
+      "---\nname: auth-pundit\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n" \
+        "# auth-pundit\n\nline a\nline b\nline c\nline d\n"
+    end
+
+    def v2_artifact(upstream_change: "line d (upstream)")
+      current_root = File.join(@app_dir, "current-gem")
+      guideline_artifact(
+        name: "auth-pundit", source: "rails-hyperdrive-pundit", version: "2.0.0",
+        body: v1_shipped.sub("line d", upstream_change),
+        source_root: current_root, path: File.join(current_root, relpath)
+      )
+    end
+
+    def ship_v1_ancestor!
+      file = File.join(gem_home, "gems", "rails-hyperdrive-pundit-1.0.0", relpath)
+      FileUtils.mkdir_p(File.dirname(file))
+      File.write(file, v1_shipped)
+    end
+
+    before do
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit", body: v1_shipped)])
+      run_generator([])
+      File.write(gpath, File.read(gpath).sub("line a", "line a (mine)"))
+      allow(Gem).to receive(:path).and_return([gem_home])
+    end
+
+    it "cleanly merges non-overlapping local and upstream edits into the live file and re-locks" do
+      ship_v1_ancestor!
+      stub_discovery([v2_artifact])
+
+      out = run_generator(["--merge"])
+
+      expect(out).to match(/merged.*auth-pundit\.md/)
+      live = File.read(gpath)
+      expect(live).to start_with("<!-- hyperdrive: source=rails-hyperdrive-pundit@2.0.0 -->")
+      expect(live).to include("line a (mine)")
+      expect(live).to include("line d (upstream)")
+      expect(live).not_to include("<<<<<<<")
+      expect(File).not_to exist("#{gpath}.new")
+      lock = YAML.safe_load(File.read(path(".hyperdrive/lock.yml")))
+      entry = lock["files"].find { |f| f["path"] == ".claude/hyperdrive/guidelines/auth-pundit.md" }
+      expect(entry["source"]).to eq("rails-hyperdrive-pundit@2.0.0")
+
+      # The merged file truthfully reads edited, but the delivered upstream is
+      # never re-offered.
+      out2 = run_generator([])
+      expect(out2).to include("locally modified")
+      expect(File.read(gpath)).to eq(live)
+    end
+
+    it "degrades to a sidecar when the ancestor is not in any installed gem" do
+      stub_discovery([v2_artifact])
+
+      out = run_generator(["--merge"])
+
+      expect(out).to match(/sidecar.*not found in installed gems/)
+      expect(File.read(gpath)).to include("line a (mine)")
+      expect(File.read(gpath)).not_to include("line d (upstream)")
+      expect(File.read("#{gpath}.new")).to include("line d (upstream)")
+    end
+
+    it "degrades to a sidecar on conflicting edits" do
+      ship_v1_ancestor!
+      stub_discovery([guideline_artifact(
+        name: "auth-pundit", source: "rails-hyperdrive-pundit", version: "2.0.0",
+        body: v1_shipped.sub("line a", "line a (upstream)"),
+        source_root: File.join(@app_dir, "current-gem"),
+        path: File.join(@app_dir, "current-gem", relpath)
+      )])
+
+      out = run_generator(["--merge"])
+
+      expect(out).to match(/sidecar.*conflicting edits/)
+      expect(File.read(gpath)).to include("line a (mine)")
+      expect(File.read(gpath)).not_to include("<<<<<<<")
+      expect(File.read("#{gpath}.new")).to include("line a (upstream)")
+    end
+
+    it "degrades to a sidecar when git is unavailable" do
+      ship_v1_ancestor!
+      stub_discovery([v2_artifact])
+      allow(Open3).to receive(:capture3).and_raise(Errno::ENOENT, "git")
+
+      out = run_generator(["--merge"])
+
+      expect(out).to match(/sidecar.*git merge-file unavailable/)
+      expect(File.read("#{gpath}.new")).to include("line d (upstream)")
+    end
+
+    it "writes nothing under --dry-run" do
+      ship_v1_ancestor!
+      stub_discovery([v2_artifact])
+      before_live = File.read(gpath)
+
+      run_generator(["--merge", "--dry-run"])
+
+      expect(File.read(gpath)).to eq(before_live)
+      expect(File).not_to exist("#{gpath}.new")
     end
   end
 

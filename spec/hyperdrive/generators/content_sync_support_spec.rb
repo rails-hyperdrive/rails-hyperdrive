@@ -14,7 +14,7 @@ RSpec.describe Rails::Generators::Hyperdrive::ContentSyncSupport do
 
     it "runs sync's steps in order, with nothing the shared module contributes" do
       expect(Rails::Generators::Hyperdrive::SyncGenerator.commands.keys)
-        .to eq(%w[verify_environment discover_artifacts sync_content print_summary])
+        .to eq(%w[verify_options verify_environment discover_artifacts sync_content print_summary])
     end
   end
 

@@ -15,7 +15,16 @@ module Rails
         source_root File.expand_path("templates", __dir__)
 
         class_option :overwrite, type: :boolean, default: false, desc: "Restore locally-modified managed files to the gem-shipped content."
+        class_option :merge,     type: :boolean, default: false, desc: "Three-way-merge upstream changes into locally-modified files; falls back to sidecar delivery."
+        class_option :sidecar,   type: :boolean, default: false, desc: "Deliver upstream changes for locally-modified files to <file>.new sidecars."
         class_option :dry_run,   type: :boolean, default: false, desc: "Show what would change; write nothing."
+
+        def verify_options
+          chosen = %i[overwrite merge sidecar].select { |flag| options[flag] }
+          return if chosen.size <= 1
+          raise Thor::Error,
+            "hyperdrive: #{chosen.map { |flag| "--#{flag}" }.join(" and ")} are mutually exclusive; pick one"
+        end
 
         def verify_environment
           runner.verify_environment!
@@ -26,7 +35,13 @@ module Rails
         end
 
         def sync_content
-          runner.install(mode: options[:overwrite] ? :overwrite : :preserve)
+          mode =
+            if options[:overwrite]  then :overwrite
+            elsif options[:merge]   then :merge
+            elsif options[:sidecar] then :sidecar
+            else :preserve
+            end
+          runner.install(mode: mode)
         end
 
         def print_summary

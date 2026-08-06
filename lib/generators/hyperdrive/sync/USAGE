@@ -9,13 +9,27 @@ Description:
         guideline, and both removed when the last one goes
       - tracks everything in .hyperdrive/lock.yml
 
-    Locally-modified files are left untouched (skip + warn). Pass --overwrite
-    to restore them to the gem-shipped content.
+    Locally-modified files are left untouched by default (skip + warn). Three
+    mutually-exclusive strategies reconcile them with a new upstream:
+      --merge      three-way-merge the upstream change into the live file
+                   (clean merges only; anything else falls back to --sidecar,
+                   so no conflict marker ever lands in a live file)
+      --sidecar    write the new upstream body to <file>.new next to the live
+                   file, leaving the live file untouched
+      --overwrite  restore the live file to the gem-shipped content,
+                   discarding local edits
+
+    Resolving a sidecar: fold what you want from <file>.new into the live
+    file, then delete <file>.new — or `mv <file>.new <file>` to accept the
+    upstream wholesale. Either way the next sync is quiet: the lock already
+    records the delivered upstream, so the same version is never re-offered.
 
     Touches no bootstrap artifact: .mcp.json, the engine mount, the optional
     initializer, and .gitignore belong to hyperdrive:init and are left alone.
 
 Examples:
     bin/rails hyperdrive:sync
+    bin/rails hyperdrive:sync --merge
+    bin/rails hyperdrive:sync --sidecar
     bin/rails hyperdrive:sync --overwrite
     bin/rails hyperdrive:sync --dry-run

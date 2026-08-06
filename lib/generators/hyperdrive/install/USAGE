@@ -13,7 +13,8 @@ Description:
 
     Re-running re-syncs content and leaves locally-modified files untouched
     (skip + warn). Routine content refresh is bin/rails hyperdrive:sync
-    (pass --overwrite to restore gem-shipped content).
+    (see its --merge, --sidecar, and --overwrite flags for reconciling
+    locally-modified files).
 
 Examples:
     bin/rails hyperdrive:init

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `hyperdrive:sync --sidecar`: when an installed file is locally modified and
+  its gem ships something new, the new upstream body (audit header included)
+  is delivered next to it as `<file>.new` instead of being skipped. The live
+  file is never touched; `mv <file>.new <file>` accepts the upstream
+  wholesale. The lockfile records the delivered upstream, so the same version
+  is offered exactly once, and a delivered-but-unresolved file no longer nags
+  from `bundle install`.
+- `hyperdrive:sync --merge`: same as `--sidecar`, but first attempts a git
+  three-way merge of the local edits with the upstream change, using the
+  previously installed gem version (found in the installed gem directories,
+  content-verified against the lock) as the ancestor. Only a clean merge is
+  written to the live file — a conflict, a missing ancestor, a missing `git`,
+  binary content, or an earlier delivery still unresolved at `<file>.new` all
+  fall back to the sidecar delivery, so conflict markers never reach a live
+  file and a pending delivery is never merged over.
+- Leftover sidecars are swept: whenever a sync writes or verifies the live
+  file, a `<file>.new` still matching a delivered upstream is removed, and
+  one you edited is warned about and left alone.
+
 ### Changed
 
 - Installed skills no longer carry the installer-only frontmatter keys
@@ -19,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comments. Because the install-ready body changes, the next
   `hyperdrive:sync` rewrites each unedited installed skill once; locally
   edited skills are skipped with the usual warning.
+- The skip warning for a locally-modified file now names all three
+  reconciliation flags (`--merge`, `--sidecar`, `--overwrite`).
 - Orphan reports now say "no longer shipped by \<source\>" instead of
   "source \<source\> no longer in bundle" — an artifact is also orphaned when
   its gem is still bundled but stopped shipping it.
