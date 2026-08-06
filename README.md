@@ -4,22 +4,22 @@
 
 # Rails Hyperdrive
 
-> Dev-only Rails engine that bootstraps an MCP server + skills/guidelines for AI coding agents (Claude Code first).
+**Live introspection and stack-matched knowledge for AI coding agents, straight from your Rails app.**
 
-Rails Hyperdrive mounts an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server at `http://localhost:3000/_hyperdrive/mcp` in development, exposing **8 introspection tools** so AI agents stop guessing — they can eval Ruby, query the DB (read-only), tail logs, list models and routes, locate source, fetch docs, and snapshot the stack.
+[![Gem Version](https://img.shields.io/gem/v/rails-hyperdrive)](https://rubygems.org/gems/rails-hyperdrive)
+[![CI](https://github.com/rails-hyperdrive/rails-hyperdrive/actions/workflows/ci.yml/badge.svg)](https://github.com/rails-hyperdrive/rails-hyperdrive/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.txt)
 
-It also ships a `hyperdrive:init` generator that discovers and installs **two artifact types** that companion gems ship under a documented contract:
+Rails Hyperdrive is a development-only Rails engine for working on Rails apps with AI coding agents. It gives the agent two things it can't get from source alone — live answers from the booted app, and guidance specific to the gems and versions in the bundle:
 
-- **Skills** — lazy, model-invoked via Claude Code's native description matcher. Procedural ("how to write an idempotent Sidekiq job"). Installed to `.claude/skills/<name>/SKILL.md`.
-- **Guidelines** — eager, always in context via `@`-include from `CLAUDE.md`. Declarative ("this app uses Pundit, not CanCanCan"). Installed to `.claude/hyperdrive/guidelines/<name>.md`.
+- **Live introspection.** The engine mounts an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server at `http://localhost:3000/_hyperdrive/mcp` with **8 tools** that answer from the running app itself: eval Ruby, query the DB (read-only), tail logs, list models and routes, jump to source, look up docs, snapshot the stack. The agent asks the router instead of grepping `routes.rb`, and reads the live schema instead of replaying migrations.
+- **Stack-specific knowledge.** `bin/rails hyperdrive:init` discovers **skills** and **guidelines** shipped by companion gems and installs only the ones matching your Gemfile: guidance targeting Sidekiq, for example, lands only if your app bundles Sidekiq, at a version the guidance covers.
 
-**rails-hyperdrive is the mechanism; companion gems are the content.** rails-hyperdrive itself ships no skills or guidelines — only the contract and the discovery/install engine. Content comes from companion gems, conventionally named `rails-hyperdrive-<library>` (e.g. `rails-hyperdrive-sidekiq`) following the [RuboCop ecosystem](https://github.com/rubocop/rubocop) precedent.
-
-Built on the official [`mcp` gem](https://github.com/modelcontextprotocol/ruby-sdk). MIT-licensed.
+**rails-hyperdrive is the mechanism; companion gems are the content.** The gem itself ships no skills or guidelines — only the contract and the discovery/install engine. Content comes from companion gems, conventionally named `rails-hyperdrive-<library>` (e.g. `rails-hyperdrive-sidekiq`), following the [RuboCop ecosystem](https://github.com/rubocop/rubocop) precedent.
 
 ---
 
-## Golden path
+## Quick start
 
 ```bash
 # 1. Add the dev gem
@@ -57,17 +57,13 @@ $ bin/dev
 # → agent has 8 tools, the eager guidelines (via CLAUDE.md), and the lazy skills
 ```
 
-`hyperdrive:init` also registers the `bundler-rails-hyperdrive` Bundler plugin in your Gemfile. From then on, `bundle add rails-hyperdrive-<library>` lands the companion's artifacts on that very `bundle install` — no explicit sync. The plugin is additive only (it never touches an existing file); version bumps and orphaned artifacts are only reported, with a pointer to `bin/rails hyperdrive:sync`.
-
-Run `bin/rails hyperdrive:sync` any time (e.g. after `bundle update` or adding a companion gem) to refresh installed content to the current bundle. It touches no bootstrap artifact and leaves locally-modified files untouched (skip + warn); pass `--overwrite` to restore them to the gem-shipped content.
-
-Run `hyperdrive:discover` to find companion gems published for your stack that you haven't installed yet — it queries rubygems (read-only, results cached for 24h; `--refresh` re-queries) and prints the `bundle add` lines to run, then run `bin/rails hyperdrive:sync`. It never touches your Gemfile or makes network calls unless you invoke it.
+That's it. No API keys, no config files to write, no per-project setup beyond the generator.
 
 ---
 
-## What ships
+## What your agent gets
 
-### MCP tools (8)
+### 8 MCP tools
 
 | # | Tool | Purpose |
 |---|------|---------|
@@ -77,15 +73,37 @@ Run `hyperdrive:discover` to find companion gems published for your stack that y
 | 4 | `list_models` | List Active Record model classes with columns/validations/associations |
 | 5 | `locate_source` | Resolve `Const` / `Const#method` / `Const.method` / `dep:<gem>` to a file:line |
 | 6 | `lookup_doc` | Look up RDoc for a symbol (via `ri`) |
-| 7 | `describe_app` | Snapshot: Rails/Ruby/DB versions + full `StackProfile` |
+| 7 | `describe_app` | Snapshot: Rails/Ruby/DB versions + full stack profile |
 | 8 | `list_routes` | All routes: HTTP verb, path, controller#action, named route |
 
-### Resources
+Plus two MCP resources: `hyperdrive://stack-profile` (JSON snapshot of your resolved stack) and `hyperdrive://skills/{name}` (the markdown body of each installed skill).
 
-- `hyperdrive://stack-profile` — JSON of the resolved `StackProfile`
-- `hyperdrive://skills/{name}` — markdown body of each installed skill
+### Two kinds of knowledge
 
-### Install layout
+Companion gems ship two artifact types, tuned for how agents consume context:
+
+- **Skills** — *lazy*. Loaded on demand via Claude Code's native description matcher. Procedural knowledge: "how to write an idempotent Sidekiq job". Installed to `.claude/skills/<name>/SKILL.md`, optionally with supporting files (references, examples, workflows) alongside.
+- **Guidelines** — *eager*. Always in context via a single `@`-include from `CLAUDE.md`. Declarative facts: "this app uses ActionPolicy, not Pundit". Installed to `.claude/hyperdrive/guidelines/<name>.md`.
+
+Every artifact declares which gem it targets and at which versions, so what installs is exactly what matches your `Gemfile.lock` — nothing generic, nothing stale.
+
+With no companion gems, `hyperdrive:init` sets up just the server plumbing (`.mcp.json`, the engine mount, the lockfile) and puts **nothing** into your agent's context window. Zero context cost until you opt in.
+
+---
+
+## Staying in sync
+
+**After `bundle install` — automatic.** `hyperdrive:init` registers the [`bundler-rails-hyperdrive`](bundler-rails-hyperdrive/) Bundler plugin in your Gemfile. From then on, `bundle add rails-hyperdrive-<library>` lands the companion's artifacts on that very `bundle install` — no extra command. The plugin is additive only (it never touches an existing file); version bumps and orphaned artifacts are only reported, with a pointer to `hyperdrive:sync`.
+
+**`bin/rails hyperdrive:sync` — on demand.** Run it any time (e.g. after `bundle update`) to refresh installed content to the current bundle. It touches no bootstrap artifact and leaves locally-modified files untouched (skip + warn); pass `--overwrite` to restore them to the gem-shipped content.
+
+**`bin/rails hyperdrive:discover` — find what you're missing.** Queries rubygems for companion gems published for your stack that you haven't installed yet, and prints the `bundle add` lines to run. Read-only, results cached for 24h (`--refresh` re-queries), and it never touches your Gemfile or makes network calls unless you invoke it.
+
+---
+
+## You stay in charge
+
+### Everything lands git-tracked
 
 ```
 CLAUDE.md                              # user-owned; ONE injected line: @.claude/hyperdrive/index.md
@@ -98,9 +116,13 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
 
-`CLAUDE.md` and `index.md` are the **eager chain** — they exist only because a companion gem ships a guideline, and both go when the last one leaves the bundle (the guideline file itself is left on disk and reported as an orphan). With no companion gems installed, `hyperdrive:init` writes `.mcp.json`, the `.gitignore` rule, the optional initializer, the engine mount, and `.hyperdrive/lock.yml` — and nothing into the agent's context window.
+A `git diff` is where you review what a companion gem added. The install summary names each artifact's source gem and version, every SKILL.md and guideline carries the same provenance in an audit header, and supporting files are hashed per file in `.hyperdrive/lock.yml`. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
 
-Everything a companion gem contributes lands here git-tracked, so a diff is where you review what it added — the install summary names each artifact's source gem and version, and every SKILL.md and guideline carries the same provenance in an audit header. A skill's supporting files carry no header — they install byte-identical to the install-ready body (the shipped bytes; for `*.md.erb` templates, the rendered output), and their provenance and content hash live in `.hyperdrive/lock.yml` alone. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
+`CLAUDE.md` and `index.md` are the **eager chain** — they exist only because a companion gem ships a guideline, and both go when the last one leaves the bundle (the guideline file itself is left on disk and reported as an orphan).
+
+### Your edits win
+
+Installed files are yours to modify. The lockfile hash tells the installer whether a file is still gem-pristine: unedited files are refreshed on upgrade, edited files are skipped with a warning — never silently overwritten. `hyperdrive:sync --overwrite` is the explicit way back to gem-shipped content.
 
 ### Turning off a single artifact
 
@@ -118,28 +140,24 @@ A disabled artifact is never installed, and one already on disk is removed on th
 
 The list is yours to edit; the generator only reads it and carries it forward. Delete a name to get the artifact back on the next run. When two companion gems ship the same artifact name, both install under a `<name>--<source-gem>` suffix — the plain name disables both, the suffixed name disables one.
 
-To skip installed content wholesale instead, pass `--skip-content`.
+To skip installed content wholesale instead, pass `--skip-content` to `hyperdrive:init`.
 
-### Companion gem contract
+---
 
-A companion gem ships artifacts under:
+## Safety
+
+Rails Hyperdrive is **dev-only**, enforced in depth: the engine refuses to handle requests outside `Rails.env.development?`, enforces an origin allowlist (`localhost`, `127.0.0.1`, `[::1]`), and every tool re-checks the dev guard on invocation. `run_sql` accepts read-only statements and refuses anything else. See [SECURITY.md](SECURITY.md).
+
+---
+
+## Build a companion gem
+
+Ship markdown at a convention path, declare what it targets, publish. That's the whole contract:
 
 ```
-<gem-source>/lib/<gem_name>/hyperdrive/skills/<name>/SKILL.md       # skill (dir-per-skill)
-<gem-source>/lib/<gem_name>/hyperdrive/guidelines/<name>.md         # guideline (flat file)
+lib/<gem_name>/hyperdrive/skills/<name>/SKILL.md       # skill (dir-per-skill, may ship supporting files)
+lib/<gem_name>/hyperdrive/guidelines/<name>.md         # guideline (flat file)
 ```
-
-Skills may ship under an additional root declared in gemspec metadata:
-
-```ruby
-spec.metadata["rails_hyperdrive_skills_dir"] = "extra/skills"   # optional; relative to the gem root
-```
-
-That root is searched **in addition to** the convention path, never instead of it, so an override never hides skills already shipped at the convention path. A value containing a `..` segment is ignored. Guidelines have no override — they are found only at the convention path.
-
-A skill is a **directory**, and it may ship more than `SKILL.md`. Everything else in the skill directory — nested however you like (`workflows/`, `references/`, `examples/`, …) — installs alongside it as **supporting files**, preserving the relative layout under `.claude/skills/<name>/`. Reference them from `SKILL.md` with directory-relative links; a cross-source name collision renames the whole installed directory, so those links keep working. Supporting files carry no frontmatter contract and no audit header — they install byte-identical to the install-ready body, which is what the gem ships (markdown, code, or binary alike) except for `*.md.erb` templates, which install as their rendered output. Each is tracked per file in `.hyperdrive/lock.yml`, so local edits are preserved on sync exactly like any other installed file. `SKILL.md` frontmatter remains the skill's sole schema surface. Guidelines stay single-file.
-
-Every artifact carries four required YAML frontmatter fields:
 
 ```yaml
 ---
@@ -150,83 +168,19 @@ versions: ">= 7.0, < 9.0"         # Gem::Requirement matched against the target 
 ---
 ```
 
-`name:` is the artifact's identity, not a label — it is what the installer writes to disk (`.claude/skills/<name>/SKILL.md`, `.claude/hyperdrive/guidelines/<name>.md`). Keep it equal to the file or directory stem: if the two disagree the install still succeeds, but the artifact lands under `name:`. Within one gem, two artifacts of the same type declaring the same `name:` collapse to a single installed file; which one survives is not a guarantee to build on, so give each a distinct `name:`.
-
-`versions:` accepts a single comma-separated string (`">= 7.0, < 9.0"`), a YAML list (`[">= 7.0", "< 9.0"]`), or — for multi-target artifacts — a map keyed by gem name.
-
-`gem:` names the **targets** (each must be present in the bundle; its resolved version is matched against `versions:`). Use `railties` for "every Rails app" or the quoted `"*"` for "always applicable" (it must be quoted — bare `*` is a YAML alias and the file is skipped). `hyperdrive:init` discovers every such file across the bundle, version-matches it, and installs it with an audit header naming `source`, `sha256`, and `installed_at`. Guidelines are installed with their frontmatter stripped (they are `@`-included eagerly). When two gems ship a same-named artifact, both install, each postfixed by source gem.
-
-One artifact can cover several interchangeable libraries — write `gem:` as a comma-separated string or a YAML list, and it installs when **any** listed target is bundled at a satisfying version. `"*"` anywhere in the list makes the artifact universal. Give `versions:` a map keyed by gem name when the targets do not share a version cycle; targets the map omits are unconstrained.
-
-```yaml
----
-name: jobs-conventions
-description: Background job conventions.
-gem: [sidekiq, solid_queue, good_job]
-versions:
-  sidekiq: ">= 7.0"
-  solid_queue: ">= 1.0"
----
-```
-
-Draw the listed targets from the gem's own `hyperdrive_targets` (below): the gem-level declaration decides whether a companion is suggested at all, and an artifact naming a target the gemspec omits is unreachable for apps that have only that target.
-
-#### Gem-conditional skill content
-
-A multi-file skill can condition parts of itself on the app's bundle, so one skill tree serves apps with different gem sets. Both mechanisms are evaluated at discovery time, against the same resolved bundle that gates whole artifacts.
-
-**Per-file gating.** A `conditional:` map in `SKILL.md` frontmatter gates individual supporting files. Keys are dir-relative shipped paths; values take the same `gem:`/`versions:` forms as the artifact-level fields (single target, comma-separated string, YAML list, per-target `versions:` map, `"*"`), and the file installs when **any** listed target is bundled at a satisfying version. Unlike the artifact level, `versions:` is optional here — omitted means unconstrained. Files the map doesn't mention install unconditionally, and the supporting files themselves stay byte-identical to upstream — the condition lives entirely out-of-band.
-
-```yaml
----
-name: layered-rails
-description: Layered architecture conventions.
-gem: railties
-versions: ">= 7.2"
-conditional:
-  references/gems/alba.md:
-    gem: alba
-  references/gems/jobs.md:
-    gem: [sidekiq, solid_queue]
-    versions:
-      sidekiq: ">= 7.0"
----
-```
-
-A malformed condition **fails open**: the file installs unconditionally and the problem is reported with the other discovery warnings — a surplus reference file is harmless, a missing one breaks links from `SKILL.md`. A key naming no shipped file, or naming `SKILL.md` itself (the artifact-level `gem:`/`versions:` gate the whole skill), is warned about and ignored. The `conditional:` key ships through to the installed frontmatter unchanged.
-
-**ERB-templated markdown.** A file named `*.md.erb` in a skill directory — including `SKILL.md.erb` in place of `SKILL.md` — is rendered at install time and lands as plain `.md` (the `.erb` suffix is dropped; a `SKILL.md.erb` defines a skill exactly like `SKILL.md`, with frontmatter read from the rendered output). Templates see a sealed binding of exactly three helpers over the resolved bundle, nothing else:
-
-- `gem?("name")` / `gem?("name", ">= 2.0")` — is the gem bundled (at a satisfying version)?
-- `any_gem?("a", "b", …)` — is any of these bundled?
-- `gem_version("name")` — the resolved version as a String, or `nil`.
-
-Rendering uses ERB's trim mode, so `<%- if gem?("alba") -%>` … `<%- end -%>` control lines leave no blank lines behind. A template that fails to render is skipped with a warning (the whole skill, when it's `SKILL.md.erb`); when a plain file and a template would land at the same path, the plain file wins with a warning. `conditional:` keys refer to templates by their shipped `x.md.erb` name and gate them before rendering. Guidelines get no ERB support.
-
-Use ERB sparingly — condition reference manuals via `conditional:` and wrap link-table rows that point at gated files, but keep "consider adopting gem X" recommendations unconditional. An all-wrapped `.md.erb` renders to an empty file; to omit a file entirely, gate it with `conditional:` instead.
-
-Gated files appear and disappear as the bundle changes: `hyperdrive:init`/`hyperdrive:sync` install newly gated-in files and remove unedited gated-out ones. The auto top-up after `bundle install` adds newly gated-in files but never removes anything and never rewrites an already-installed file, so removals and re-rendered template output wait for the next `hyperdrive:sync`.
-
-Discovery never raises. An artifact with missing or malformed frontmatter, a missing required field, no declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there — read that section first when a gem you expected to contribute produces no files.
-
-To be discoverable by `hyperdrive:discover` **before** it is installed, a companion also declares gemspec metadata (read remotely from rubygems, so the frontmatter inside the gem isn't visible yet):
+And to be suggested by `hyperdrive:discover` before anyone installs you:
 
 ```ruby
-spec.metadata["rails_hyperdrive_targets"]   = "sidekiq"          # required; comma-sep, or "*" for always-applicable
-spec.metadata["rails_hyperdrive_artifacts"] = "guideline,skill"  # optional; presentational hint
+spec.metadata["rails_hyperdrive_targets"] = "sidekiq"
 ```
 
-`rails_hyperdrive_targets` is what makes a gem discoverable: `hyperdrive:discover` searches rubygems for gems declaring it, so a companion is found by what it declares rather than by what it is named. Naming it `rails-hyperdrive-<library>` is a recommended convention — it makes the gem legible in a Gemfile — but it plays no part in discovery, and a companion published under your own namespace is found on the same terms.
-
-`rails_hyperdrive_targets` is a coarse pre-install hint — it is never reconciled against the frontmatter `gem:`; once the gem is bundled, the frontmatter alone governs what installs.
+The full contract — multi-target artifacts, multi-file skills, per-file gem gating, ERB-templated content, collision and dedup rules — lives in [docs/COMPANION_GEMS.md](docs/COMPANION_GEMS.md).
 
 ---
 
-## Safety
+## Requirements
 
-Rails Hyperdrive is **dev-only**. The engine refuses to handle requests outside `Rails.env.development?` and enforces an origin allowlist (`localhost`, `127.0.0.1`, `[::1]`). See [SECURITY.md](SECURITY.md).
-
----
+Ruby ≥ 3.2, Rails ≥ 7.2. Tested against Rails 7.2 and 8.1 on Ruby 3.2–3.4.
 
 ## License
 
