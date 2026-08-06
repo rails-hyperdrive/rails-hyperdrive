@@ -42,7 +42,7 @@ versions: ">= 7.0, < 9.0"         # Gem::Requirement matched against the target 
 
 `versions:` accepts a single comma-separated string (`">= 7.0, < 9.0"`), a YAML list (`[">= 7.0", "< 9.0"]`), or — for multi-target artifacts — a map keyed by gem name.
 
-`gem:` names the **targets** (each must be present in the bundle; its resolved version is matched against `versions:`). Use `railties` for "every Rails app" or the quoted `"*"` for "always applicable" (it must be quoted — bare `*` is a YAML alias and the file is skipped). `hyperdrive:init` discovers every such file across the bundle, version-matches it, and installs it with an audit header naming `source`, `sha256`, and `installed_at`. Guidelines are installed with their frontmatter stripped (they are `@`-included eagerly). When two gems ship a same-named artifact, both install, each postfixed by source gem.
+`gem:` names the **targets** (each must be present in the bundle; its resolved version is matched against `versions:`). Use `railties` for "every Rails app" or the quoted `"*"` for "always applicable" (it must be quoted — bare `*` is a YAML alias and the file is skipped). `hyperdrive:init` discovers every such file across the bundle, version-matches it, and installs it with an audit header naming `source`, `sha256`, and `installed_at`. The three installer-only keys — `gem:`, `versions:`, and `conditional:` — are consumed at discovery time and **stripped from the installed file**: a skill keeps its frontmatter minus those keys (so the agent runtime reads only `name:`, `description:`, and whatever else you ship, e.g. `allowed-tools:`), while guidelines are installed with their frontmatter stripped entirely (they are `@`-included eagerly). When two gems ship a same-named artifact, both install, each postfixed by source gem.
 
 ### Multiple targets
 
@@ -85,7 +85,7 @@ conditional:
 ---
 ```
 
-A malformed condition **fails open**: the file installs unconditionally and the problem is reported with the other discovery warnings — a surplus reference file is harmless, a missing one breaks links from `SKILL.md`. A key naming no shipped file, or naming `SKILL.md` itself (the artifact-level `gem:`/`versions:` gate the whole skill), is warned about and ignored. The `conditional:` key ships through to the installed frontmatter unchanged.
+A malformed condition **fails open**: the file installs unconditionally and the problem is reported with the other discovery warnings — a surplus reference file is harmless, a missing one breaks links from `SKILL.md`. A key naming no shipped file, or naming `SKILL.md` itself (the artifact-level `gem:`/`versions:` gate the whole skill), is warned about and ignored. Like `gem:` and `versions:`, the `conditional:` map never reaches the installed frontmatter — its keys name shipped paths that gating and ERB rendering may leave pointing at files absent from disk, so gate as extensively as you like at no cost to the installed skill.
 
 ### ERB-templated markdown
 

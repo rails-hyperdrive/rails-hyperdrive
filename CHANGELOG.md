@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Installed skills no longer carry the installer-only frontmatter keys
+  (`gem:`, `versions:`, `conditional:`). They are discovery-time inputs with
+  no post-install reader, and the `conditional:` map referenced shipped paths
+  that gating and ERB rendering could leave pointing at files absent from
+  disk — dead weight in the agent's context window at every skill invocation.
+  The installed frontmatter now holds only what the runtime reads (`name:`,
+  `description:`, any extra keys like `allowed-tools:`) plus the audit
+  comments. Because the install-ready body changes, the next
+  `hyperdrive:sync` rewrites each unedited installed skill once; locally
+  edited skills are skipped with the usual warning.
 - Orphan reports now say "no longer shipped by \<source\>" instead of
   "source \<source\> no longer in bundle" — an artifact is also orphaned when
   its gem is still bundled but stopped shipping it.

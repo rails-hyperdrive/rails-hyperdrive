@@ -23,7 +23,9 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(skill).to include("# hyperdrive: source=rails-hyperdrive-alpha@0.1.0")
       expect(skill).to include("# hyperdrive: sha256=")
       expect(skill).to include("name: alpha-skill")
-      expect(skill).to include("gem: railties") # frontmatter retained
+      expect(skill).not_to include("gem: railties") # installer-only keys stripped
+      expect(skill).not_to include("conditional:")
+      expect(skill).to include("description:") # runtime frontmatter retained
       expect(skill).to include("# Alpha Skill")
 
       support_path = File.join(app_dir, ".claude/skills/alpha-skill/references/deep-dive.md")

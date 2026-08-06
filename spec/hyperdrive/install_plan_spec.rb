@@ -42,6 +42,14 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     expect(plan.first.install_ready_body).to include("name: jobs--gem_a")
   end
 
+  it "strips installer-only keys from the installed skill frontmatter" do
+    entry = described_class.build([skill(name: "jobs", source: "gem_a")]).entries.first
+
+    expect(entry.install_ready_body).to include("name: jobs")
+    expect(entry.install_ready_body).not_to include("gem:")
+    expect(entry.install_ready_body).not_to include("versions:")
+  end
+
   it "does not collide a skill with a guideline of the same name" do
     plan = described_class.build([skill(name: "jobs", source: "gem_a"), guideline(name: "jobs", source: "gem_b")]).entries
 

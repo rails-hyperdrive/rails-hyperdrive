@@ -111,7 +111,7 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
   index.md                             # managed aggregator: @guidelines/<name>.md
   guidelines/<name>.md                 # companion-shipped, frontmatter stripped, audit-headered
 .claude/skills/<name>/
-  SKILL.md                             # companion-shipped, frontmatter kept, audit-headered
+  SKILL.md                             # companion-shipped, frontmatter kept minus installer keys, audit-headered
   <supporting files>                   # optional companion-shipped extras, installed as shipped (*.md.erb rendered)
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```

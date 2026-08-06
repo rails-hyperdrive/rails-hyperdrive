@@ -434,9 +434,57 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(body).to start_with("# Dummy Guideline")
     end
 
-    it "keeps the full skill body (frontmatter retained)" do
-      skill = described_class.discover(specs: [dummy_spec]).find(&:skill?)
-      expect(described_class.install_ready_body(skill)).to start_with("---")
+    it "keeps skill frontmatter but strips the installer-only keys" do
+      skill = described_class.discover(specs: [dummy_spec]).find { |a| a.name == "dummy-skill" }
+      body = described_class.install_ready_body(skill)
+      expect(body).to start_with("---")
+      expect(body).to include("name: dummy-skill")
+      expect(body).to include("description:")
+      expect(body).not_to include("gem:")
+      expect(body).not_to include("versions:")
+      expect(body).not_to include("conditional:")
+      expect(body).not_to include("references/conditional.md")
+    end
+
+    it "strips a stripped key's whole nested block while keeping later keys and the body" do
+      Dir.mktmpdir do |dir|
+        sdir = File.join(dir, "lib", "dummy_gem", "hyperdrive", "skills", "jobs")
+        FileUtils.mkdir_p(sdir)
+        File.write(File.join(sdir, "SKILL.md"), <<~SKILL)
+          ---
+          name: jobs
+          gem: [dummy_gem, other]
+          versions:
+            dummy_gem: ">= 1.0"
+          description: d
+          conditional:
+            references/a.md:
+              gem: dummy_gem
+          allowed-tools:
+            - Read
+          ---
+
+          # jobs
+
+          gem: not frontmatter, stays.
+        SKILL
+
+        spec = spec_double("dummy_gem", "1.0.0", dir)
+        skill = described_class.discover(specs: [spec]).find { |a| a.name == "jobs" }
+        body = described_class.install_ready_body(skill)
+        expect(body).to eq(<<~INSTALLED)
+          ---
+          name: jobs
+          description: d
+          allowed-tools:
+            - Read
+          ---
+
+          # jobs
+
+          gem: not frontmatter, stays.
+        INSTALLED
+      end
     end
   end
 

@@ -6,6 +6,7 @@ module Rails
   module Hyperdrive
     module BundlerArtifactDiscovery
       SKILL_FILE_NAMES = ["SKILL.md", "SKILL.md.erb"].freeze
+      INSTALLER_KEY = /\A(?:gem|versions|conditional):/.freeze
 
       Artifact = Struct.new(
         :name, :description, :target_gem, :versions, :artifact_type,
@@ -254,10 +255,33 @@ module Rails
       end
 
       def install_ready_body(artifact)
-        return artifact.body if artifact.skill?
+        return strip_installer_keys(artifact.body) if artifact.skill?
 
         _frontmatter, rest = split_frontmatter(artifact.body)
         (rest || artifact.body).sub(/\A\n+/, "")
+      end
+
+      # gem:/versions:/conditional: are install-time inputs with no reader
+      # after install, and conditional: keys name *shipped* paths that gating
+      # and ERB retargeting can leave pointing at files absent from disk — so
+      # the installed frontmatter carries neither.
+      def strip_installer_keys(body)
+        frontmatter, rest = split_frontmatter(body)
+        return body unless frontmatter
+
+        kept = []
+        skipping = false
+        frontmatter.lines.each do |line|
+          if line =~ INSTALLER_KEY
+            skipping = true
+          elsif skipping && (line.start_with?(" ", "\t") || line.strip.empty?)
+            # continuation of a stripped key's block
+          else
+            skipping = false
+            kept << line
+          end
+        end
+        "---\n#{kept.join}---\n#{rest}"
       end
 
       def split_frontmatter(body)
@@ -313,6 +337,7 @@ module Rails
                            :conditioned_support_files, :apply_conditional_filter,
                            :conditional_satisfied?, :malformed_requirements?,
                            :render_support_templates, :erb_template?,
+                           :strip_installer_keys,
                            :split_frontmatter, :parse_targets, :match_targets,
                            :version_satisfied?, :no_match_reason, :safe_bundler_specs
     end
