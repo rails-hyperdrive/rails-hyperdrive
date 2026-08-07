@@ -119,14 +119,14 @@ The sidecar pair is also how an AI coding agent reconciles for you, with no extr
 CLAUDE.md                              # user-owned; ONE injected line: @.claude/hyperdrive/index.md
 .claude/hyperdrive/
   index.md                             # managed aggregator: @guidelines/<name>.md
-  guidelines/<name>.md                 # companion-shipped, frontmatter stripped, audit-headered
+  guidelines/<name>.md                 # companion-shipped, frontmatter stripped
 .claude/skills/<name>/
-  SKILL.md                             # companion-shipped, frontmatter kept minus installer keys, audit-headered
+  SKILL.md                             # companion-shipped, frontmatter kept minus installer keys
   <supporting files>                   # optional companion-shipped extras, installed as shipped (*.md.erb rendered)
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
 
-A `git diff` is where you review what a companion gem added. The install summary names each artifact's source gem and version, every SKILL.md and guideline carries the same provenance in an audit header, and supporting files are hashed per file in `.hyperdrive/lock.yml`. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
+A `git diff` is where you review what a companion gem added. The install summary names each artifact's source gem and version, and every installed file is hashed and attributed to its source in the git-tracked `.hyperdrive/lock.yml` — the files themselves land byte-identical to what the gem ships, with nothing injected. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
 
 `CLAUDE.md` and `index.md` are the **eager chain** — they exist only because a companion gem ships a guideline, and both go when the last one leaves the bundle (the guideline file itself is left on disk and reported as an orphan).
 

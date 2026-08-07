@@ -46,7 +46,7 @@ RSpec.describe "hyperdrive auto-install smoke", :smoke do
     expect(result[:installed]).to include(".claude/hyperdrive/guidelines/beta-guide.md")
     expect(File).to exist(File.join(app_dir, ".claude/hyperdrive/guidelines/beta-guide.md"))
     expect(File.read(File.join(app_dir, ".claude/hyperdrive/guidelines/beta-guide.md")))
-      .to start_with("<!-- hyperdrive: source=rails-hyperdrive-beta@")
+      .to start_with("# Beta Guideline")
     expect(File.read(File.join(app_dir, ".claude/hyperdrive/index.md")))
       .to include("@guidelines/beta-guide.md")
     expect(File.read(File.join(app_dir, ".hyperdrive/lock.yml"))).to include("beta-guide")

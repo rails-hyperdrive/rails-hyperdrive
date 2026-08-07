@@ -30,7 +30,7 @@ RSpec.describe "bundler-rails-hyperdrive plugin smoke", :smoke do
     expect(out).to include("[hyperdrive] installed")
     guide = File.join(app_dir, ".claude/hyperdrive/guidelines/beta-guide.md")
     expect(File.exist?(guide)).to be(true), "beta-guide not installed:\n#{out}"
-    expect(File.read(guide)).to start_with("<!-- hyperdrive: source=rails-hyperdrive-beta@")
+    expect(File.read(guide)).to start_with("# Beta Guideline")
     expect(File.read(File.join(app_dir, ".claude/hyperdrive/index.md")))
       .to include("@guidelines/beta-guide.md")
     expect(File.read(File.join(app_dir, ".hyperdrive/lock.yml"))).to include("beta-guide")

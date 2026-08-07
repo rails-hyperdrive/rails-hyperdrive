@@ -286,14 +286,16 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
-  describe "skill install (frontmatter kept, YAML audit header)" do
+  describe "skill install (frontmatter kept)" do
     before { stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")]) }
 
-    it "installs the skill with a YAML-comment audit header" do
+    it "installs the skill body verbatim, with runtime frontmatter only" do
       run_generator([])
       body = File.read(path(".claude/skills/jobs-sidekiq/SKILL.md"))
       expect(body).to start_with("---")
-      expect(body).to include("# hyperdrive: source=rails-hyperdrive-sidekiq@1.0.0")
+      expect(body).to include("name: jobs-sidekiq")
+      expect(body).not_to include("gem:")
+      expect(body).not_to include("hyperdrive:")
     end
   end
 
@@ -309,7 +311,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq", support_files: files)])
     end
 
-    it "installs the tree under the skill dir, byte-identical with no audit header" do
+    it "installs the tree under the skill dir, byte-identical" do
       stub_multi
       run_generator([])
 
@@ -424,15 +426,15 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
-  describe "guideline install (frontmatter stripped, HTML audit header)" do
+  describe "guideline install (frontmatter stripped)" do
     before { stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")]) }
 
-    it "installs the guideline frontmatter-stripped with an HTML audit header" do
+    it "installs the guideline frontmatter-stripped, body verbatim" do
       run_generator([])
       body = File.read(path(".claude/hyperdrive/guidelines/auth-pundit.md"))
-      expect(body).to start_with("<!-- hyperdrive: source=rails-hyperdrive-pundit@1.0.0 -->")
+      expect(body).to start_with("# auth-pundit")
       expect(body).not_to include("name: auth-pundit")
-      expect(body).to include("# auth-pundit")
+      expect(body).not_to include("hyperdrive:")
     end
 
     it "adds the guideline to index.md" do

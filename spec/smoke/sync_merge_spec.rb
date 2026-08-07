@@ -67,8 +67,8 @@ RSpec.describe "hyperdrive:sync --merge smoke", :smoke do
     expect(out).to match(/merged.*alpha-guide\.md/)
 
     merged = File.read(guide_path)
-    expect(merged).to start_with("<!-- hyperdrive: source=rails-hyperdrive-alpha@0.2.0 -->")
-    expect(merged).to include("# Alpha Guideline (customized)")
+    expect(merged).to start_with("# Alpha Guideline (customized)")
+    expect(merged).not_to include("hyperdrive:") # no audit header
     expect(merged).to include("## New in v2")
     expect(merged).not_to include("<<<<<<<")
     expect(File.exist?("#{guide_path}.new")).to be(false), "clean merge must not leave a sidecar"

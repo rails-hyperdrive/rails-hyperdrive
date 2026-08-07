@@ -2,7 +2,7 @@ Description:
     Syncs Rails Hyperdrive content to match the current bundle (run after
     `bundle update` or after adding a companion gem):
       - discovers companion-gem skills + guidelines in the bundle and installs
-        them with audit headers (skills to .claude/skills/, guidelines to
+        them (skills to .claude/skills/, guidelines to
         .claude/hyperdrive/guidelines/)
       - maintains the .claude/hyperdrive/index.md aggregator and the single
         @-include line in CLAUDE.md — both only while a companion gem ships a

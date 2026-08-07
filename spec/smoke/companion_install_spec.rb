@@ -12,7 +12,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       Smoke.bundle_install!(app_dir)
     end
 
-    it "installs the companion's skill and guideline with audit headers, then re-syncs idempotently" do
+    it "installs the companion's skill and guideline verbatim, then re-syncs idempotently" do
       out, status = Smoke.run_hyperdrive_init!(app_dir)
       expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
 
@@ -20,8 +20,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(File.exist?(skill_path)).to be(true), "alpha-skill not installed:\n#{out}"
       skill = File.read(skill_path)
       expect(skill).to start_with("---")
-      expect(skill).to include("# hyperdrive: source=rails-hyperdrive-alpha@0.1.0")
-      expect(skill).to include("# hyperdrive: sha256=")
+      expect(skill).not_to include("hyperdrive:") # no audit header
       expect(skill).to include("name: alpha-skill")
       expect(skill).not_to include("gem: railties") # installer-only keys stripped
       expect(skill).not_to include("conditional:")
@@ -52,9 +51,8 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       guide_path = File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-guide.md")
       expect(File.exist?(guide_path)).to be(true), "alpha-guide not installed:\n#{out}"
       guide = File.read(guide_path)
-      expect(guide).to start_with("<!-- hyperdrive: source=rails-hyperdrive-alpha@0.1.0 -->")
-      expect(guide).to include("<!-- hyperdrive: sha256=")
-      expect(guide).to include("# Alpha Guideline")
+      expect(guide).to start_with("# Alpha Guideline")
+      expect(guide).not_to include("hyperdrive:") # no audit header
       expect(guide).not_to include("gem: railties") # frontmatter stripped
 
       # The eager chain exists only because the companion shipped a guideline.
@@ -112,8 +110,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(out_ow).to match(/hyperdrive synced/)
       restored = File.read(guide_path)
       expect(restored).not_to include("LOCAL EDIT")
-      expect(restored).to start_with("<!-- hyperdrive: source=rails-hyperdrive-alpha@0.1.0 -->")
-      expect(restored).to include("# Alpha Guideline")
+      expect(restored).to start_with("# Alpha Guideline")
     end
   end
 
@@ -151,7 +148,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
 
       expect(File.read(guide_path)).to eq(edited_live) # live file byte-untouched
       sidecar = File.read("#{guide_path}.new")
-      expect(sidecar).to start_with("<!-- hyperdrive: source=rails-hyperdrive-alpha@0.1.0 -->")
+      expect(sidecar).to start_with("# Alpha Guideline")
       expect(sidecar).to include("Upstream v2 addition.")
       expect(sidecar).not_to include("LOCAL EDIT")
 

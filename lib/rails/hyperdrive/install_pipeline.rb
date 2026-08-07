@@ -1,6 +1,5 @@
 require "time"
 require "rails/hyperdrive/ancestor_locator"
-require "rails/hyperdrive/audit_header"
 require "rails/hyperdrive/bundler_artifact_discovery"
 require "rails/hyperdrive/claude_md_import"
 require "rails/hyperdrive/drift_verdict"
@@ -172,7 +171,7 @@ module Rails
         return additive_install(write, old) if additive?
 
         file = abs(write[:dest])
-        case DriftVerdict.verdict(file: file, kind: write[:artifact_kind], lock_entry: old, gem_sha: write[:gem_sha])
+        case DriftVerdict.verdict(file: file, lock_entry: old, gem_sha: write[:gem_sha])
         when :missing
           @shell.say_status(:reinstall, "#{write[:dest]} (was missing)", :yellow) if old
           write_artifact(**write)
@@ -274,18 +273,16 @@ module Rails
       def live_body(write)
         file = abs(write[:dest])
         return File.binread(file) if write[:type] == :skill_support
-        AuditHeader.strip(File.read(file))
+        File.read(file)
       rescue StandardError
         nil
       end
 
       def write_merged(write, merged_body)
-        installed_at = Time.now.utc
-        on_disk = on_disk_body(**write.slice(:type, :source_gem, :version, :gem_sha), body: merged_body, installed_at: installed_at)
-        @shell.create_file write[:dest], on_disk
+        @shell.create_file write[:dest], merged_body
         @result.merged << write[:dest]
         @shell.say_status :merged, "#{write[:dest]} (local edits merged with #{write[:source_gem]}@#{write[:version]})", :green
-        upsert_lock(write, installed_at)
+        upsert_lock(write, Time.now.utc)
       end
 
       # The sidecar is byte-identical to what a live install of the new
@@ -293,20 +290,18 @@ module Rails
       # and the lock already verifies it.
       def write_sidecar(write, reason)
         sidecar = InstallLayout.sidecar_path(write[:dest])
-        installed_at = Time.now.utc
-        on_disk = on_disk_body(**write.slice(:type, :source_gem, :version, :gem_sha), body: write[:body], installed_at: installed_at)
-        @shell.create_file sidecar, on_disk
+        @shell.create_file sidecar, write[:body]
         @result.sidecars << write[:dest]
         message = "#{write[:dest]} (locally modified; new upstream delivered to #{sidecar}"
         message += "; #{reason}" if reason
         @shell.say_status :sidecar, "#{message})", :yellow
-        upsert_lock(write, installed_at)
+        upsert_lock(write, Time.now.utc)
       end
 
       # Only a machine-pristine sidecar — one still hashing to a delivered
       # upstream — may be refreshed or removed; anything else is user work.
       def sidecar_pristine?(sidecar, write, old)
-        sha = DriftVerdict.disk_sha(abs(sidecar), kind: write[:artifact_kind])
+        sha = DriftVerdict.disk_sha(abs(sidecar))
         [old&.source_sha, write[:gem_sha]].compact.include?(sha)
       rescue StandardError
         false
@@ -337,15 +332,11 @@ module Rails
         end
       end
 
+      # Every artifact lands byte-identical to its install-ready body;
+      # provenance and sha live in the lock alone.
       def write_artifact(dest:, type:, body:, source_gem:, version:, gem_sha:, artifact_kind:)
-        installed_at = Time.now.utc
-        on_disk = on_disk_body(
-          type: type, body: body, source_gem: source_gem, version: version,
-          gem_sha: gem_sha, installed_at: installed_at
-        )
-
         existed = old_lock.entry(dest)
-        @shell.create_file dest, on_disk
+        @shell.create_file dest, body
         (existed ? @result.updated : @result.installed) << dest
         @new_lock.upsert(
           path: dest,
@@ -353,24 +344,8 @@ module Rails
           source_gem: source_gem,
           source_version: version,
           source_sha: gem_sha,
-          installed_at: installed_at.iso8601
+          installed_at: Time.now.utc.iso8601
         )
-      end
-
-      # Supporting files land byte-identical to what the gem ships — no audit
-      # header, since they may be non-markdown or binary; provenance and sha
-      # live in the lock alone. sha256 is always the install-ready body's
-      # hash, even when the written body is a merge result.
-      def on_disk_body(type:, body:, source_gem:, version:, gem_sha:, installed_at:)
-        header_args = { source_gem: source_gem, version: version, sha256: gem_sha, installed_at: installed_at }
-        case type
-        when :skill
-          AuditHeader.inject_into_frontmatter(body, AuditHeader.build(**header_args))
-        when :skill_support
-          body
-        else
-          AuditHeader.prepend_html(body, AuditHeader.build_html(**header_args))
-        end
       end
 
       def upsert_lock(write, installed_at)
@@ -465,7 +440,7 @@ module Rails
         old_lock.each_entry do |entry|
           next if planned.include?(entry.path)
           next if @new_lock.entry(entry.path)
-          next unless DriftVerdict.verdict(file: abs(entry.path), kind: entry.kind, lock_entry: entry, gem_sha: nil) == :orphaned
+          next unless DriftVerdict.verdict(file: abs(entry.path), lock_entry: entry, gem_sha: nil) == :orphaned
 
           @result.orphaned << entry.path
           @shell.say_status :orphan,

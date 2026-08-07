@@ -100,14 +100,14 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       expect(File.read(gpath)).to include("MY LOCAL EDIT")
     end
 
-    it "restores the gem-shipped body with --overwrite (edit gone, header + lock restored)" do
+    it "restores the gem-shipped body with --overwrite (edit gone, lock restored)" do
       run_generator([])
       File.write(gpath, File.read(gpath) + "\nMY LOCAL EDIT\n")
 
       run_generator(["--overwrite"])
       restored = File.read(gpath)
       expect(restored).not_to include("MY LOCAL EDIT")
-      expect(restored).to start_with("<!-- hyperdrive: source=rails-hyperdrive-pundit@1.0.0 -->")
+      expect(restored).to start_with("# auth-pundit")
 
       # Re-locked: a following plain sync sees the file as current again.
       out = run_generator([])
@@ -262,9 +262,9 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       expect(File.read(spath)).to include("MY SKILL EDIT")
       expect(File.read(refpath)).to eq("MY REF REWRITE\n")
 
-      expect(File.read("#{gpath}.new")).to start_with("<!-- hyperdrive: source=rails-hyperdrive-pundit@2.0.0 -->")
+      expect(File.read("#{gpath}.new")).to start_with("# auth-pundit")
       expect(File.read("#{gpath}.new")).to include("v2 rule.")
-      expect(File.read("#{spath}.new")).to include("# hyperdrive: source=rails-hyperdrive-sidekiq@2.0.0")
+      expect(File.read("#{spath}.new")).to include("name: jobs-sidekiq")
       expect(File.read("#{spath}.new")).to include("# jobs-sidekiq v2")
       expect(File.read("#{refpath}.new")).to eq("# Deep v2\n")
 
@@ -345,7 +345,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
 
       expect(out).to match(/merged.*auth-pundit\.md/)
       live = File.read(gpath)
-      expect(live).to start_with("<!-- hyperdrive: source=rails-hyperdrive-pundit@2.0.0 -->")
+      expect(live).to start_with("# auth-pundit")
       expect(live).to include("line a (mine)")
       expect(live).to include("line d (upstream)")
       expect(live).not_to include("<<<<<<<")

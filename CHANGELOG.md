@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `hyperdrive:sync --sidecar`: when an installed file is locally modified and
-  its gem ships something new, the new upstream body (audit header included)
-  is delivered next to it as `<file>.new` instead of being skipped. The live
+  its gem ships something new, the new upstream body is delivered next to it
+  as `<file>.new` instead of being skipped. The live
   file is never touched; `mv <file>.new <file>` accepts the upstream
   wholesale. The lockfile records the delivered upstream, so the same version
   is offered exactly once, and a delivered-but-unresolved file no longer nags
@@ -36,8 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that gating and ERB rendering could leave pointing at files absent from
   disk — dead weight in the agent's context window at every skill invocation.
   The installed frontmatter now holds only what the runtime reads (`name:`,
-  `description:`, any extra keys like `allowed-tools:`) plus the audit
-  comments. Because the install-ready body changes, the next
+  `description:`, any extra keys like `allowed-tools:`). Because the
+  install-ready body changes, the next
   `hyperdrive:sync` rewrites each unedited installed skill once; locally
   edited skills are skipped with the usual warning.
 - The skip warning for a locally-modified file now names all three
@@ -45,6 +45,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Orphan reports now say "no longer shipped by \<source\>" instead of
   "source \<source\> no longer in bundle" — an artifact is also orphaned when
   its gem is still bundled but stopped shipping it.
+
+### Removed
+
+- Audit headers. Installed skills and guidelines no longer carry the
+  `# hyperdrive: source=...` / `<!-- hyperdrive: ... -->` comment block —
+  every installed file now lands byte-identical to its install-ready body
+  (sidecar `.new` deliveries and merge results included). The header
+  duplicated what the git-tracked `.hyperdrive/lock.yml` already records per
+  file (`source`, `source_sha`, `installed_at`) and was loaded into the
+  agent's context on every skill invocation (and eagerly, for guidelines).
 
 ## [0.3.0] - 2026-08-04
 

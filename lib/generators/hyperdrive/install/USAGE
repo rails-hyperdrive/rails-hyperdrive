@@ -4,7 +4,7 @@ Description:
         merging into any servers already configured there
       - mounts Rails::Hyperdrive::Engine at /_hyperdrive in config/routes.rb (idempotent)
       - discovers companion-gem skills + guidelines in the bundle and installs
-        them with audit headers (skills to .claude/skills/, guidelines to
+        them (skills to .claude/skills/, guidelines to
         .claude/hyperdrive/guidelines/)
       - maintains the .claude/hyperdrive/index.md aggregator and injects one
         @-include line into CLAUDE.md — both only while a companion gem ships

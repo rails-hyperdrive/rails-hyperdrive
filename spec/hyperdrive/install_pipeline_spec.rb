@@ -59,7 +59,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       run(artifacts: [guideline(name: "auth-pundit"), skill(name: "jobs-sidekiq")])
 
       expect(exist?(".claude/skills/jobs-sidekiq/SKILL.md")).to be true
-      expect(read(".claude/hyperdrive/guidelines/auth-pundit.md")).to start_with("<!-- hyperdrive: source=rails-hyperdrive-x@1.0.0")
+      expect(read(".claude/hyperdrive/guidelines/auth-pundit.md")).to start_with("# auth-pundit")
       expect(read(".claude/hyperdrive/index.md")).to include("@guidelines/auth-pundit.md")
       expect(read("CLAUDE.md")).to include("@.claude/hyperdrive/index.md")
       expect(read(".hyperdrive/lock.yml")).to include("artifact: guideline")
@@ -162,7 +162,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     end
     let(:multi) { skill(name: "jobs", support_files: support) }
 
-    it "installs the supporting tree byte-identical, with no audit header" do
+    it "installs the supporting tree byte-identical" do
       run(artifacts: [multi])
 
       expect(read(".claude/skills/jobs/references/deep.md")).to eq("# Deep\n\nraw bytes, no header.\n")
@@ -442,7 +442,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       result = run(mode: :sidecar, artifacts: [v2])
 
       expect(read(gpath)).to eq(live_before)
-      expect(read(sidecar)).to start_with("<!-- hyperdrive: source=rails-hyperdrive-x@2.0.0 -->")
+      expect(read(sidecar)).to start_with("# auth-pundit")
       expect(read(sidecar)).to include("UPGRADED rule.")
       expect(result.sidecars).to eq([gpath])
       expect(lock_source(gpath)).to eq("rails-hyperdrive-x@2.0.0")
@@ -513,7 +513,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       expect(lock_source(hand)).to eq("rails-hyperdrive-x@2.0.0")
     end
 
-    it "delivers a skill_support sidecar as raw bytes with no audit header" do
+    it "delivers a skill_support sidecar as raw bytes" do
       s = skill(name: "jobs", support_files: [{ path: "references/deep.md", body: "# Deep v1\n" }])
       run(artifacts: [s])
       File.write(File.join(root, ".claude/skills/jobs/references/deep.md"), "my rewrite\n")
@@ -534,8 +534,8 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     before { run(artifacts: [v1]) }
 
     def plant_pristine_sidecar
-      # No audit header: the stripped hash equals the raw body hash, which is
-      # the recorded source_sha.
+      # Byte-identical to the recorded install-ready body, so it hashes to
+      # source_sha.
       File.write(File.join(root, sidecar), v1.body.split("---\n").last.sub(/\A\n+/, ""))
     end
 
@@ -619,7 +619,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       result = run(mode: :merge, artifacts: [v2])
 
       live = read(gpath)
-      expect(live).to start_with("<!-- hyperdrive: source=rails-hyperdrive-x@2.0.0 -->")
+      expect(live).to start_with("# auth-pundit")
       expect(live).to include("line a (mine)")
       expect(live).to include("line d (upstream)")
       expect(live).not_to include("<<<<<<<")
