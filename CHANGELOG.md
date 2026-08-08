@@ -30,6 +30,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING:** the stack profile (`describe_app` MCP tool and the
+  `hyperdrive://stack-profile` resource) no longer categorizes gems into
+  `test` / `jobs` / `frontend` / `auth` / `authz` / `db_gems` buckets. Those
+  keys are replaced by `direct_dependencies` — the app's declared gems (the
+  lockfile's `DEPENDENCIES` section) with their resolved versions. The old
+  buckets matched a hand-curated gem list against the *resolved* dependency
+  set, so every Rails app reported transitive `minitest` as a chosen test
+  framework
+  ([#2](https://github.com/rails-hyperdrive/rails-hyperdrive/issues/2));
+  raw direct dependencies carry no such editorializing and
+  need no curated list to go stale. `rails`, `ruby`, `database`, and
+  `gem_skills` are unchanged.
+
 - Installed skills no longer carry the installer-only frontmatter keys
   (`gem:`, `versions:`, `conditional:`). They are discovery-time inputs with
   no post-install reader, and the `conditional:` map referenced shipped paths

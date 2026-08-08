@@ -26,14 +26,15 @@ RSpec.describe "MCP server smoke", :smoke do
     )
   end
 
-  it "describe_app reports the full stack profile from the resolved Gemfile.lock" do
+  it "describe_app reports direct dependencies from the resolved Gemfile.lock" do
     resp = Smoke.mcp_call(@port, "tools/call", {name: "describe_app", arguments: {}})
     text = resp.dig("result", "content", 0, "text")
     info = JSON.parse(text)
     expect(info.dig("rails", "version")).to match(/\A\d+\.\d+/)
-    expect(info["auth"].map { |g| g["key"] }).to include("devise")
-    expect(info["jobs"].map { |g| g["key"] }).to include("sidekiq")
-    expect(info["authz"].map { |g| g["key"] }).to include("pundit")
+    names = info["direct_dependencies"].map { |g| g["name"] }
+    expect(names).to include("devise", "sidekiq", "pundit")
+    # minitest is always resolved transitively via activesupport.
+    expect(names).not_to include("minitest")
   end
 
   it "lookup_doc returns a structured response (not a crash) for a stdlib symbol" do

@@ -6,7 +6,7 @@ module Rails
     module Tools
       class DescribeApp < Base
         tool_name "describe_app"
-        description "Snapshot of Rails/Ruby/DB versions plus the full StackProfile (test, jobs, frontend, auth, authz, db_gems, gem_skills)."
+        description "Snapshot of Rails/Ruby/DB versions plus the app's direct gem dependencies and installed gem skills."
 
         input_schema(properties: {})
 

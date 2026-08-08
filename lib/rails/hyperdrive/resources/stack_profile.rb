@@ -14,7 +14,7 @@ module Rails
           ::MCP::Resource.new(
             uri: URI,
             name: "Stack Profile",
-            description: "Parsed Gemfile.lock + categorization (rails, ruby, database, test, jobs, frontend, auth, authz, db_gems, gem_skills).",
+            description: "Parsed Gemfile.lock (rails, ruby, database, direct_dependencies, gem_skills).",
             mime_type: "application/json"
           )
         end

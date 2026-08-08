@@ -5,6 +5,7 @@ GEM
     actionpack (8.0.1)
     activerecord (8.0.1)
     devise (4.9.4)
+    minitest (5.25.1)
     pg (1.5.9)
     pundit (2.4.0)
     railties (8.0.1)
@@ -19,7 +20,14 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
+  devise
+  pg
+  pundit
   rails (~> 8.0.1)
+  rspec-rails
+  sidekiq
+  stimulus-rails
+  turbo-rails
 
 RUBY VERSION
   ruby 3.3.6p123

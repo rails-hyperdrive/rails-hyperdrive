@@ -73,7 +73,7 @@ That's it. No API keys, no config files to write, no per-project setup beyond th
 | 4 | `list_models` | List Active Record model classes with columns/validations/associations |
 | 5 | `locate_source` | Resolve `Const` / `Const#method` / `Const.method` / `dep:<gem>` to a file:line |
 | 6 | `lookup_doc` | Look up RDoc for a symbol (via `ri`) |
-| 7 | `describe_app` | Snapshot: Rails/Ruby/DB versions + full stack profile |
+| 7 | `describe_app` | Snapshot: Rails/Ruby/DB versions + direct gem dependencies |
 | 8 | `list_routes` | All routes: HTTP verb, path, controller#action, named route |
 
 Plus two MCP resources: `hyperdrive://stack-profile` (JSON snapshot of your resolved stack) and `hyperdrive://skills/{name}` (the markdown body of each installed skill).

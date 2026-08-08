@@ -69,7 +69,7 @@ SQL safety (`sql_safety.rb`) is a regex pair: an allowed-leader pattern (`SELECT
 
 ### Shared state between generator and runtime
 
-`StackProfile` (`lib/rails/hyperdrive/stack_profile.rb`) parses `Gemfile.lock` into a categorized stack snapshot. Its only consumers are the **pull surfaces** — the `describe_app` MCP tool and the `hyperdrive://stack-profile` resource — which answer "what is this app's stack" live, against the resolved bundle. The install side does not read it. Gem→category mapping lives in `lib/rails/hyperdrive/data/gem_categories.yml`. Its `gem_skills_info` defers to `BundlerArtifactDiscovery` (below) and lists each installed skill as a `(name, source)` pair.
+`StackProfile` (`lib/rails/hyperdrive/stack_profile.rb`) parses `Gemfile.lock` into a stack snapshot: Rails/Ruby/database facts plus `direct_dependencies` — the lockfile's `DEPENDENCIES` section with resolved versions, deliberately excluding transitive gems (a resolved-but-transitive gem like `minitest` is not part of the app's chosen stack). Its only consumers are the **pull surfaces** — the `describe_app` MCP tool and the `hyperdrive://stack-profile` resource — which answer "what is this app's stack" live, against the resolved bundle. The install side does not read it. Its `gem_skills_info` defers to `BundlerArtifactDiscovery` (below) and lists each installed skill as a `(name, source)` pair.
 
 ### Companion-gem artifact discovery contract
 

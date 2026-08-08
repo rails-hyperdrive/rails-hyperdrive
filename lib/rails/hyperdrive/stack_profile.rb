@@ -5,15 +5,7 @@ require "digest"
 module Rails
   module Hyperdrive
     class StackProfile
-      CATEGORIES_PATH = File.expand_path("data/gem_categories.yml", __dir__)
-
       class << self
-        def categories
-          @categories ||= YAML.load_file(CATEGORIES_PATH).each_with_object({}) do |(cat, gems), acc|
-            gems.each { |g| acc[g] = cat.to_sym }
-          end
-        end
-
         def current
           @current ||= from_lockfile(default_lockfile_path)
         end
@@ -54,16 +46,11 @@ module Rails
         specs    = parser.specs.each_with_object({}) { |s, h| h[s.name] = s.version.to_s }
 
         @data = {
-          rails:      rails_info(specs),
-          ruby:       ruby_info(parser),
-          database:   database_info(specs),
-          test:       bucket(specs, :test),
-          jobs:       bucket(specs, :jobs),
-          frontend:   frontend_info(specs),
-          auth:       bucket(specs, :auth),
-          authz:      bucket(specs, :authz),
-          db_gems:    bucket(specs, :db),
-          gem_skills: gem_skills_info
+          rails:               rails_info(specs),
+          ruby:                ruby_info(parser),
+          database:            database_info(specs),
+          direct_dependencies: direct_dependencies(parser, specs),
+          gem_skills:          gem_skills_info
         }
         self
       end
@@ -77,8 +64,7 @@ module Rails
       def empty_profile
         {
           rails: {}, ruby: {}, database: {},
-          test: [], jobs: [], frontend: [],
-          auth: [], authz: [], db_gems: [], gem_skills: []
+          direct_dependencies: [], gem_skills: []
         }
       end
 
@@ -132,26 +118,12 @@ module Rails
         ::Rails.root.join("config", "database.yml").to_s
       end
 
-      def bucket(specs, category)
-        gem_names = self.class.categories.select { |_, c| c == category }.keys
-        gem_names.filter_map do |name|
-          version = specs[name]
-          next unless version
-          { key: name.to_sym, version: version }
+      # Presence in the resolved specs does not mean the app chose a gem —
+      # minitest resolves under every Rails app. Transitive gems stay out.
+      def direct_dependencies(parser, specs)
+        parser.dependencies.keys.sort.map do |name|
+          { name: name, version: specs[name] }
         end
-      end
-
-      # Frontend gets a special shape because Hotwire is actually two gems.
-      def frontend_info(specs)
-        bucket(specs, :frontend).map do |entry|
-          if entry[:key] == :"turbo-rails" || entry[:key] == :"stimulus-rails"
-            turbo = specs["turbo-rails"]
-            stim  = specs["stimulus-rails"]
-            { key: :hotwire, versions: { turbo: turbo, stimulus: stim }.compact }
-          else
-            entry
-          end
-        end.uniq
       end
 
       # Loaded lazily and rescued broadly so StackProfile stays usable where
