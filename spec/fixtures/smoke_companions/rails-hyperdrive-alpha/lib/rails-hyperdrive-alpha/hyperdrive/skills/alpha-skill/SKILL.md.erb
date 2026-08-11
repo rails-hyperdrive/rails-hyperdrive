@@ -1,0 +1,26 @@
+---
+name: alpha-skill
+description: A smoke-fixture skill shipped by rails-hyperdrive-alpha.
+gem: railties
+versions: ">= 7.0"
+conditional:
+  references/sqlite-notes.md:
+    gem: sqlite3
+  references/alba-notes.md:
+    gem: alba
+---
+
+# Alpha Skill
+
+This is a lazy, model-invoked skill installed end-to-end by the smoke suite.
+
+## Steps
+
+1. Do the alpha thing.
+2. Verify it worked.
+
+## Bundle
+
+<%- if gem?("sqlite3") -%>
+This app persists with sqlite3 <%= gem_version("sqlite3") || "(any version)" %>.
+<%- end -%>

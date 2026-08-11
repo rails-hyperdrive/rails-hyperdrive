@@ -115,6 +115,7 @@ module Rails
       def install_skills
         @plan.select { |e| e.type == :skill }.each do |entry|
           skill_relpath = source_relpath_for(entry.artifact)
+          support_base = support_relpath_base(entry.artifact, skill_relpath)
           install_file(entry: entry, type: :skill, install_ready_body: entry.install_ready_body,
             source_relpath: skill_relpath, final_name: entry.final_name)
           entry.support_files.each do |file|
@@ -125,7 +126,7 @@ module Rails
               source_gem: entry.source_gem,
               version: entry.version,
               artifact_kind: "skill_support",
-              source_relpath: skill_relpath && File.join(File.dirname(skill_relpath), file[:path])
+              source_relpath: support_base && File.join(support_base, file[:path])
             )
           end
         end
@@ -153,6 +154,22 @@ module Rails
 
         rel = expanded.delete_prefix(prefix)
         rel.end_with?(".md.erb") ? rel.delete_suffix(".erb") : rel
+      end
+
+      # Supporting files live under the artifact's support root, which for a
+      # template-paired skill is not the definition file's directory.
+      def support_relpath_base(artifact, skill_relpath)
+        support_root = artifact.support_root
+        return skill_relpath && File.dirname(skill_relpath) if support_root.nil? || support_root.to_s.empty?
+
+        root = artifact.source_root
+        return nil if root.nil? || root.to_s.empty?
+
+        prefix = "#{File.expand_path(root.to_s)}/"
+        expanded = File.expand_path(support_root.to_s)
+        return nil unless expanded.start_with?(prefix)
+
+        expanded.delete_prefix(prefix)
       end
 
       def install_file(dest: nil, type:, install_ready_body:, entry: nil, source_gem: nil, version: nil,

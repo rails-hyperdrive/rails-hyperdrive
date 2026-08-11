@@ -11,7 +11,7 @@ module Rails
       Artifact = Struct.new(
         :name, :description, :target_gem, :versions, :artifact_type,
         :source_gem, :path, :body, :spec_version, :support_files,
-        :source_root,
+        :source_root, :support_root,
         keyword_init: true
       ) do
         def skill?
@@ -41,8 +41,9 @@ module Rails
 
         candidates = []
         specs.each do |spec|
-          each_artifact_path(spec, warnings: warnings) do |path, type|
-            artifact = parse(path, source_spec: spec, type: type, resolved: resolved, warnings: warnings)
+          each_artifact_path(spec, warnings: warnings) do |path, type, support_root|
+            artifact = parse(path, source_spec: spec, type: type, resolved: resolved,
+              warnings: warnings, support_root: support_root)
             candidates << artifact if artifact
           end
         end
@@ -56,8 +57,8 @@ module Rails
       end
 
       def each_artifact_path(spec, warnings: [])
-        skill_paths(spec, warnings: warnings).each { |p| yield p, :skill }
-        guideline_paths(spec).each { |p| yield p, :guideline }
+        skill_paths(spec, warnings: warnings).each { |path, support_root| yield path, :skill, support_root }
+        guideline_paths(spec).each { |p| yield p, :guideline, nil }
       end
 
       def skill_paths(spec, warnings: [])
@@ -65,12 +66,69 @@ module Rails
         if (override = skills_dir_override(spec))
           roots << File.join(spec.full_gem_path, override)
         end
-        found = roots.flat_map { |root| Dir.glob(File.join(root, "**", "{SKILL.md,SKILL.md.erb}")) }.uniq
-        found.group_by { |p| File.dirname(p) }.flat_map do |dir, group|
-          next group unless group.size > 1
-          warnings << "skip #{File.join(dir, "SKILL.md.erb")}: SKILL.md in the same directory takes precedence"
-          group.select { |p| File.basename(p) == "SKILL.md" }
+
+        candidates = []
+        seen = {}
+        roots.each do |root|
+          Dir.glob(File.join(root, "**", "{SKILL.md,SKILL.md.erb}"))
+             .group_by { |p| File.dirname(p) }.each do |dir, group|
+            next if seen[File.expand_path(dir)]
+            seen[File.expand_path(dir)] = true
+            candidates << {
+              dir: dir,
+              rel: dir.delete_prefix(root).delete_prefix("/"),
+              path: resolve_same_dir_tie(dir, group, warnings)
+            }
+          end
         end
+
+        pair_with_templates(candidates, spec, warnings: warnings)
+      end
+
+      def resolve_same_dir_tie(dir, group, warnings)
+        return group.first unless group.size > 1
+        warnings << "skip #{File.join(dir, "SKILL.md.erb")}: SKILL.md in the same directory takes precedence"
+        group.find { |p| File.basename(p) == "SKILL.md" }
+      end
+
+      # A dir holding a static SKILL.md pairs with <templates root>/<same
+      # relative path>/SKILL.md.erb in a distinct dir: the rendered template is
+      # the definition, the static dir the support root. The static SKILL.md is
+      # never parsed — falling back to it when the template fails to render
+      # would silently un-condition the skill.
+      def pair_with_templates(candidates, spec, warnings:)
+        templates_root = File.join(spec.full_gem_path, skill_templates_dir(spec))
+
+        pairs = {}
+        candidates.each do |cand|
+          next unless File.basename(cand[:path]) == "SKILL.md"
+          template_dir = File.expand_path(File.join(templates_root, cand[:rel]))
+          next if template_dir == File.expand_path(cand[:dir])
+          template = File.join(template_dir, "SKILL.md.erb")
+          next unless File.file?(template)
+          warn_template_extras(template_dir, warnings)
+          pairs[cand[:dir]] = { template: template, template_dir: template_dir }
+        end
+
+        consumed = pairs.values.map { |p| p[:template_dir] }
+        candidates.filter_map do |cand|
+          if (pair = pairs[cand[:dir]])
+            [pair[:template], cand[:dir]]
+          elsif consumed.include?(File.expand_path(cand[:dir]))
+            nil
+          else
+            [cand[:path], File.dirname(cand[:path])]
+          end
+        end
+      end
+
+      # The content dir is the single source of truth for supporting files.
+      def warn_template_extras(template_dir, warnings)
+        extras = Dir.glob(File.join(template_dir, "**", "*"))
+                    .select { |f| File.file?(f) && f != File.join(template_dir, "SKILL.md.erb") }
+        return if extras.empty?
+        warnings << "#{template_dir}: ignoring #{extras.size} file(s) besides SKILL.md.erb; " \
+                    "supporting files ship in the paired content directory"
       end
 
       def guideline_paths(spec)
@@ -87,7 +145,17 @@ module Rails
         raw.to_s
       end
 
-      def parse(path, source_spec:, type:, resolved:, warnings:)
+      def skill_templates_dir(spec)
+        default = File.join("lib", spec.name, "hyperdrive", "skills")
+        return default unless spec.respond_to?(:metadata)
+        raw = spec.metadata && spec.metadata["rails_hyperdrive_skill_templates_dir"]
+        return default if raw.nil? || raw.to_s.strip.empty?
+        return default if raw.to_s.split(%r{[/\\]}).include?("..")
+        raw.to_s
+      end
+
+      def parse(path, source_spec:, type:, resolved:, warnings:, support_root: nil)
+        support_root ||= File.dirname(path)
         body = File.read(path)
         if erb_template?(path)
           begin
@@ -136,10 +204,11 @@ module Rails
           body: body,
           spec_version: source_spec.version.to_s,
           source_root: source_spec.full_gem_path.to_s,
+          support_root: support_root,
           support_files:
             if type == :skill
               conditioned_support_files(
-                File.dirname(path), meta["conditional"],
+                support_root, meta["conditional"],
                 resolved: resolved, warnings: warnings,
                 label: "#{name} (from #{source_spec.name})"
               )
@@ -335,12 +404,13 @@ module Rails
       end
 
       private_class_method :each_artifact_path, :skill_paths, :guideline_paths,
-                           :skills_dir_override, :parse, :support_files_for,
+                           :resolve_same_dir_tie, :pair_with_templates, :warn_template_extras,
+                           :skills_dir_override, :skill_templates_dir, :parse, :support_files_for,
                            :conditioned_support_files, :apply_conditional_filter,
                            :conditional_satisfied?, :malformed_requirements?,
                            :render_support_templates, :erb_template?,
                            :strip_installer_keys,
-                           :split_frontmatter, :parse_targets, :match_targets,
+                           :parse_targets, :match_targets,
                            :version_satisfied?, :no_match_reason, :safe_bundler_specs
     end
   end

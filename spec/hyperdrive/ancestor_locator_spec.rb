@@ -96,6 +96,21 @@ RSpec.describe Rails::Hyperdrive::AncestorLocator do
     expect(body).to eq(rendered)
   end
 
+  it "reconstructs a template-paired skill's ancestor from the SKILL.md.erb twin" do
+    relpath = "lib/rails-hyperdrive-x/hyperdrive/skills/jobs/SKILL.md"
+    ship("#{relpath}.erb",
+      "---\nname: jobs\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# jobs <%= gem_version('sidekiq') %>\n")
+    installed = "---\nname: jobs\ndescription: d\n---\n\n# jobs 7.2.0\n"
+
+    body = described_class.locate(
+      kind: "skill", relpath: relpath,
+      lock_entry: lock_entry(kind: "skill", sha: sha(installed)),
+      gem_paths: [home], resolved: { "sidekiq" => Gem::Version.new("7.2.0") }
+    )
+
+    expect(body).to eq(installed)
+  end
+
   it "rebuilds a collision-postfixed skill: installer keys stripped, name: rewritten to the final name" do
     relpath = "lib/rails-hyperdrive-x/hyperdrive/skills/jobs/SKILL.md"
     shipped = "---\nname: jobs\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# jobs\n"

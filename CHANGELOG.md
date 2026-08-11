@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Template/content pairing for skills, so one companion repo can serve
+  `npx skills` / git-clone consumers and rails-hyperdrive at once without
+  giving up bundle-conditioned content. A skill directory holding a static
+  `SKILL.md` (the universal face: generated definition plus all supporting
+  files) pairs with a `SKILL.md.erb` master at the same relative path under a
+  templates root — declared via the new `rails_hyperdrive_skill_templates_dir`
+  gemspec metadata key, defaulting to the convention path
+  `lib/<gem_name>/hyperdrive/skills`. The pair discovers as one skill:
+  hyperdrive renders the template against the app's bundle and installs the
+  supporting files from the content directory, never reading the static
+  `SKILL.md`. Unpaired layouts — every existing companion — behave exactly as
+  before.
+- Canonical-render rake tasks for companion repos:
+  `require "rails/hyperdrive/skill_tasks"` in the Rakefile provides
+  `rake hyperdrive:skills:render` (generate each template's static `SKILL.md`
+  with the fail-open canonical binding — every gem present, `gem_version`
+  `nil`, installer keys kept so pre-pairing rails-hyperdrive versions degrade
+  gracefully) and `rake hyperdrive:skills:check` (fail listing stale generated
+  files — the CI freshness gate). Rails-free; rails-hyperdrive as a
+  development dependency suffices.
+
 ## [0.4.0] - 2026-08-08
 
 ### Added
