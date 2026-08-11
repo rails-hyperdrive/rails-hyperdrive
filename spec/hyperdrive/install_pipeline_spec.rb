@@ -248,6 +248,62 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     end
   end
 
+  describe "skill ancestry relpaths" do
+    let(:locator) { Rails::Hyperdrive::AncestorLocator }
+
+    def skill_at(path:, source_root: "/gem", support_root: nil, version: "1.0.0", edition: "")
+      Artifact.new(
+        name: "jobs", description: "d", target_gem: "*", versions: "*",
+        artifact_type: :skill, source_gem: "rails-hyperdrive-x", path: path,
+        body: "---\nname: jobs\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# jobs\n#{edition}",
+        spec_version: version, source_root: source_root, support_root: support_root,
+        support_files: [{ path: "references/deep.md", body: "deep #{edition}\n" }]
+      )
+    end
+
+    def edit_installed_and_merge(v1, v2)
+      run(artifacts: [v1])
+      File.write(File.join(root, ".claude/skills/jobs/SKILL.md"), "edited\n")
+      File.write(File.join(root, ".claude/skills/jobs/references/deep.md"), "edited\n")
+      allow(locator).to receive(:locate).and_return(nil)
+      run(mode: :merge, artifacts: [v2])
+    end
+
+    it "locates a paired skill's ancestor template-side, its supporting files content-side" do
+      v1 = skill_at(path: "/gem/lib/x/hyperdrive/skills/jobs/SKILL.md.erb", support_root: "/gem/skills/jobs")
+      v2 = skill_at(path: "/gem/lib/x/hyperdrive/skills/jobs/SKILL.md.erb", support_root: "/gem/skills/jobs",
+        version: "2.0.0", edition: "v2")
+
+      edit_installed_and_merge(v1, v2)
+
+      expect(locator).to have_received(:locate)
+        .with(hash_including(kind: "skill", relpath: "lib/x/hyperdrive/skills/jobs/SKILL.md"))
+      expect(locator).to have_received(:locate)
+        .with(hash_including(kind: "skill_support", relpath: "skills/jobs/references/deep.md"))
+    end
+
+    it "keeps today's relpaths for an unpaired artifact" do
+      path = "/gem/lib/x/hyperdrive/skills/jobs/SKILL.md"
+      v1 = skill_at(path: path, support_root: "/gem/lib/x/hyperdrive/skills/jobs")
+      v2 = skill_at(path: path, support_root: "/gem/lib/x/hyperdrive/skills/jobs", version: "2.0.0", edition: "v2")
+
+      edit_installed_and_merge(v1, v2)
+
+      expect(locator).to have_received(:locate)
+        .with(hash_including(kind: "skill", relpath: "lib/x/hyperdrive/skills/jobs/SKILL.md"))
+      expect(locator).to have_received(:locate)
+        .with(hash_including(kind: "skill_support", relpath: "lib/x/hyperdrive/skills/jobs/references/deep.md"))
+    end
+
+    it "falls back to the definition file's directory when support_root is absent" do
+      path = "/gem/lib/x/hyperdrive/skills/jobs/SKILL.md"
+      edit_installed_and_merge(skill_at(path: path), skill_at(path: path, version: "2.0.0", edition: "v2"))
+
+      expect(locator).to have_received(:locate)
+        .with(hash_including(kind: "skill_support", relpath: "lib/x/hyperdrive/skills/jobs/references/deep.md"))
+    end
+  end
+
   describe "artifacts dropped by the disabled list" do
     def disable(key, *names)
       lock = File.join(root, ".hyperdrive/lock.yml")

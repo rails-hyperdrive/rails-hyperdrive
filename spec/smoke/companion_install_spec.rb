@@ -26,11 +26,15 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(skill).not_to include("conditional:")
       expect(skill).to include("description:") # runtime frontmatter retained
       expect(skill).to include("# Alpha Skill")
+      # alpha-skill is template/content paired: the installed definition must be
+      # the template rendered against the app bundle, not the static face.
+      expect(skill).to match(/This app persists with sqlite3 2\./)
+      expect(skill).not_to include("(any version)")
 
       support_path = File.join(app_dir, ".claude/skills/alpha-skill/references/deep-dive.md")
       expect(File.exist?(support_path)).to be(true), "alpha-skill supporting file not installed:\n#{out}"
       shipped = File.binread(File.expand_path(
-        "../fixtures/smoke_companions/rails-hyperdrive-alpha/lib/rails-hyperdrive-alpha/hyperdrive/skills/alpha-skill/references/deep-dive.md",
+        "../fixtures/smoke_companions/rails-hyperdrive-alpha/skills/alpha-skill/references/deep-dive.md",
         __dir__
       ))
       expect(File.binread(support_path)).to eq(shipped) # byte-identical, no audit header

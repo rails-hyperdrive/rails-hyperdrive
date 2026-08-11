@@ -59,6 +59,28 @@ RSpec.describe Rails::Hyperdrive::SkillTemplate do
     end
   end
 
+  describe ".render_canonical" do
+    def canonical(source)
+      described_class.render_canonical(source)
+    end
+
+    it "treats every gem as present, requirement or not" do
+      expect(canonical(%(<%= gem?("view_component") %> <%= gem?("view_component", ">= 99") %>)))
+        .to eq("true true")
+      expect(canonical(%(<%= any_gem?("nope", "also_nope") %>))).to eq("true")
+    end
+
+    it "resolves no versions: gem_version is nil" do
+      expect(canonical(%(<%= gem_version("alba").nil? %>))).to eq("true")
+      expect(canonical(%(<%= gem_version("alba") || "(any version)" %>))).to eq("(any version)")
+    end
+
+    it "includes every conditional branch" do
+      source = "a\n<%- if gem?(\"alba\") -%>\nalba\n<%- end -%>\n<%- if gem?(\"nope\") -%>\nnope\n<%- end -%>\nb\n"
+      expect(canonical(source)).to eq("a\nalba\nnope\nb\n")
+    end
+  end
+
   describe "errors" do
     it "propagates a compile error" do
       expect { render("<% if %>") }.to raise_error(SyntaxError)

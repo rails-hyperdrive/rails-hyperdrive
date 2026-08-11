@@ -31,12 +31,37 @@ module Rails
         end
       end
 
+      # Fail-open binding for the canonical render: every gem reads as present
+      # at any requested version, so the output includes every conditional
+      # branch. There is no bundle to resolve against, so gem_version is nil.
+      class CanonicalContext
+        def gem?(_name, _requirement = nil)
+          true
+        end
+
+        def any_gem?(*)
+          true
+        end
+
+        def gem_version(_name)
+          nil
+        end
+
+        def template_binding
+          binding
+        end
+      end
+
       module_function
 
       # Errors (ERB SyntaxError included) propagate; the caller decides how to
       # skip and warn.
       def render(source, resolved:)
         ERB.new(source, trim_mode: "-").result(Context.new(resolved).template_binding)
+      end
+
+      def render_canonical(source)
+        ERB.new(source, trim_mode: "-").result(CanonicalContext.new.template_binding)
       end
 
       # Gem::Requirement.new does not parse a single comma-separated string, so

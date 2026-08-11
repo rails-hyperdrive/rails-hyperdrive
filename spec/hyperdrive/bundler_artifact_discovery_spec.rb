@@ -745,12 +745,191 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
   end
 
+  describe "template/content pairing" do
+    around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
+
+    let(:sidekiq) { spec_double("sidekiq", "7.3.0", @dir.to_s + "/nope") }
+
+    def paired_spec(metadata = { "rails_hyperdrive_skills_dir" => "skills" })
+      s = spec_double("source_gem", "1.0.0", @dir)
+      allow(s).to receive(:metadata).and_return(metadata)
+      s
+    end
+
+    def write(rel, body)
+      path = File.join(@dir, rel)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, body)
+    end
+
+    def template_body(name = "paired")
+      <<~MD
+        ---
+        name: #{name}
+        description: d
+        gem: "*"
+        versions: "*"
+        ---
+
+        # #{name} (templated)
+
+        <%- if gem?("sidekiq") -%>
+        Sidekiq notes.
+        <%- end -%>
+      MD
+    end
+
+    def static_body(name = "paired")
+      "---\nname: #{name}\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# #{name} (static)\n"
+    end
+
+    it "pairs a content dir with the same-relpath template dir into one artifact" do
+      write("skills/paired/SKILL.md", static_body)
+      write("skills/paired/references/notes.md", "notes\n")
+      write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
+
+      warnings = []
+      results = described_class.discover(specs: [paired_spec], warnings: warnings)
+      expect(warnings).to be_empty
+      expect(results.size).to eq(1)
+
+      skill = results.first
+      expect(skill.name).to eq("paired")
+      expect(skill.body).to include("# paired (templated)")
+      expect(skill.body).not_to include("(static)")
+      expect(skill.path).to eq(File.join(@dir, "lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb"))
+      expect(skill.support_root).to eq(File.join(@dir, "skills/paired"))
+      expect(skill.support_files.map { |f| f[:path] }).to contain_exactly("references/notes.md")
+    end
+
+    it "renders the paired template against the app's resolved bundle" do
+      write("skills/paired/SKILL.md", static_body)
+      write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
+
+      without = described_class.discover(specs: [paired_spec]).first
+      expect(without.body).not_to include("Sidekiq notes.")
+
+      with = described_class.discover(specs: [paired_spec, sidekiq]).first
+      expect(with.body).to include("Sidekiq notes.")
+    end
+
+    it "matches on the relative path from the root, so nested layouts pair" do
+      write("skills/cat/nested/SKILL.md", static_body("nested"))
+      write("lib/source_gem/hyperdrive/skills/cat/nested/SKILL.md.erb", template_body("nested"))
+
+      results = described_class.discover(specs: [paired_spec])
+      expect(results.size).to eq(1)
+      expect(results.first.path).to end_with("lib/source_gem/hyperdrive/skills/cat/nested/SKILL.md.erb")
+      expect(results.first.support_root).to eq(File.join(@dir, "skills/cat/nested"))
+    end
+
+    it "leaves a template-only dir a standalone skill with support_root beside the definition" do
+      write("lib/source_gem/hyperdrive/skills/solo/SKILL.md.erb", template_body("solo"))
+
+      skill = described_class.discover(specs: [paired_spec]).first
+      expect(skill.name).to eq("solo")
+      expect(skill.support_root).to eq(File.dirname(skill.path))
+    end
+
+    it "leaves a content-only dir a standalone static skill" do
+      write("skills/solo/SKILL.md", static_body("solo"))
+
+      skill = described_class.discover(specs: [paired_spec]).first
+      expect(skill.body).to include("(static)")
+      expect(skill.support_root).to eq(File.dirname(skill.path))
+    end
+
+    it "warns about and ignores extra files in the template dir" do
+      write("skills/paired/SKILL.md", static_body)
+      write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
+      write("lib/source_gem/hyperdrive/skills/paired/references/stray.md", "stray\n")
+
+      warnings = []
+      skill = described_class.discover(specs: [paired_spec], warnings: warnings).first
+      expect(warnings.join).to include("besides SKILL.md.erb")
+      expect(skill.support_files).to eq([])
+    end
+
+    it "skips the artifact when the paired template fails to render, without a static fallback" do
+      write("skills/paired/SKILL.md", static_body)
+      write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", "<% raise 'boom' %>\n")
+
+      warnings = []
+      results = described_class.discover(specs: [paired_spec], warnings: warnings)
+      expect(results).to be_empty
+      expect(warnings.join).to include("ERB render failed")
+    end
+
+    it "resolves a same-dir tie in the content dir first, then pairs the surviving SKILL.md" do
+      write("skills/paired/SKILL.md", static_body)
+      write("skills/paired/SKILL.md.erb", "<% raise 'never rendered' %>\n")
+      write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
+
+      warnings = []
+      skill = described_class.discover(specs: [paired_spec], warnings: warnings).first
+      expect(warnings.join).to include("SKILL.md in the same directory takes precedence")
+      expect(skill.body).to include("(templated)")
+      expect(skill.path).to eq(File.join(@dir, "lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb"))
+    end
+
+    it "honors rails_hyperdrive_skill_templates_dir" do
+      write("skills/paired/SKILL.md", static_body)
+      write("tpl/paired/SKILL.md.erb", template_body)
+
+      spec = paired_spec(
+        "rails_hyperdrive_skills_dir" => "skills",
+        "rails_hyperdrive_skill_templates_dir" => "tpl"
+      )
+      skill = described_class.discover(specs: [spec]).first
+      expect(skill.body).to include("(templated)")
+      expect(skill.path).to eq(File.join(@dir, "tpl/paired/SKILL.md.erb"))
+    end
+
+    it "treats a blank templates dir as the default" do
+      write("skills/paired/SKILL.md", static_body)
+      write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
+
+      spec = paired_spec(
+        "rails_hyperdrive_skills_dir" => "skills",
+        "rails_hyperdrive_skill_templates_dir" => "  "
+      )
+      skill = described_class.discover(specs: [spec]).first
+      expect(skill.body).to include("(templated)")
+    end
+
+    it "rejects a templates dir containing .. segments, falling back to the default" do
+      write("skills/paired/SKILL.md", static_body)
+      outside = File.join(File.dirname(@dir), "outside-#{File.basename(@dir)}")
+      FileUtils.mkdir_p(File.join(outside, "paired"))
+      File.write(File.join(outside, "paired", "SKILL.md.erb"), template_body)
+
+      spec = paired_spec(
+        "rails_hyperdrive_skills_dir" => "skills",
+        "rails_hyperdrive_skill_templates_dir" => "../#{File.basename(outside)}"
+      )
+      skill = described_class.discover(specs: [spec]).first
+      expect(skill.body).to include("(static)")
+    ensure
+      FileUtils.rm_rf(outside) if outside
+    end
+
+    it "pins the Phase-1 path tiebreak: at equal spec_version, skills/... beats lib/..." do
+      write("skills/dup/SKILL.md", static_body("dup"))
+      write("lib/source_gem/hyperdrive/skills/other/SKILL.md", static_body("dup"))
+
+      survivors = described_class.discover(specs: [paired_spec]).select { |a| a.name == "dup" }
+      expect(survivors.size).to eq(1)
+      expect(survivors.first.path).to eq(File.join(@dir, "skills/dup/SKILL.md"))
+    end
+  end
+
   describe "Artifact#to_h" do
     it "exposes the metadata fields without the body" do
       artifact = described_class.discover(specs: [dummy_spec]).find(&:skill?)
       h = artifact.to_h
       expect(h).to include(name: "dummy-skill", artifact_type: :skill, source_gem: "dummy_gem")
       expect(h).not_to have_key(:body)
+      expect(h).not_to have_key(:support_root)
     end
   end
 

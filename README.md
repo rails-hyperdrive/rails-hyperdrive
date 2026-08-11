@@ -184,7 +184,7 @@ And to be suggested by `hyperdrive:discover` before anyone installs you:
 spec.metadata["rails_hyperdrive_targets"] = "sidekiq"
 ```
 
-The full contract — multi-target artifacts, multi-file skills, per-file gem gating, ERB-templated content, collision and dedup rules — lives in [docs/COMPANION_GEMS.md](docs/COMPANION_GEMS.md).
+The full contract — multi-target artifacts, multi-file skills, per-file gem gating, ERB-templated content, the template/content paired layout that also serves `npx skills` and git-clone consumers, collision and dedup rules — lives in [docs/COMPANION_GEMS.md](docs/COMPANION_GEMS.md).
 
 ---
 

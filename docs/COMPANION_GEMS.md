@@ -101,6 +101,42 @@ Use ERB sparingly — condition reference manuals via `conditional:` and wrap li
 
 Gated files appear and disappear as the bundle changes: `hyperdrive:init`/`hyperdrive:sync` install newly gated-in files and remove unedited gated-out ones. The auto top-up after `bundle install` adds newly gated-in files but never removes anything and never rewrites an already-installed file, so removals and re-rendered template output wait for the next `hyperdrive:sync`.
 
+## The universal layout: template/content pairing
+
+Conditional content and the universal skills convention pull in opposite directions: tools like `npx skills` (and people browsing a git clone) expect a static `skills/<name>/SKILL.md` with its supporting files in the same directory, while hyperdrive wants the `SKILL.md.erb` master. Neither can live in the other's directory — a static `SKILL.md` beside the template would take precedence over it, and a `SKILL.md.erb` in the static dir would be copied verbatim by tools that don't render it.
+
+Pairing splits the skill across two directories:
+
+```
+skills/<name>/SKILL.md                            # content dir: generated static face…
+skills/<name>/references/…                        # …plus ALL supporting files
+lib/<gem_name>/hyperdrive/skills/<name>/SKILL.md.erb   # template dir: the master, and nothing else
+```
+
+with gemspec metadata pointing the two roots apart:
+
+```ruby
+spec.files = Dir["lib/**/*", "skills/**/*"]
+spec.metadata["rails_hyperdrive_skills_dir"] = "skills"
+# optional; defaults to the convention path lib/<gem_name>/hyperdrive/skills
+spec.metadata["rails_hyperdrive_skill_templates_dir"] = "lib/<gem_name>/hyperdrive/skills"
+```
+
+A skill dir holding a static `SKILL.md` pairs with the template dir at the **same relative path** under the templates root (nested layouts like `skills/<category>/<name>/` pair too). The pair is one skill: hyperdrive renders the **template** against the app's bundle and takes the supporting files from the **content dir**; the static `SKILL.md` is never read by hyperdrive — it exists for consumers that can't inspect a bundle. A template dir with no matching content dir, or a content dir with no matching template, is a standalone skill exactly as before, so pairing is strictly opt-in. Keep the template dir down to `SKILL.md.erb` alone: anything else in it is ignored with a warning — the content dir is the single source of truth for supporting files. A template that fails to render skips the skill (the static file is deliberately not used as a fallback — that would silently un-condition the skill).
+
+### Generating and checking the static face
+
+The static `SKILL.md` is generated, not hand-written. In the companion repo's `Rakefile`:
+
+```ruby
+require "rails/hyperdrive/skill_tasks"
+```
+
+- `rake hyperdrive:skills:render` — renders each `SKILL.md.erb` to its paired static `SKILL.md` using the **canonical** binding: `gem?`/`any_gem?` always true (even with a version requirement), `gem_version` always `nil` — the fail-open, everything-included face for consumers whose bundle can't be inspected. Templates that interpolate `gem_version` must handle `nil` (e.g. `<%= gem_version("sidekiq") || "(any version)" %>`).
+- `rake hyperdrive:skills:check` — renders in memory and fails listing any stale static file; run it in CI so the generated face never drifts from its template.
+
+Both read the single `*.gemspec` in the working directory (pass an explicit path as a task argument otherwise: `rake "hyperdrive:skills:render[path/to/name.gemspec]"`) and require rails-hyperdrive only as a development dependency — no Rails app involved. The generated file keeps the `gem:`/`versions:`/`conditional:` frontmatter keys on purpose: older rails-hyperdrive versions that don't know about pairing fall back to installing the static artifact, and the kept keys let them gate it normally (skill-consuming tools ignore unknown frontmatter keys).
+
 ## Discovery never raises
 
 An artifact with missing or malformed frontmatter, a missing required field, no declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there — read that section first when a gem you expected to contribute produces no files.
