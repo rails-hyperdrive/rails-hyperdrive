@@ -1,8 +1,6 @@
 ---
 name: universal
 description: A universal fixture guideline that applies to every app regardless of stack.
-gem: "*"
-versions: ">= 0"
 ---
 
 # Universal Guideline

@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
   spec.license     = "MIT"
   spec.required_ruby_version = ">= 3.2"
 
-  spec.files       = Dir["lib/**/*"]
+  spec.files       = Dir["lib/**/*", "hyperdrive.yml"]
   spec.require_paths = ["lib"]
 
   spec.metadata["rails_hyperdrive_targets"]   = "railties"

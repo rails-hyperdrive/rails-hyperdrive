@@ -6,11 +6,8 @@ require "rails/hyperdrive/skill_template"
 module Rails
   module Hyperdrive
     # Renders each SKILL.md.erb template in a companion gem repo to the static
-    # SKILL.md it pairs with, using the canonical fail-open binding. The
-    # installer-only gem:/versions:/conditional: frontmatter keys are stripped
-    # from the output — the same set install strips — so the static face and
-    # the installed body stay symmetric. Companion-repo dev tooling: problems
-    # raise.
+    # SKILL.md it pairs with, using the canonical fail-open binding.
+    # Companion-repo dev tooling: problems raise.
     module CanonicalSkillRender
       Error = Class.new(StandardError)
 
@@ -51,7 +48,7 @@ module Rails
                          "spec.metadata[\"rails_hyperdrive_skills_dir\"] to a separate root"
           end
 
-          body = BundlerArtifactDiscovery.strip_installer_keys(render_template(template))
+          body = render_template(template)
           validate_output!(body, template)
           Rendered.new(template: template, dest: File.join(dest_dir, "SKILL.md"), body: body)
         end

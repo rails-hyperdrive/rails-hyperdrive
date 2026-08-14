@@ -1,11 +1,6 @@
 ---
 name: dummy-skill
 description: A test fixture skill that ships inside dummy_gem.
-gem: dummy_gem
-versions: "~> 1.0"
-conditional:
-  references/conditional.md:
-    gem: companion_gem
 ---
 
 # Dummy Skill

@@ -1,8 +1,6 @@
 ---
 name: dummy-skill
 description: A same-named skill from a DIFFERENT source gem; exercises cross-source conflict (install both, postfixed).
-gem: dummy_gem
-versions: "~> 1.0"
 ---
 
 # Dummy Skill (companion variant)

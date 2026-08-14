@@ -113,17 +113,9 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
           FileUtils.mkdir_p(File.dirname(File.join(sdir, rel)))
           File.write(File.join(sdir, rel), body)
         end
-        File.write(File.join(sdir, "SKILL.md"), <<~MD)
-          ---
-          name: cond
-          description: d
-          gem: "*"
-          versions: "*"
-          #{conditional_yaml.chomp}
-          ---
-
-          # cond
-        MD
+        File.write(File.join(sdir, "SKILL.md"), "---\nname: cond\ndescription: d\n---\n\n# cond\n")
+        entry_yaml = conditional_yaml.lines.map { |l| l.strip.empty? ? l : "    #{l}" }.join
+        File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  cond:\n#{entry_yaml.chomp}\n")
       end
 
       def discover(*extra_specs, warnings: [])
@@ -291,23 +283,14 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         File.join(@dir, "lib", "source_gem", "hyperdrive", "skills", "erb")
       end
 
-      def write_skill(files, frontmatter_extra: "")
+      def write_skill(files, manifest: nil)
         FileUtils.mkdir_p(skill_dir)
         files.each do |rel, body|
           FileUtils.mkdir_p(File.dirname(File.join(skill_dir, rel)))
           File.write(File.join(skill_dir, rel), body)
         end
-        File.write(File.join(skill_dir, "SKILL.md"), <<~MD)
-          ---
-          name: erb
-          description: d
-          gem: "*"
-          versions: "*"
-          #{frontmatter_extra.chomp}
-          ---
-
-          # erb
-        MD
+        File.write(File.join(skill_dir, "SKILL.md"), "---\nname: erb\ndescription: d\n---\n\n# erb\n")
+        File.write(File.join(@dir, "hyperdrive.yml"), manifest) if manifest
       end
 
       def discover(warnings: [])
@@ -337,7 +320,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       it "never renders a gated-out .md.erb file" do
         write_skill(
           { "references/boom.md.erb" => "<% raise 'must not render' %>\n" },
-          frontmatter_extra: "conditional:\n  references/boom.md.erb:\n    gem: not_bundled"
+          manifest: "skills:\n  erb:\n    conditional:\n      references/boom.md.erb:\n        gem: not_bundled\n"
         )
         skill, warnings = discover
         expect(warnings).to be_empty
@@ -434,56 +417,41 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(body).to start_with("# Dummy Guideline")
     end
 
-    it "keeps skill frontmatter but strips the installer-only keys" do
+    it "installs the skill body verbatim, frontmatter included" do
       skill = described_class.discover(specs: [dummy_spec]).find { |a| a.name == "dummy-skill" }
       body = described_class.install_ready_body(skill)
+      expect(body).to eq(File.read(skill.path))
       expect(body).to start_with("---")
       expect(body).to include("name: dummy-skill")
-      expect(body).to include("description:")
-      expect(body).not_to include("gem:")
-      expect(body).not_to include("versions:")
-      expect(body).not_to include("conditional:")
-      expect(body).not_to include("references/conditional.md")
     end
 
-    it "strips a stripped key's whole nested block while keeping later keys and the body" do
+    it "installs a skill carrying legacy installer keys verbatim, never reading them" do
       Dir.mktmpdir do |dir|
         sdir = File.join(dir, "lib", "dummy_gem", "hyperdrive", "skills", "jobs")
         FileUtils.mkdir_p(sdir)
-        File.write(File.join(sdir, "SKILL.md"), <<~SKILL)
+        shipped = <<~SKILL
           ---
           name: jobs
-          gem: [dummy_gem, other]
-          versions:
-            dummy_gem: ">= 1.0"
+          gem: some-absent-gem
+          versions: ">= 99"
           description: d
           conditional:
             references/a.md:
-              gem: dummy_gem
+              gem: some-absent-gem
           allowed-tools:
             - Read
           ---
 
           # jobs
-
-          gem: not frontmatter, stays.
         SKILL
+        File.write(File.join(sdir, "SKILL.md"), shipped)
 
         spec = spec_double("dummy_gem", "1.0.0", dir)
-        skill = described_class.discover(specs: [spec]).find { |a| a.name == "jobs" }
-        body = described_class.install_ready_body(skill)
-        expect(body).to eq(<<~INSTALLED)
-          ---
-          name: jobs
-          description: d
-          allowed-tools:
-            - Read
-          ---
-
-          # jobs
-
-          gem: not frontmatter, stays.
-        INSTALLED
+        warnings = []
+        skill = described_class.discover(specs: [spec], warnings: warnings).find { |a| a.name == "jobs" }
+        expect(warnings).to be_empty
+        expect(skill.target_gem).to eq(["*"])
+        expect(described_class.install_ready_body(skill)).to eq(shipped)
       end
     end
   end
@@ -627,6 +595,33 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(described_class.discover(specs: [spec]).map(&:name)).to eq(["top"])
     end
 
+    it "scans skills/ when the gem ships a conventional hyperdrive.yml, even an empty one" do
+      top_level_skill
+      write("hyperdrive.yml", "")
+      warnings = []
+      results = described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)], warnings: warnings)
+      expect(warnings).to be_empty
+      expect(results.map(&:name)).to eq(["top"])
+    end
+
+    it "scans skills/ when the gemspec declares rails_hyperdrive_manifest, even without the file" do
+      top_level_skill
+      spec = spec_double("some_gem", "1.0.0", @dir)
+      allow(spec).to receive(:metadata).and_return("rails_hyperdrive_manifest" => "config/hyperdrive.yml")
+      expect(described_class.discover(specs: [spec]).map(&:name)).to eq(["top"])
+    end
+
+    it "treats a ..-containing manifest override as an opt-in signal, reading the conventional path instead" do
+      top_level_skill
+      write("hyperdrive.yml", "skills:\n  top:\n    gem: absent_gem\n")
+      spec = spec_double("some_gem", "1.0.0", @dir)
+      allow(spec).to receive(:metadata).and_return("rails_hyperdrive_manifest" => "../outside.yml")
+      warnings = []
+      results = described_class.discover(specs: [spec], warnings: warnings)
+      expect(results).to be_empty
+      expect(warnings.join).to include("target gem 'absent_gem' not in bundle")
+    end
+
     it "pairs a skills/ content dir with a convention-path template into one artifact, no metadata needed" do
       write("lib/some_gem/hyperdrive/skills/both/SKILL.md.erb",
         "---\nname: both\ndescription: d\n---\n\n# templated\n")
@@ -720,11 +715,20 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(warnings.join).to include("malformed YAML frontmatter")
     end
 
-    it "skips when the versions: requirement string is invalid (no raise)" do
-      write_skill("a", "---\nname: a\ndescription: d\ngem: dummy_gem\nversions: garbage\n---\n\n# a\n")
+    it "warns and skips, never raises, on a frontmatter value of a disallowed class" do
+      write_skill("a", "---\nname: a\ndescription: d\nat: 2024-01-01 10:00:00\n---\n\n# a\n")
       warnings = []
       expect(described_class.discover(specs: [spec], warnings: warnings)).to be_empty
-      expect(warnings.join).to include("does not satisfy")
+      expect(warnings.join).to include("malformed YAML frontmatter")
+    end
+
+    it "installs ungated when a manifest versions: requirement is invalid (no raise, no skip)" do
+      write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
+      File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  a:\n    gem: dummy_gem\n    versions: garbage\n")
+      warnings = []
+      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
+      expect(warnings.join).to include("unparsable versions:")
+      expect(skill.target_gem).to eq(["*"])
     end
   end
 
@@ -762,8 +766,9 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(guideline.target_gem).to eq(["*"])
     end
 
-    it "treats a present gem: with absent versions: as unconstrained" do
-      write_skill("a", "---\nname: a\ndescription: d\ngem: dummy_gem\n---\n\n# a\n")
+    it "treats a manifest entry gem: with absent versions: as unconstrained" do
+      write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
+      File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  a:\n    gem: dummy_gem\n")
       warnings = []
       skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
       expect(warnings).to be_empty
@@ -771,41 +776,57 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(skill.versions).to be_nil
     end
 
-    it "still warns and skips a present gem: key with an unusable value" do
-      write_skill("a", "---\nname: a\ndescription: d\ngem:\n---\n\n# a\n")
+    it "warns and installs ungated on a manifest entry gem: with an unusable value" do
+      write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
+      File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  a:\n    gem:\n")
       warnings = []
-      expect(described_class.discover(specs: [spec], warnings: warnings)).to be_empty
+      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
       expect(warnings.join).to include("gem: must name a gem")
+      expect(skill.target_gem).to eq(["*"])
     end
 
-    it "renders an install-ready body with no installer keys to strip" do
+    it "silently ignores frontmatter gem:/versions:/conditional: keys and installs them verbatim" do
+      body = "---\nname: a\ndescription: d\ngem: some-absent-gem\nversions: \">= 99\"\n" \
+             "conditional:\n  references/x.md:\n    gem: some-absent-gem\n---\n\n# a\n"
+      write_skill("a", body)
+      warnings = []
+      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
+      expect(warnings).to be_empty
+      expect(skill.target_gem).to eq(["*"])
+      expect(skill.versions).to be_nil
+      expect(described_class.install_ready_body(skill)).to eq(body)
+    end
+
+    it "parses a date-valued unknown key with zero warnings and installs it verbatim" do
+      body = "---\nname: a\ndescription: d\ncreated: 2024-01-01\n---\n\n# a\n"
+      write_skill("a", body)
+      warnings = []
+      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
+      expect(warnings).to be_empty
+      expect(described_class.install_ready_body(skill)).to eq(body)
+    end
+
+    it "renders the install-ready body byte-identical to the shipped file" do
       write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
       skill = described_class.discover(specs: [spec]).find { |s| s.name == "a" }
       expect(described_class.install_ready_body(skill)).to eq("---\nname: a\ndescription: d\n---\n\n# a\n")
     end
   end
 
-  describe "versions: multi-constraint parsing" do
+  describe "manifest versions: multi-constraint parsing" do
     around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
     let(:spec) { spec_double("dummy_gem", "1.4.2", @dir) }
 
-    def write_skill(name, body)
+    def write_skill(name, entry_yaml)
       sdir = File.join(@dir, "lib", "dummy_gem", "hyperdrive", "skills", name)
       FileUtils.mkdir_p(sdir)
-      File.write(File.join(sdir, "SKILL.md"), body)
+      File.write(File.join(sdir, "SKILL.md"), "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n")
+      entry = entry_yaml.lines.map { |l| l.strip.empty? ? l : "    #{l}" }.join
+      File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  #{name}:\n#{entry.chomp}\n")
     end
 
     it "accepts the documented comma-separated single-string form" do
-      write_skill("a", <<~MD)
-        ---
-        name: a
-        description: d
-        gem: dummy_gem
-        versions: ">= 1.0, < 2.0"
-        ---
-
-        # a
-      MD
+      write_skill("a", "gem: dummy_gem\nversions: \">= 1.0, < 2.0\"\n")
       warnings = []
       results = described_class.discover(specs: [spec], warnings: warnings)
       expect(warnings).to be_empty
@@ -813,18 +834,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
 
     it "accepts the YAML-list form" do
-      write_skill("b", <<~MD)
-        ---
-        name: b
-        description: d
-        gem: dummy_gem
-        versions:
-          - ">= 1.0"
-          - "< 2.0"
-        ---
-
-        # b
-      MD
+      write_skill("b", "gem: dummy_gem\nversions:\n  - \">= 1.0\"\n  - \"< 2.0\"\n")
       warnings = []
       results = described_class.discover(specs: [spec], warnings: warnings)
       expect(warnings).to be_empty
@@ -832,33 +842,26 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
 
     it "still rejects an out-of-range version with either form" do
-      write_skill("c", <<~MD)
-        ---
-        name: c
-        description: d
-        gem: dummy_gem
-        versions: ">= 2.0, < 3.0"
-        ---
-
-        # c
-      MD
+      write_skill("c", "gem: dummy_gem\nversions: \">= 2.0, < 3.0\"\n")
       warnings = []
       expect(described_class.discover(specs: [spec], warnings: warnings)).to be_empty
       expect(warnings.join).to include("does not satisfy")
     end
   end
 
-  describe "multi-target gem:" do
+  describe "manifest multi-target gem:" do
     around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
 
     let(:spec)      { spec_double("source_gem", "1.0.0", @dir) }
     let(:sidekiq)   { spec_double("sidekiq", "7.3.0", @dir.to_s + "/nope") }
     let(:solid)     { spec_double("solid_queue", "1.1.0", @dir.to_s + "/nope") }
 
-    def write_skill(name, frontmatter)
+    def write_skill(name, entry_yaml)
       sdir = File.join(@dir, "lib", "source_gem", "hyperdrive", "skills", name)
       FileUtils.mkdir_p(sdir)
-      File.write(File.join(sdir, "SKILL.md"), "---\nname: #{name}\ndescription: d\n#{frontmatter}---\n\n# #{name}\n")
+      File.write(File.join(sdir, "SKILL.md"), "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n")
+      entry = entry_yaml.lines.map { |l| l.strip.empty? ? l : "    #{l}" }.join
+      File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  #{name}:\n#{entry.chomp}\n")
     end
 
     def discover(*specs, warnings: [])
@@ -924,11 +927,11 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(warnings.join).to include("solid_queue 1.1.0 does not satisfy")
     end
 
-    it "skips a list holding an entry that is not a gem name" do
+    it "installs ungated when the list holds an entry that is not a gem name" do
       write_skill("jobs", "gem:\n  - sidekiq\n  - [nested]\nversions: \">= 0\"\n")
       results, warnings = discover(sidekiq)
-      expect(results).to be_empty
       expect(warnings.join).to include("gem: must name a gem")
+      expect(results.first.target_gem).to eq(["*"])
     end
   end
 
@@ -1107,6 +1110,184 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       survivors = described_class.discover(specs: [paired_spec]).select { |a| a.name == "dup" }
       expect(survivors.size).to eq(1)
       expect(survivors.first.path).to eq(File.join(@dir, "skills/dup/SKILL.md"))
+    end
+  end
+
+  describe "gem-root manifest gating" do
+    around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
+
+    let(:spec)    { spec_double("source_gem", "1.0.0", @dir) }
+    let(:sidekiq) { spec_double("sidekiq", "7.3.0", @dir.to_s + "/nope") }
+
+    def write(rel, body)
+      path = File.join(@dir, rel)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, body)
+    end
+
+    def write_skill(name)
+      write("lib/source_gem/hyperdrive/skills/#{name}/SKILL.md",
+        "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n")
+    end
+
+    def write_guideline(name)
+      write("lib/source_gem/hyperdrive/guidelines/#{name}.md",
+        "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n")
+    end
+
+    def discover(*extra_specs, warnings: [])
+      [described_class.discover(specs: [spec, *extra_specs], warnings: warnings), warnings]
+    end
+
+    it "applies gem-wide defaults to skills and guidelines alike" do
+      write_skill("a")
+      write_guideline("g")
+      write("hyperdrive.yml", "gem: sidekiq\nversions: \">= 7.0\"\n")
+
+      results, warnings = discover
+      expect(results).to be_empty
+      expect(warnings.join).to include("skip a").and include("skip g")
+
+      results, warnings = discover(sidekiq, warnings: [])
+      expect(warnings).to be_empty
+      expect(results.map(&:target_gem)).to all(eq(["sidekiq"]))
+    end
+
+    it "lets a per-entry key override the default per key, inheriting the rest" do
+      write_skill("a")
+      write("hyperdrive.yml", "gem: sidekiq\nversions: \">= 99\"\nskills:\n  a:\n    versions: \">= 7.0\"\n")
+
+      results, warnings = discover(sidekiq)
+      expect(warnings).to be_empty
+      expect(results.first.target_gem).to eq(["sidekiq"])
+      expect(results.first.versions).to eq(">= 7.0")
+    end
+
+    it "inherits a top-level versions: into an entry that only names a gem:" do
+      write_skill("a")
+      write("hyperdrive.yml", "versions: \">= 99\"\nskills:\n  a:\n    gem: sidekiq\n")
+
+      results, warnings = discover(sidekiq)
+      expect(results).to be_empty
+      expect(warnings.join).to include("sidekiq 7.3.0 does not satisfy '>= 99'")
+    end
+
+    it "un-gates an entry declaring gem: \"*\" against a gem-wide default" do
+      write_skill("a")
+      write("hyperdrive.yml", "gem: absent_gem\nskills:\n  a:\n    gem: \"*\"\n")
+
+      results, warnings = discover
+      expect(warnings).to be_empty
+      expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "gates a guideline through its filename entry" do
+      write_guideline("g")
+      write_guideline("h")
+      write("hyperdrive.yml", "guidelines:\n  g.md:\n    gem: absent_gem\n")
+
+      results, warnings = discover
+      expect(results.map(&:name)).to eq(["h"])
+      expect(warnings.join).to include("skip g")
+    end
+
+    it "gates a template-paired skill through its content-dir relpath" do
+      allow(spec).to receive(:metadata).and_return("rails_hyperdrive_skills_dir" => "skills")
+      write("skills/paired/SKILL.md", "---\nname: paired\ndescription: d\n---\n\n# paired (static)\n")
+      write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb",
+        "---\nname: paired\ndescription: d\n---\n\n# paired (templated)\n")
+      write("hyperdrive.yml", "skills:\n  paired:\n    gem: sidekiq\n")
+
+      results, warnings = discover
+      expect(results).to be_empty
+      expect(warnings.join).to include("target gem 'sidekiq' not in bundle")
+
+      results, warnings = discover(sidekiq, warnings: [])
+      expect(warnings).to be_empty
+      expect(results.first.body).to include("(templated)")
+      expect(results.first.target_gem).to eq(["sidekiq"])
+    end
+
+    it "warns about a skills: key naming no shipped skill directory" do
+      write_skill("a")
+      write("hyperdrive.yml", "skills:\n  renamed-away:\n    gem: sidekiq\n")
+
+      results, warnings = discover
+      expect(results.map(&:name)).to eq(["a"])
+      expect(warnings.join).to include("manifest skills entry 'renamed-away' names no shipped skill directory")
+    end
+
+    it "warns about a guidelines: key naming no shipped guideline" do
+      write_guideline("g")
+      write("hyperdrive.yml", "guidelines:\n  gone.md:\n    gem: sidekiq\n")
+
+      _results, warnings = discover
+      expect(warnings.join).to include("manifest guidelines entry 'gone.md' names no shipped guideline")
+    end
+
+    it "does not report an unknown key for a skill dropped by an ERB render failure" do
+      write("lib/source_gem/hyperdrive/skills/broken/SKILL.md.erb", "<% raise 'boom' %>\n")
+      write("hyperdrive.yml", "skills:\n  broken:\n    gem: \"*\"\n")
+
+      results, warnings = discover
+      expect(results).to be_empty
+      expect(warnings.join).to include("ERB render failed")
+      expect(warnings.join).not_to include("names no shipped skill directory")
+    end
+
+    it "warns and proceeds as if absent on malformed manifest YAML" do
+      write_skill("a")
+      write("hyperdrive.yml", "skills: [unterminated\n")
+
+      results, warnings = discover
+      expect(warnings.join).to include("malformed YAML")
+      expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "warns and proceeds as if absent when the manifest root is not a map" do
+      write_skill("a")
+      write("hyperdrive.yml", "- just\n- a\n- list\n")
+
+      results, warnings = discover
+      expect(warnings.join).to include("root must be a YAML map")
+      expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "warns and ignores a non-map skills: section" do
+      write_skill("a")
+      write("hyperdrive.yml", "skills: nope\n")
+
+      results, warnings = discover
+      expect(warnings.join).to include("manifest skills: must be a map")
+      expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "installs ungated — defaults not applied — on a malformed entry" do
+      write_skill("a")
+      write("hyperdrive.yml", "gem: absent_gem\nskills:\n  a: nope\n")
+
+      results, warnings = discover
+      expect(warnings.join).to include("manifest entry for 'a' must be a map")
+      expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "warns once and ignores unusable gem-wide defaults" do
+      write_skill("a")
+      write("hyperdrive.yml", "gem: [nested_list_entry, [oops]]\nversions: \">= 1.0\"\n")
+
+      results, warnings = discover
+      expect(warnings.grep(/top-level gem:\/versions: defaults are unusable/).size).to eq(1)
+      expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "honors a rails_hyperdrive_manifest metadata path" do
+      write_skill("a")
+      write("config/hyperdrive.yml", "skills:\n  a:\n    gem: absent_gem\n")
+      allow(spec).to receive(:metadata).and_return("rails_hyperdrive_manifest" => "config/hyperdrive.yml")
+
+      results, warnings = discover
+      expect(results).to be_empty
+      expect(warnings.join).to include("target gem 'absent_gem' not in bundle")
     end
   end
 

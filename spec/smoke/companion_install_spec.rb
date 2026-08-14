@@ -22,9 +22,9 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(skill).to start_with("---")
       expect(skill).not_to include("hyperdrive:") # no audit header
       expect(skill).to include("name: alpha-skill")
-      expect(skill).not_to include("gem: railties") # installer-only keys stripped
+      expect(skill).not_to include("gem: railties") # the manifest's gate never reaches the installed body
       expect(skill).not_to include("conditional:")
-      expect(skill).to include("description:") # runtime frontmatter retained
+      expect(skill).to include("description:")
       expect(skill).to include("# Alpha Skill")
       # alpha-skill is template/content paired: the installed definition must be
       # the template rendered against the app bundle, not the static face.
@@ -260,8 +260,8 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(index).to include("@guidelines/beta-guide.md")
       expect(out).to match(/2 guideline\(s\), ~[1-9]\d* tokens always in context/)
 
-      # The installed name rewrite must round-trip through the header strip,
-      # or a second run would read as drift and rewrite the file.
+      # The installed name rewrite must be stable across runs, or a second run
+      # would read as drift and rewrite the file.
       alpha_before = File.read(alpha)
       out2, status2 = Smoke.run_hyperdrive_init!(app_dir)
       expect(status2.success?).to be(true), out2

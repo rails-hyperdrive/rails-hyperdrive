@@ -25,7 +25,7 @@ RSpec.describe "hyperdrive:skills rake tasks" do
     expect { invoke("hyperdrive:skills:render") }.to output(/render /).to_stdout
   end
 
-  let(:template) { "---\nname: paired\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# Paired\n" }
+  let(:template) { "---\nname: paired\ndescription: d\n---\n\n# Paired\n" }
 
   before do
     write("paired_gem.gemspec", <<~RUBY)

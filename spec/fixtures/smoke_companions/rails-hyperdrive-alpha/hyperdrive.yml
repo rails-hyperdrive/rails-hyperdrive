@@ -1,0 +1,9 @@
+gem: railties
+versions: ">= 7.0"
+skills:
+  alpha-skill:
+    conditional:
+      references/sqlite-notes.md:
+        gem: sqlite3
+      references/alba-notes.md:
+        gem: alba

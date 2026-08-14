@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Gem-root manifest: a companion gem now declares artifact gating in a
+  `hyperdrive.yml` at its root (or at the path named by a new
+  `rails_hyperdrive_manifest` gemspec metadata key; `..` segments or a blank
+  value fall back to the conventional path). Top-level `gem:`/`versions:` are
+  gem-wide defaults; `skills:` entries (keyed by skill-dir relpath from the
+  skills root) and `guidelines:` entries (keyed by filename) override them per
+  key, and per-file `conditional:` gating nests inside `skills:` entries. All
+  keys optional; malformed gating fails open (warn + install ungated, never
+  skip, never raise), and an entry keying no shipped artifact warns — the
+  staleness signal for gating detached from content. Shipping a manifest (file
+  or metadata key) is also a companion opt-in signal, so a skills.sh-format
+  skill repo integrates with zero modification to its skill files.
+
 - Template/content pairing for skills, so one companion repo can serve
   `npx skills` / git-clone consumers and rails-hyperdrive at once without
   giving up bundle-conditioned content. A skill directory holding a static
@@ -53,6 +66,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `versions:` are now optional narrowing keys — a missing `gem:` means
   universal (`"*"`), a missing `versions:` means unconstrained. Artifacts
   declaring all four fields behave exactly as before.
+- **Breaking:** gating moved entirely to the gem-root manifest. The
+  frontmatter `gem:`/`versions:`/`conditional:` keys are no longer read —
+  they are ordinary unknown keys, silently ignored and installed verbatim —
+  and installer-key stripping is removed: skill bodies now install, and
+  render canonically, byte-identical to their shipped (or ERB-rendered)
+  content, frontmatter included. Guideline frontmatter is still stripped on
+  install. A companion gating via frontmatter must move those keys into
+  `hyperdrive.yml`.
 
 ## [0.4.0] - 2026-08-08
 
