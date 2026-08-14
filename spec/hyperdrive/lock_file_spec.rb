@@ -60,6 +60,7 @@ RSpec.describe Rails::Hyperdrive::LockFile do
       disabled:
         skills: []
         guidelines: []
+      enabled: []
       files:
       - path: ".claude/hyperdrive/guidelines/jobs-sidekiq.md"
         artifact: guideline
@@ -258,6 +259,44 @@ RSpec.describe Rails::Hyperdrive::LockFile do
         lock = described_class.load(path)
         expect(lock.disabled?(:skill, "anything")).to be(false)
         expect(lock.disabled?(:guideline, "anything")).to be(false)
+      end
+    end
+  end
+
+  describe "the enabled list" do
+    it "defaults to an empty list and always serializes it" do
+      lock = described_class.new("/no/such/lock.yml")
+      expect(lock.enabled_gems).to eq([])
+      expect(YAML.safe_load(lock.to_yaml)["enabled"]).to eq([])
+    end
+
+    it "reads a hand-written flat list of gem names" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "lock.yml")
+        File.write(path, "version: 1\nenabled:\n  - some_gem\n  - '  spaced  '\n  - ''\nfiles: []\n")
+
+        expect(described_class.load(path).enabled_gems).to eq(%w[some_gem spaced])
+      end
+    end
+
+    it "tolerates an enabled key that is not a list" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "lock.yml")
+        File.write(path, "enabled: nonsense\n")
+
+        expect(described_class.load(path).enabled_gems).to eq([])
+      end
+    end
+
+    it "survives a read/write round-trip" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "lock.yml")
+        File.write(path, "enabled:\n  - some_gem\n")
+
+        rewritten = described_class.new(path).carry_settings(described_class.load(path))
+        File.write(path, rewritten.to_yaml)
+
+        expect(described_class.load(path).enabled_gems).to eq(["some_gem"])
       end
     end
   end

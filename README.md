@@ -152,6 +152,17 @@ The list is yours to edit; the generator only reads it and carries it forward. D
 
 To skip installed content wholesale instead, pass `--skip-content` to `hyperdrive:init`.
 
+### Opting into a gem's bundled skills
+
+Ordinary gems (not built as hyperdrive companions) sometimes ship a top-level `skills/` directory of [skills.sh](https://skills.sh)-style skills. Those are never installed automatically — `hyperdrive:init` and `hyperdrive:sync` only report them, e.g. `gem 'foo' ships 2 skills.sh skill(s)`. To install them, name the gem in the `enabled:` list in `.hyperdrive/lock.yml` and re-run `hyperdrive:sync`:
+
+```yaml
+enabled:
+  - foo
+```
+
+An enabled gem is treated as a companion from then on: its skills install through the normal pipeline (including on `bundle install`), and `disabled:` still wins for any individual artifact. The list is hand-edited like `disabled:` and survives every rewrite of the lockfile.
+
 ---
 
 ## Safety
@@ -162,23 +173,27 @@ Rails Hyperdrive is **dev-only**, enforced in depth: the engine refuses to handl
 
 ## Build a companion gem
 
-Ship markdown at a convention path, declare what it targets, publish. That's the whole contract:
+Ship markdown, declare what it targets, publish. That's the whole contract:
 
 ```
-lib/<gem_name>/hyperdrive/skills/<name>/SKILL.md       # skill (dir-per-skill, may ship supporting files)
+skills/<name>/SKILL.md                                 # skill (dir-per-skill, may ship supporting files)
 lib/<gem_name>/hyperdrive/guidelines/<name>.md         # guideline (flat file)
 ```
+
+Top-level `skills/` is the recommended home for skill content — it is the tool-agnostic face of your gem, readable by skills.sh and plain git-clone consumers as well as hyperdrive. `lib/<gem_name>/hyperdrive/` is hyperdrive-specific machinery: guidelines (no skills.sh analogue), ERB skill templates (`SKILL.md.erb` — raw ERB must not reach generic consumers, so keep it out of `skills/`), and legacy static skills (still scanned for back-compat).
+
+Only `name` and `description` are required — a plain skills.sh SKILL.md works as-is. `gem:` and `versions:` are optional narrowing keys:
 
 ```yaml
 ---
 name: jobs-sidekiq                # kebab-case; determines the install path
 description: Background job conventions for Sidekiq.
-gem: sidekiq                      # TARGET gem(s), resolved + version-matched in the bundle
-versions: ">= 7.0, < 9.0"         # Gem::Requirement matched against the target gem
+gem: sidekiq                      # optional: TARGET gem(s), resolved + version-matched in the bundle
+versions: ">= 7.0, < 9.0"         # optional: Gem::Requirement matched against the target gem
 ---
 ```
 
-And to be suggested by `hyperdrive:discover` before anyone installs you:
+And declare your targets in gemspec metadata — it opts your gem in as a companion, and it is the only pre-install targeting signal for skills that omit `gem:` (also how `hyperdrive:discover` suggests you before anyone installs you):
 
 ```ruby
 spec.metadata["rails_hyperdrive_targets"] = "sidekiq"

@@ -25,10 +25,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `require "rails/hyperdrive/skill_tasks"` in the Rakefile provides
   `rake hyperdrive:skills:render` (generate each template's static `SKILL.md`
   with the fail-open canonical binding — every gem present, `gem_version`
-  `nil`, installer keys kept so pre-pairing rails-hyperdrive versions degrade
-  gracefully) and `rake hyperdrive:skills:check` (fail listing stale generated
+  `nil`; the generated face carries only the skills.sh frontmatter, with the
+  installer-only `gem:`/`versions:`/`conditional:` keys stripped, as they are
+  on install) and `rake hyperdrive:skills:check` (fail listing stale generated
   files — the CI freshness gate). Rails-free; rails-hyperdrive as a
   development dependency suffices.
+- A gem's top-level `skills/` directory is now scanned as a default skills
+  root for opted-in companions (convention-path artifacts, a
+  `rails_hyperdrive_skills_dir`, `rails_hyperdrive_skill_templates_dir`, or
+  `rails_hyperdrive_targets` metadata key, or a lockfile `enabled:` entry are
+  the opt-in signals). Roots are deduplicated
+  by expanded path, so a companion already declaring
+  `rails_hyperdrive_skills_dir: "skills"` sees identical results.
+- A hand-editable `enabled:` list in `.hyperdrive/lock.yml` (gem names,
+  mirroring `disabled:`): naming a gem there treats it as an opted-in
+  companion, so its top-level `skills/` content installs through the normal
+  pipeline. `disabled:` still wins for individual artifacts.
+- `hyperdrive:init` and `hyperdrive:sync` now surface bundled gems that ship
+  skills.sh-style `skills/*/SKILL.md` content without opting in as companions
+  — report-only, with a pointer to the `enabled:` list; nothing is installed
+  until the user opts in.
+
+### Changed
+
+- The artifact frontmatter contract is relaxed to the skills.sh base
+  contract: only `name` and `description` are required. `gem:` and
+  `versions:` are now optional narrowing keys — a missing `gem:` means
+  universal (`"*"`), a missing `versions:` means unconstrained. Artifacts
+  declaring all four fields behave exactly as before.
 
 ## [0.4.0] - 2026-08-08
 

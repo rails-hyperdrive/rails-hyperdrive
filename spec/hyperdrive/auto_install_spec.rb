@@ -86,6 +86,18 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
     end
   end
 
+  it "forwards the lock's enabled: list to discovery" do
+    initialize_app([])
+    lock_path = File.join(root, ".hyperdrive/lock.yml")
+    data = YAML.safe_load(File.read(lock_path))
+    data["enabled"] = ["some_gem"]
+    File.write(lock_path, data.to_yaml)
+    expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
+      .to receive(:discover).with(enabled_gems: ["some_gem"]).and_return([])
+
+    described_class.run(root: root)
+  end
+
   describe "installing what the lockfile does not record" do
     before { initialize_app([guideline(name: "auth-pundit")]) }
 

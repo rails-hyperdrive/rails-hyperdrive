@@ -4,6 +4,7 @@ require "rails/hyperdrive/bundler_artifact_discovery"
 require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_pipeline"
 require "rails/hyperdrive/install_shell"
+require "rails/hyperdrive/lock_file"
 
 module Rails
   module Hyperdrive
@@ -46,7 +47,8 @@ module Rails
         return skip(:not_development) unless development?(env)
         return skip(:not_initialized) unless File.exist?(File.join(root, InstallLayout::LOCK_PATH))
 
-        artifacts = BundlerArtifactDiscovery.discover
+        enabled = LockFile.load(File.join(root, InstallLayout::LOCK_PATH)).enabled_gems
+        artifacts = BundlerArtifactDiscovery.discover(enabled_gems: enabled)
         status = ArtifactStatus.compare(root: root, artifacts: artifacts)
 
         installed = []
