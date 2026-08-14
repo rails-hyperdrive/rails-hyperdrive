@@ -454,7 +454,6 @@ module Rails
                            :conditioned_support_files, :apply_conditional_filter,
                            :conditional_satisfied?, :malformed_requirements?,
                            :render_support_templates, :erb_template?,
-                           :strip_installer_keys,
                            :parse_targets, :match_targets,
                            :version_satisfied?, :no_match_reason, :safe_bundler_specs
     end

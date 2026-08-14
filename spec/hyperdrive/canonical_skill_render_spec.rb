@@ -35,6 +35,7 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
     conditional:
       references/notes.md:
         gem: sqlite3
+    allowed-tools: Read
     ---
 
     # Paired
@@ -45,7 +46,7 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
   MD
 
   describe ".write" do
-    it "renders the fail-open canonical face, keeping the installer keys" do
+    it "renders the fail-open canonical face with the installer keys stripped" do
       write_gemspec
       write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
 
@@ -55,9 +56,12 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
       body = File.read(File.join(@dir, "skills/paired/SKILL.md"))
       expect(body).to include("SQLite (any version) notes.")
       expect(body).not_to include("<%")
-      expect(body).to include("gem: railties")
-      expect(body).to include(%(versions: ">= 7.0"))
-      expect(body).to include("conditional:")
+      expect(body).to include("name: paired")
+      expect(body).to include("description: d")
+      expect(body).to include("allowed-tools: Read")
+      expect(body).not_to include("gem:")
+      expect(body).not_to include("versions:")
+      expect(body).not_to include("conditional:")
     end
 
     it "preserves nested template layouts" do

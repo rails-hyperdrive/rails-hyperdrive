@@ -1100,7 +1100,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       FileUtils.rm_rf(outside) if outside
     end
 
-    it "pins the Phase-1 path tiebreak: at equal spec_version, skills/... beats lib/..." do
+    it "at equal spec_version, the skills/... path wins the Phase-1 tiebreak" do
       write("skills/dup/SKILL.md", static_body("dup"))
       write("lib/source_gem/hyperdrive/skills/other/SKILL.md", static_body("dup"))
 
