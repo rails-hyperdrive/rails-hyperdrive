@@ -1,7 +1,9 @@
 require "thor"
 require "rails/hyperdrive"
 require "rails/hyperdrive/bundler_artifact_discovery"
+require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_pipeline"
+require "rails/hyperdrive/lock_file"
 require "generators/hyperdrive/install_summary"
 
 module Rails
@@ -29,7 +31,9 @@ module Rails
         end
 
         def discover_artifacts(skip: false)
-          @artifacts ||= skip ? [] : ::Rails::Hyperdrive::BundlerArtifactDiscovery.discover(warnings: warnings)
+          @artifacts ||= skip ? [] : ::Rails::Hyperdrive::BundlerArtifactDiscovery.discover(
+            warnings: warnings, enabled_gems: enabled_gems, notices: notices
+          )
         end
 
         def install(mode:)
@@ -38,7 +42,8 @@ module Rails
             shell: @shell,
             artifacts: discover_artifacts,
             mode: mode,
-            warnings: warnings
+            warnings: warnings,
+            notices: notices
           )
           @pipeline.call
         end
@@ -57,6 +62,16 @@ module Rails
 
         def warnings
           @warnings ||= []
+        end
+
+        def notices
+          @notices ||= []
+        end
+
+        def enabled_gems
+          @enabled_gems ||= ::Rails::Hyperdrive::LockFile.load(
+            File.join(root, ::Rails::Hyperdrive::InstallLayout::LOCK_PATH)
+          ).enabled_gems
         end
 
         def lock_entries

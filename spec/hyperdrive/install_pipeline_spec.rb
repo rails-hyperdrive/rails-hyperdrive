@@ -38,13 +38,14 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     ).call
   end
 
-  def run_reporting(mode: :preserve, artifacts: [])
+  def run_reporting(mode: :preserve, artifacts: [], notices: [])
     io = StringIO.new
     described_class.new(
       root: root,
       shell: Rails::Hyperdrive::InstallShell.new(root: root, io: io),
       artifacts: artifacts,
-      mode: mode
+      mode: mode,
+      notices: notices
     ).call
     io.string
   end
@@ -746,6 +747,25 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
       expect(out).to include("git merge-file unavailable")
       expect(exist?("#{gpath}.new")).to be true
+    end
+  end
+
+  describe "discovery notices" do
+    let(:notice) { "gem 'foo' ships 2 skills.sh skill(s); add \"foo\" to enabled: in .hyperdrive/lock.yml" }
+
+    it "prints each notice in preserve mode" do
+      out = run_reporting(notices: [notice])
+      expect(out).to include(notice)
+    end
+
+    it "prints nothing when there are no notices" do
+      out = run_reporting(notices: [])
+      expect(out).not_to include("skills.sh")
+    end
+
+    it "stays silent in additive mode" do
+      out = run_reporting(mode: :additive, notices: [notice])
+      expect(out).not_to include("skills.sh")
     end
   end
 end

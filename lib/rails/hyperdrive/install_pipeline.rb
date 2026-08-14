@@ -26,7 +26,7 @@ module Rails
       Result = Struct.new(:installed, :updated, :unchanged, :skipped, :orphaned, :removed, :merged, :sidecars,
         keyword_init: true)
 
-      def initialize(root:, shell:, artifacts:, mode: :preserve, warnings: [])
+      def initialize(root:, shell:, artifacts:, mode: :preserve, warnings: [], notices: [])
         raise ArgumentError, "unknown mode #{mode.inspect}" unless MODES.include?(mode)
 
         @root = File.expand_path(root.to_s)
@@ -34,6 +34,7 @@ module Rails
         @artifacts = artifacts
         @mode = mode
         @warnings = warnings
+        @notices = notices
         @result = Result.new(
           installed: [], updated: [], unchanged: [], skipped: [], orphaned: [], removed: [], merged: [], sidecars: []
         )
@@ -54,6 +55,7 @@ module Rails
         write_claude_md(guidelines)
         write_lock
         print_warnings
+        print_notices
         print_footprint(guidelines: eager_guidelines)
         warn_if_destinations_gitignored
         @result
@@ -539,6 +541,12 @@ module Rails
         @shell.say ""
         @shell.say_status :warn, "discovery skipped #{@warnings.size} artifact(s):", :yellow
         @warnings.each { |w| @shell.say "    - #{w}" }
+      end
+
+      def print_notices
+        return if additive? || Array(@notices).empty?
+        @shell.say ""
+        @notices.each { |n| @shell.say_status :info, n, :blue }
       end
 
       def print_footprint(guidelines:)

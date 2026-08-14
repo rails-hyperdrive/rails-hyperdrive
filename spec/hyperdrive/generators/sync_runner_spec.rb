@@ -60,18 +60,43 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
   describe "#discover_artifacts" do
     it "collects warnings for the pipeline to print" do
       expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
-        .to receive(:discover).with(warnings: []).and_return([guideline(name: "g1")])
+        .to receive(:discover).with(warnings: [], enabled_gems: [], notices: []).and_return([guideline(name: "g1")])
 
       expect(runner.discover_artifacts.map(&:name)).to eq(["g1"])
     end
 
+    it "forwards the lock's enabled: list to discovery" do
+      FileUtils.mkdir_p(File.join(root, ".hyperdrive"))
+      File.write(File.join(root, ".hyperdrive", "lock.yml"), <<~YAML)
+        version: 1
+        enabled:
+          - some_gem
+        files: []
+      YAML
+      expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
+        .to receive(:discover).with(warnings: [], enabled_gems: ["some_gem"], notices: []).and_return([])
+
+      runner.discover_artifacts
+    end
+
     it "skips artifact discovery for the whole run when asked to" do
       stub_discovery([guideline(name: "g1")])
-      expect(Rails::Hyperdrive::BundlerArtifactDiscovery).not_to receive(:discover).with(warnings: anything)
+      expect(Rails::Hyperdrive::BundlerArtifactDiscovery).not_to receive(:discover)
 
       expect(runner.discover_artifacts(skip: true)).to eq([])
       runner.install(mode: :preserve)
       expect(exist?(".claude/hyperdrive/guidelines/g1.md")).to be false
+    end
+
+    it "flows discovery notices into the pipeline output" do
+      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |notices:, **_|
+        notices << "gem 'foo' ships 1 skills.sh skill(s)"
+        []
+      end
+
+      runner.install(mode: :preserve)
+
+      expect(io.string).to include("gem 'foo' ships 1 skills.sh skill(s)")
     end
   end
 

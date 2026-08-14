@@ -7,17 +7,31 @@ rails-hyperdrive is the mechanism; companion gems are the content. This document
 A companion gem ships artifacts under:
 
 ```
-<gem-source>/lib/<gem_name>/hyperdrive/skills/<name>/SKILL.md       # skill (dir-per-skill)
+<gem-source>/skills/<name>/SKILL.md                                 # skill (dir-per-skill) — recommended
+<gem-source>/lib/<gem_name>/hyperdrive/skills/<name>/SKILL.md       # skill — legacy location, still scanned
 <gem-source>/lib/<gem_name>/hyperdrive/guidelines/<name>.md         # guideline (flat file)
 ```
 
-Skills may ship under an additional root declared in gemspec metadata:
+Top-level `skills/` is the recommended home for skill content: it is the public, tool-agnostic face of the gem, matching what [skills.sh](https://skills.sh) and plain git-clone consumers expect. `lib/<gem_name>/hyperdrive/` holds hyperdrive-specific machinery — guidelines (no skills.sh analogue), ERB skill templates (`SKILL.md.erb` must stay here: raw ERB must not reach generic `skills/` consumers), and legacy static skills. The convention path is deprecated as a location for plain skills but remains scanned indefinitely, so published companions keep working unchanged.
+
+### The companion opt-in gate
+
+Discovery walks the entire bundle, and many gemspecs package files via `git ls-files`, so an ordinary non-companion gem can ship a contributor-facing `skills/` directory by accident. A gem's top-level `skills/` root is therefore only scanned when the gem has **opted in** as a companion via any one signal:
+
+- artifacts present under the `lib/<gem_name>/hyperdrive/` convention path, or
+- the `rails_hyperdrive_skills_dir` or `rails_hyperdrive_skill_templates_dir` gemspec metadata key, or
+- the `rails_hyperdrive_targets` gemspec metadata key, or
+- the gem's name in the app's `enabled:` list in `.hyperdrive/lock.yml`.
+
+An un-opted gem shipping `skills/*/SKILL.md` never auto-installs — `hyperdrive:init`/`hyperdrive:sync` surface it with a pointer to the `enabled:` list instead.
+
+Skills may also ship under an additional root declared in gemspec metadata:
 
 ```ruby
 spec.metadata["rails_hyperdrive_skills_dir"] = "extra/skills"   # optional; relative to the gem root
 ```
 
-That root is searched **in addition to** the convention path, never instead of it, so an override never hides skills already shipped at the convention path. A value containing a `..` segment is ignored. Guidelines have no override — they are found only at the convention path.
+That root is searched **in addition to** the default roots, never instead of them, so an override never hides skills already shipped elsewhere. Roots are deduplicated by expanded path (declaring `"skills"` explicitly changes nothing), and a value containing a `..` segment is ignored. Guidelines have no override — they are found only at the convention path.
 
 ## Multi-file skills
 
@@ -27,16 +41,18 @@ Supporting files carry no frontmatter contract — they install byte-identical t
 
 ## Frontmatter
 
-Every artifact carries four required YAML frontmatter fields:
+Every artifact carries YAML frontmatter with two required fields — `name` and `description`, the skills.sh base contract — plus two optional narrowing keys:
 
 ```yaml
 ---
 name: jobs-sidekiq                # kebab-case; determines the install path
 description: Background job conventions for Sidekiq.
-gem: sidekiq                      # TARGET gem(s), resolved + version-matched in the bundle
-versions: ">= 7.0, < 9.0"         # Gem::Requirement matched against the target gem
+gem: sidekiq                      # optional: TARGET gem(s), resolved + version-matched in the bundle
+versions: ">= 7.0, < 9.0"         # optional: Gem::Requirement matched against the target gem
 ---
 ```
+
+`gem:` and `versions:` are narrowing declarations whose absence means no constraint — a missing `gem:` is `"*"` (universal, installs unconditionally), a missing `versions:` is unconstrained, aligned with `versions:` being optional in a `conditional:` entry. A plain skills.sh SKILL.md therefore installs with zero warnings. With `gem:` omitted, the gemspec's `rails_hyperdrive_targets` (below) is the only pre-install targeting signal, so keep declaring it.
 
 `name:` is the artifact's identity, not a label — it is what the installer writes to disk (`.claude/skills/<name>/SKILL.md`, `.claude/hyperdrive/guidelines/<name>.md`). Keep it equal to the file or directory stem: if the two disagree the install still succeeds, but the artifact lands under `name:`. Within one gem, two artifacts of the same type declaring the same `name:` collapse to a single installed file; which one survives is not a guarantee to build on, so give each a distinct `name:`.
 
@@ -67,7 +83,7 @@ A multi-file skill can condition parts of itself on the app's bundle, so one ski
 
 ### Per-file gating
 
-A `conditional:` map in `SKILL.md` frontmatter gates individual supporting files. Keys are dir-relative shipped paths; values take the same `gem:`/`versions:` forms as the artifact-level fields (single target, comma-separated string, YAML list, per-target `versions:` map, `"*"`), and the file installs when **any** listed target is bundled at a satisfying version. Unlike the artifact level, `versions:` is optional here — omitted means unconstrained. Files the map doesn't mention install unconditionally, and the supporting files themselves stay byte-identical to upstream — the condition lives entirely out-of-band.
+A `conditional:` map in `SKILL.md` frontmatter gates individual supporting files. Keys are dir-relative shipped paths; values take the same `gem:`/`versions:` forms as the artifact-level fields (single target, comma-separated string, YAML list, per-target `versions:` map, `"*"`), and the file installs when **any** listed target is bundled at a satisfying version. `versions:` is optional — omitted means unconstrained — though `gem:` is required in each entry. Files the map doesn't mention install unconditionally, and the supporting files themselves stay byte-identical to upstream — the condition lives entirely out-of-band.
 
 ```yaml
 ---
@@ -139,7 +155,7 @@ Both read the single `*.gemspec` in the working directory (pass an explicit path
 
 ## Discovery never raises
 
-An artifact with missing or malformed frontmatter, a missing required field, no declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there — read that section first when a gem you expected to contribute produces no files.
+An artifact with missing or malformed frontmatter, a missing `name:` or `description:`, no declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there — read that section first when a gem you expected to contribute produces no files.
 
 ## Being found by `hyperdrive:discover`
 

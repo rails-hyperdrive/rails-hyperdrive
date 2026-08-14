@@ -1,6 +1,8 @@
 require "spec_helper"
+require "tmpdir"
 require "rails/hyperdrive/stack_profile"
 require "rails/hyperdrive/bundler_artifact_discovery"
+require "rails/hyperdrive/lock_file"
 
 RSpec.describe Rails::Hyperdrive::StackProfile do
   let(:lockfile) { File.expand_path("../fixtures/gemfile_lock/standard.lock", __dir__) }
@@ -51,6 +53,23 @@ RSpec.describe Rails::Hyperdrive::StackProfile do
     expect(profile.keys).to include(
       :rails, :ruby, :database, :direct_dependencies, :gem_skills
     )
+  end
+
+  it "forwards the app lock's enabled: list to skill discovery" do
+    Dir.mktmpdir do |root|
+      FileUtils.mkdir_p(File.join(root, ".hyperdrive"))
+      File.write(File.join(root, ".hyperdrive/lock.yml"), "enabled:\n- opted_gem\n")
+      expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
+        .to receive(:discover).with(enabled_gems: ["opted_gem"]).and_return([])
+      described_class.from_lockfile(lockfile, app_root: root)
+    end
+  end
+
+  it "discovers with no enabled gems when the lock cannot be read" do
+    allow(Rails::Hyperdrive::LockFile).to receive(:load).and_raise(StandardError, "corrupt")
+    expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
+      .to receive(:discover).with(enabled_gems: []).and_return([])
+    described_class.from_lockfile(lockfile, app_root: "/anywhere")
   end
 
   it "returns an empty gem_skills list when discovery raises (never propagates)" do

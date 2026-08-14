@@ -559,6 +559,136 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
   end
 
+  describe "top-level skills/ root (companion opt-in gate)" do
+    around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
+
+    let(:skills_sh_root) { File.expand_path("../fixtures/skills_sh_gem", __dir__) }
+
+    def write(rel, body)
+      path = File.join(@dir, rel)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, body)
+    end
+
+    def top_level_skill(name = "top")
+      write("skills/#{name}/SKILL.md", "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n")
+    end
+
+    it "scans skills/ when the gem ships a convention-path artifact" do
+      write("lib/some_gem/hyperdrive/guidelines/g.md", "---\nname: g\ndescription: d\n---\n\n# g\n")
+      top_level_skill
+      results = described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)])
+      expect(results.map(&:name)).to contain_exactly("g", "top")
+    end
+
+    it "scans skills/ when the gemspec declares rails_hyperdrive_targets" do
+      top_level_skill
+      spec = spec_double("some_gem", "1.0.0", @dir)
+      allow(spec).to receive(:metadata).and_return("rails_hyperdrive_targets" => "*")
+      expect(described_class.discover(specs: [spec]).map(&:name)).to eq(["top"])
+    end
+
+    it "scans skills/ when the gemspec declares rails_hyperdrive_skills_dir" do
+      top_level_skill
+      write("custom/extra/SKILL.md", "---\nname: extra\ndescription: d\n---\n\n# extra\n")
+      spec = spec_double("some_gem", "1.0.0", @dir)
+      allow(spec).to receive(:metadata).and_return("rails_hyperdrive_skills_dir" => "custom")
+      expect(described_class.discover(specs: [spec]).map(&:name)).to contain_exactly("top", "extra")
+    end
+
+    it "does not double-discover when rails_hyperdrive_skills_dir points at skills/" do
+      top_level_skill
+      spec = spec_double("some_gem", "1.0.0", @dir)
+      allow(spec).to receive(:metadata).and_return("rails_hyperdrive_skills_dir" => "skills")
+      results = described_class.discover(specs: [spec])
+      expect(results.size).to eq(1)
+      expect(results.first.name).to eq("top")
+    end
+
+    it "scans skills/ when the gem is named in enabled_gems" do
+      spec = spec_double("skills_sh_gem", "1.0.0", skills_sh_root)
+      warnings = []
+      results = described_class.discover(specs: [spec], warnings: warnings, enabled_gems: ["skills_sh_gem"])
+      expect(warnings).to be_empty
+      expect(results.map(&:name)).to eq(["pure-skill"])
+      expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "never scans an un-opted gem's skills/" do
+      top_level_skill
+      results = described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)])
+      expect(results).to be_empty
+    end
+
+    it "treats a rejected ..-containing override as an opt-in signal while still ignoring its path" do
+      top_level_skill
+      spec = spec_double("some_gem", "1.0.0", @dir)
+      allow(spec).to receive(:metadata).and_return("rails_hyperdrive_skills_dir" => "../outside")
+      expect(described_class.discover(specs: [spec]).map(&:name)).to eq(["top"])
+    end
+
+    it "pairs a skills/ content dir with a convention-path template into one artifact, no metadata needed" do
+      write("lib/some_gem/hyperdrive/skills/both/SKILL.md.erb",
+        "---\nname: both\ndescription: d\n---\n\n# templated\n")
+      write("skills/both/SKILL.md", "---\nname: both\ndescription: d\n---\n\n# static\n")
+      results = described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)])
+      expect(results.size).to eq(1)
+      expect(results.first.path).to eq(File.join(@dir, "lib/some_gem/hyperdrive/skills/both/SKILL.md.erb"))
+      expect(results.first.body).to include("templated")
+      expect(results.first.support_root).to eq(File.join(@dir, "skills", "both"))
+    end
+  end
+
+  describe "surfacing un-opted skills.sh gems" do
+    around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
+
+    let(:skills_sh_root) { File.expand_path("../fixtures/skills_sh_gem", __dir__) }
+
+    def write(rel, body)
+      path = File.join(@dir, rel)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, body)
+    end
+
+    it "reports an un-opted gem shipping skills.sh content, without installing it" do
+      spec = spec_double("skills_sh_gem", "1.0.0", skills_sh_root)
+      notices = []
+      results = described_class.discover(specs: [spec], notices: notices)
+      expect(results).to be_empty
+      expect(notices.size).to eq(1)
+      expect(notices.first).to include("skills_sh_gem").and include("1 skills.sh skill(s)").and include("enabled:")
+    end
+
+    it "counts one skill per directory" do
+      write("skills/a/SKILL.md", "x")
+      write("skills/b/SKILL.md", "x")
+      notices = []
+      described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)], notices: notices)
+      expect(notices.first).to include("2 skills.sh skill(s)")
+    end
+
+    it "ignores SKILL.md.erb when detecting skills.sh content" do
+      write("skills/t/SKILL.md.erb", "x")
+      notices = []
+      expect(described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)], notices: notices)).to be_empty
+      expect(notices).to be_empty
+    end
+
+    it "emits no notice for an opted-in gem" do
+      dummy = spec_double("dummy_gem", "1.4.2", File.expand_path("../fixtures/dummy_gem", __dir__))
+      notices = []
+      described_class.discover(specs: [dummy], notices: notices)
+      expect(notices).to be_empty
+    end
+
+    it "emits no notice for a gem named in enabled_gems" do
+      spec = spec_double("skills_sh_gem", "1.0.0", skills_sh_root)
+      notices = []
+      described_class.discover(specs: [spec], enabled_gems: ["skills_sh_gem"], notices: notices)
+      expect(notices).to be_empty
+    end
+  end
+
   describe "permissive parser (warn + skip, never raise)" do
     around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
     let(:spec) { spec_double("dummy_gem", "1.4.2", @dir) }
@@ -576,11 +706,11 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(warnings.join).to include("missing or malformed frontmatter")
     end
 
-    it "skips a file missing a required field" do
-      write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
+    it "skips a file missing name or description" do
+      write_skill("a", "---\nname: a\n---\n\n# a\n")
       warnings = []
-      described_class.discover(specs: [spec], warnings: warnings)
-      expect(warnings.join).to include("missing a required field")
+      expect(described_class.discover(specs: [spec], warnings: warnings)).to be_empty
+      expect(warnings.join).to include("missing a required field (name, description)")
     end
 
     it "skips a file with malformed YAML frontmatter" do
@@ -595,6 +725,63 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       warnings = []
       expect(described_class.discover(specs: [spec], warnings: warnings)).to be_empty
       expect(warnings.join).to include("does not satisfy")
+    end
+  end
+
+  describe "relaxed frontmatter (skills.sh base contract)" do
+    around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
+    let(:spec) { spec_double("dummy_gem", "1.4.2", @dir) }
+
+    def write_skill(name, body)
+      sdir = File.join(@dir, "lib", "dummy_gem", "hyperdrive", "skills", name)
+      FileUtils.mkdir_p(sdir)
+      File.write(File.join(sdir, "SKILL.md"), body)
+    end
+
+    def write_guideline(name, body)
+      gdir = File.join(@dir, "lib", "dummy_gem", "hyperdrive", "guidelines")
+      FileUtils.mkdir_p(gdir)
+      File.write(File.join(gdir, "#{name}.md"), body)
+    end
+
+    it "parses a name+description-only skill with zero warnings, universal and unconstrained" do
+      write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
+      warnings = []
+      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
+      expect(warnings).to be_empty
+      expect(skill.target_gem).to eq(["*"])
+      expect(skill.versions).to be_nil
+    end
+
+    it "parses a name+description-only guideline with zero warnings" do
+      write_guideline("g", "---\nname: g\ndescription: d\n---\n\n# g\n")
+      warnings = []
+      guideline = described_class.discover(specs: [spec], warnings: warnings).find { |a| a.name == "g" }
+      expect(warnings).to be_empty
+      expect(guideline).to be_guideline
+      expect(guideline.target_gem).to eq(["*"])
+    end
+
+    it "treats a present gem: with absent versions: as unconstrained" do
+      write_skill("a", "---\nname: a\ndescription: d\ngem: dummy_gem\n---\n\n# a\n")
+      warnings = []
+      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
+      expect(warnings).to be_empty
+      expect(skill.target_gem).to eq(["dummy_gem"])
+      expect(skill.versions).to be_nil
+    end
+
+    it "still warns and skips a present gem: key with an unusable value" do
+      write_skill("a", "---\nname: a\ndescription: d\ngem:\n---\n\n# a\n")
+      warnings = []
+      expect(described_class.discover(specs: [spec], warnings: warnings)).to be_empty
+      expect(warnings.join).to include("gem: must name a gem")
+    end
+
+    it "renders an install-ready body with no installer keys to strip" do
+      write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
+      skill = described_class.discover(specs: [spec]).find { |s| s.name == "a" }
+      expect(described_class.install_ready_body(skill)).to eq("---\nname: a\ndescription: d\n---\n\n# a\n")
     end
   end
 

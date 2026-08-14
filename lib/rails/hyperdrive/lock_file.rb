@@ -33,6 +33,7 @@ module Rails
         @files = {}            # path(String) => Entry
         @document = {}         # raw parsed YAML, kept so unknown keys survive
         @disabled = empty_disabled
+        @enabled = []
       end
 
       def read
@@ -45,6 +46,7 @@ module Rails
         claude_md = data["claude_md"]
         @claude_md_state = claude_md["state"] if claude_md.is_a?(Hash)
         @disabled = parse_disabled(data["disabled"])
+        @enabled = parse_enabled(data["enabled"])
         Array(data["files"]).each do |raw|
           next unless raw.is_a?(Hash)
           entry = build_entry(raw)
@@ -71,11 +73,17 @@ module Rails
         Array(@disabled[type.to_sym]).include?(name.to_s)
       end
 
+      # Hand-editable list of gems the app opts into as companions.
+      def enabled_gems
+        @enabled
+      end
+
       # Adopt the state that is not derived from installed content, so
       # rewriting the file preserves it.
       def carry_settings(other)
         @document = other.document.dup
         @disabled = other.disabled_lists.dup
+        @enabled = other.enabled_gems.dup
         self
       end
 
@@ -103,6 +111,7 @@ module Rails
           "version"   => SCHEMA_VERSION,
           "claude_md" => carried.merge("state" => @claude_md_state),
           "disabled"  => DISABLED_KEYS.each_with_object({}) { |(type, key), h| h[key] = @disabled[type] },
+          "enabled"   => @enabled,
           "files"     => @files.values.sort_by(&:path).map { |e| serialize_entry(e) }
         )
         # A nil state means no import line is being managed. Recording one anyway
@@ -134,6 +143,12 @@ module Rails
         DISABLED_KEYS.each_with_object({}) do |(type, key), h|
           h[type] = Array(raw[key]).map { |name| name.to_s.strip }.reject(&:empty?).uniq
         end
+      end
+
+      def parse_enabled(raw)
+        return [] unless raw.is_a?(Array)
+
+        raw.map { |name| name.to_s.strip }.reject(&:empty?).uniq
       end
 
       def build_entry(raw)

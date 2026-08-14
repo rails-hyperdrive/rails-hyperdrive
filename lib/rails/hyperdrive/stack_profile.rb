@@ -130,7 +130,8 @@ module Rails
       # Bundler is absent or refuses to resolve.
       def gem_skills_info
         require "rails/hyperdrive/bundler_artifact_discovery"
-        ::Rails::Hyperdrive::BundlerArtifactDiscovery.discover.select(&:skill?).map do |skill|
+        discovered = ::Rails::Hyperdrive::BundlerArtifactDiscovery.discover(enabled_gems: enabled_gems)
+        discovered.select(&:skill?).map do |skill|
           {
             name: skill.name,
             gem: skill.target_gem,
@@ -140,6 +141,24 @@ module Rails
             sha256: Digest::SHA256.hexdigest(skill.body.to_s)
           }
         end
+      rescue StandardError
+        []
+      end
+
+      def enabled_gems
+        require "rails/hyperdrive/install_layout"
+        require "rails/hyperdrive/lock_file"
+        root =
+          if @app_root
+            @app_root.to_s
+          elsif defined?(::Rails) && ::Rails.respond_to?(:root) && ::Rails.root
+            ::Rails.root.to_s
+          end
+        return [] unless root
+
+        ::Rails::Hyperdrive::LockFile.load(
+          File.join(root, ::Rails::Hyperdrive::InstallLayout::LOCK_PATH)
+        ).enabled_gems
       rescue StandardError
         []
       end

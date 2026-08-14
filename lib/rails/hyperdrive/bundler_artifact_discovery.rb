@@ -34,13 +34,20 @@ module Rails
       module_function
 
       # Non-fatal problems are appended to `warnings` and the artifact is
-      # dropped; discovery never raises.
-      def discover(specs: nil, warnings: [])
+      # dropped; discovery never raises. A gem that has not opted in as a
+      # companion is never scanned — its skills.sh content is only reported
+      # through `notices`.
+      def discover(specs: nil, warnings: [], enabled_gems: [], notices: [])
         specs ||= safe_bundler_specs
+        enabled = Array(enabled_gems).map(&:to_s)
         resolved = specs.each_with_object({}) { |s, h| h[s.name.to_s] = s.version }
 
         candidates = []
         specs.each do |spec|
+          unless opted_in?(spec, enabled_gems: enabled)
+            notice_skills_sh_content(spec, notices: notices)
+            next
+          end
           each_artifact_path(spec, warnings: warnings) do |path, type, support_root|
             artifact = parse(path, source_spec: spec, type: type, resolved: resolved,
               warnings: warnings, support_root: support_root)
@@ -62,7 +69,10 @@ module Rails
       end
 
       def skill_paths(spec, warnings: [])
-        roots = [File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive", "skills")]
+        roots = [
+          File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive", "skills"),
+          File.join(spec.full_gem_path, "skills")
+        ]
         if (override = skills_dir_override(spec))
           roots << File.join(spec.full_gem_path, override)
         end
@@ -136,6 +146,38 @@ module Rails
         Dir.glob(File.join(root, "*.md"))
       end
 
+      # Many gemspecs package files via `git ls-files`, so a contributor-facing
+      # skills/ dir ships by accident — package contents don't signal consumer
+      # intent. Only an explicit signal makes a gem's content installable.
+      def opted_in?(spec, enabled_gems:)
+        return true if enabled_gems.include?(spec.name.to_s)
+        return true if metadata_present?(spec, "rails_hyperdrive_skills_dir")
+        return true if metadata_present?(spec, "rails_hyperdrive_skill_templates_dir")
+        return true if metadata_present?(spec, "rails_hyperdrive_targets")
+
+        convention_root = File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive")
+        Dir.glob(File.join(convention_root, "skills", "**", "{SKILL.md,SKILL.md.erb}")).any? ||
+          Dir.glob(File.join(convention_root, "guidelines", "*.md")).any?
+      end
+
+      def metadata_present?(spec, key)
+        return false unless spec.respond_to?(:metadata)
+        raw = spec.metadata && spec.metadata[key]
+        !raw.to_s.strip.empty?
+      end
+
+      # Report-only, glob-only (no file reads): SKILL.md presence is the
+      # signal, and SKILL.md.erb is excluded — raw ERB is not skills.sh
+      # content. Parse problems surface as warnings once the gem is enabled.
+      def notice_skills_sh_content(spec, notices:)
+        found = Dir.glob(File.join(spec.full_gem_path, "skills", "**", "SKILL.md"))
+        return if found.empty?
+
+        count = found.map { |p| File.dirname(p) }.uniq.size
+        notices << "gem '#{spec.name}' ships #{count} skills.sh skill(s); add \"#{spec.name}\" to enabled: " \
+                   "in .hyperdrive/lock.yml and re-run bin/rails hyperdrive:sync to install them"
+      end
+
       # ".." segments are rejected to prevent escaping the gem root.
       def skills_dir_override(spec)
         return nil unless spec.respond_to?(:metadata)
@@ -176,12 +218,14 @@ module Rails
         description = meta["description"]
         versions    = meta["versions"]
 
-        unless name && description && meta["gem"] && versions
-          warnings << "skip #{path}: missing a required field (name, description, gem, versions)"
+        unless name && description
+          warnings << "skip #{path}: missing a required field (name, description)"
           return nil
         end
 
-        targets = parse_targets(meta["gem"])
+        # gem:/versions: are narrowing declarations; absence means no
+        # constraint. Only a *present* key with an unusable value warns.
+        targets = meta.key?("gem") ? parse_targets(meta["gem"]) : ["*"]
         if targets.nil? || targets.empty?
           warnings << "skip #{name} (from #{source_spec.name}): gem: must name a gem, a comma-separated list, or a YAML list"
           return nil
@@ -405,6 +449,7 @@ module Rails
 
       private_class_method :each_artifact_path, :skill_paths, :guideline_paths,
                            :resolve_same_dir_tie, :pair_with_templates, :warn_template_extras,
+                           :opted_in?, :metadata_present?, :notice_skills_sh_content,
                            :skills_dir_override, :skill_templates_dir, :parse, :support_files_for,
                            :conditioned_support_files, :apply_conditional_filter,
                            :conditional_satisfied?, :malformed_requirements?,
