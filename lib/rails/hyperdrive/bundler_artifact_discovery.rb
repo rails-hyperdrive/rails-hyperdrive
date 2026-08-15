@@ -1,12 +1,12 @@
 require "yaml"
 require "bundler"
+require "rails/hyperdrive/gem_manifest"
 require "rails/hyperdrive/skill_template"
 
 module Rails
   module Hyperdrive
     module BundlerArtifactDiscovery
       SKILL_FILE_NAMES = ["SKILL.md", "SKILL.md.erb"].freeze
-      INSTALLER_KEY = /\A(?:gem|versions|conditional):/.freeze
 
       Artifact = Struct.new(
         :name, :description, :target_gem, :versions, :artifact_type,
@@ -48,11 +48,16 @@ module Rails
             notice_skills_sh_content(spec, notices: notices)
             next
           end
-          each_artifact_path(spec, warnings: warnings) do |path, type, support_root|
+          manifest = GemManifest.load(spec, warnings: warnings)
+          seen = { skill: [], guideline: [] }
+          each_artifact_path(spec, warnings: warnings) do |path, type, support_root, key|
+            seen[type] << key
+            gate = type == :skill ? manifest.skill_gate(key) : manifest.guideline_gate(key)
             artifact = parse(path, source_spec: spec, type: type, resolved: resolved,
-              warnings: warnings, support_root: support_root)
+              warnings: warnings, support_root: support_root, gate: gate)
             candidates << artifact if artifact
           end
+          warn_unknown_manifest_keys(manifest, spec, seen, warnings)
         end
 
         # Collapse same-name variants within one source gem (highest
@@ -63,9 +68,24 @@ module Rails
         end
       end
 
+      # Yields each candidate with its manifest join key: a skill's relpath
+      # from its skills root, a guideline's filename. Keys are collected before
+      # parsing, so a candidate later dropped (e.g. an ERB render failure)
+      # still counts as known to the manifest.
       def each_artifact_path(spec, warnings: [])
-        skill_paths(spec, warnings: warnings).each { |path, support_root| yield path, :skill, support_root }
-        guideline_paths(spec).each { |p| yield p, :guideline, nil }
+        skill_paths(spec, warnings: warnings).each { |path, support_root, rel| yield path, :skill, support_root, rel }
+        guideline_paths(spec).each { |p| yield p, :guideline, nil, File.basename(p) }
+      end
+
+      # The staleness signal for gating detached from content: an entry
+      # matching nothing means a renamed or removed skill dir/guideline.
+      def warn_unknown_manifest_keys(manifest, spec, seen, warnings)
+        (manifest.skill_keys - seen[:skill]).each do |key|
+          warnings << "#{spec.name}: manifest skills entry '#{key}' names no shipped skill directory"
+        end
+        (manifest.guideline_keys - seen[:guideline]).each do |key|
+          warnings << "#{spec.name}: manifest guidelines entry '#{key}' names no shipped guideline"
+        end
       end
 
       def skill_paths(spec, warnings: [])
@@ -123,11 +143,11 @@ module Rails
         consumed = pairs.values.map { |p| p[:template_dir] }
         candidates.filter_map do |cand|
           if (pair = pairs[cand[:dir]])
-            [pair[:template], cand[:dir]]
+            [pair[:template], cand[:dir], cand[:rel]]
           elsif consumed.include?(File.expand_path(cand[:dir]))
             nil
           else
-            [cand[:path], File.dirname(cand[:path])]
+            [cand[:path], File.dirname(cand[:path]), cand[:rel]]
           end
         end
       end
@@ -154,6 +174,7 @@ module Rails
         return true if metadata_present?(spec, "rails_hyperdrive_skills_dir")
         return true if metadata_present?(spec, "rails_hyperdrive_skill_templates_dir")
         return true if metadata_present?(spec, "rails_hyperdrive_targets")
+        return true if GemManifest.opt_in?(spec)
 
         convention_root = File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive")
         Dir.glob(File.join(convention_root, "skills", "**", "{SKILL.md,SKILL.md.erb}")).any? ||
@@ -196,7 +217,9 @@ module Rails
         raw.to_s
       end
 
-      def parse(path, source_spec:, type:, resolved:, warnings:, support_root: nil)
+      # Frontmatter's schema is exactly name and description; any other key is
+      # unknown to the parser and rides untouched in the installed body.
+      def parse(path, source_spec:, type:, resolved:, warnings:, gate:, support_root: nil)
         support_root ||= File.dirname(path)
         body = File.read(path)
         if erb_template?(path)
@@ -213,27 +236,20 @@ module Rails
           return nil
         end
 
-        meta        = YAML.safe_load(frontmatter, permitted_classes: [Symbol]) || {}
+        # Date is permitted because unknown frontmatter keys are user content;
+        # a bare date value must not fail the parse.
+        meta        = YAML.safe_load(frontmatter, permitted_classes: [Symbol, Date]) || {}
         name        = meta["name"]
         description = meta["description"]
-        versions    = meta["versions"]
 
         unless name && description
           warnings << "skip #{path}: missing a required field (name, description)"
           return nil
         end
 
-        # gem:/versions: are narrowing declarations; absence means no
-        # constraint. Only a *present* key with an unusable value warns.
-        targets = meta.key?("gem") ? parse_targets(meta["gem"]) : ["*"]
-        if targets.nil? || targets.empty?
-          warnings << "skip #{name} (from #{source_spec.name}): gem: must name a gem, a comma-separated list, or a YAML list"
-          return nil
-        end
-
-        matched = match_targets(targets, versions, resolved)
+        matched = match_targets(gate.targets, gate.versions, resolved)
         if matched.empty?
-          warnings << "skip #{name} (from #{source_spec.name}): #{no_match_reason(targets, versions, resolved)}"
+          warnings << "skip #{name} (from #{source_spec.name}): #{no_match_reason(gate.targets, gate.versions, resolved)}"
           return nil
         end
 
@@ -241,7 +257,7 @@ module Rails
           name: name.to_s,
           description: description.to_s,
           target_gem: matched,
-          versions: versions,
+          versions: gate.versions,
           artifact_type: type,
           source_gem: source_spec.name.to_s,
           path: path,
@@ -252,7 +268,7 @@ module Rails
           support_files:
             if type == :skill
               conditioned_support_files(
-                support_root, meta["conditional"],
+                support_root, gate.conditional,
                 resolved: resolved, warnings: warnings,
                 label: "#{name} (from #{source_spec.name})"
               )
@@ -260,7 +276,7 @@ module Rails
               []
             end
         )
-      rescue Psych::SyntaxError
+      rescue Psych::Exception
         warnings << "skip #{path}: malformed YAML frontmatter"
         nil
       end
@@ -298,7 +314,7 @@ module Rails
         shipped = files.map { |f| f[:path] }
         conditions.each_key do |key|
           if SKILL_FILE_NAMES.include?(key)
-            warnings << "#{label}: conditional key '#{key}' ignored; the skill's own gem:/versions: gate the whole skill"
+            warnings << "#{label}: conditional key '#{key}' ignored; the entry's own gem:/versions: gate the whole skill"
           elsif !shipped.include?(key)
             warnings << "#{label}: conditional key '#{key}' names no shipped supporting file"
           end
@@ -316,33 +332,19 @@ module Rails
           return true
         end
 
-        targets = entry["gem"] && parse_targets(entry["gem"])
+        targets = entry["gem"] && GemManifest.parse_targets(entry["gem"])
         if targets.nil? || targets.empty?
           warnings << "#{label}: conditional entry for '#{key}' needs gem: naming a gem, a comma-separated list, or a YAML list; installing the file"
           return true
         end
 
         versions = entry["versions"]
-        if malformed_requirements?(versions)
+        if GemManifest.malformed_requirements?(versions)
           warnings << "#{label}: conditional entry for '#{key}' has an unparsable versions: requirement; installing the file"
           return true
         end
 
         match_targets(targets, versions, resolved).any?
-      end
-
-      # versions: is optional in a conditional entry; nil means unconstrained.
-      def malformed_requirements?(versions)
-        requirements = versions.is_a?(Hash) ? versions.values : [versions]
-        requirements.compact.any? do |req|
-          parts = Array(req).flat_map { |s| s.is_a?(String) ? s.split(",").map(&:strip) : s }
-          begin
-            Gem::Requirement.new(*parts)
-            false
-          rescue ArgumentError
-            true
-          end
-        end
       end
 
       def render_support_templates(files, skill_dir, resolved:, warnings:)
@@ -369,34 +371,13 @@ module Rails
         path.end_with?(".md.erb")
       end
 
+      # Guideline frontmatter is stripped because the installed file is
+      # @-included eagerly into agent context, where it would be inert noise.
       def install_ready_body(artifact)
-        return strip_installer_keys(artifact.body) if artifact.skill?
+        return artifact.body if artifact.skill?
 
         _frontmatter, rest = split_frontmatter(artifact.body)
         (rest || artifact.body).sub(/\A\n+/, "")
-      end
-
-      # gem:/versions:/conditional: are install-time inputs with no reader
-      # after install, and conditional: keys name *shipped* paths that gating
-      # and ERB retargeting can leave pointing at files absent from disk — so
-      # the installed frontmatter carries neither.
-      def strip_installer_keys(body)
-        frontmatter, rest = split_frontmatter(body)
-        return body unless frontmatter
-
-        kept = []
-        skipping = false
-        frontmatter.lines.each do |line|
-          if line =~ INSTALLER_KEY
-            skipping = true
-          elsif skipping && (line.start_with?(" ", "\t") || line.strip.empty?)
-            # continuation of a stripped key's block
-          else
-            skipping = false
-            kept << line
-          end
-        end
-        "---\n#{kept.join}---\n#{rest}"
       end
 
       def split_frontmatter(body)
@@ -408,12 +389,6 @@ module Rails
 
         absolute_closing = closing_index + 1
         [lines[1...absolute_closing].join, lines[(absolute_closing + 1)..].join]
-      end
-
-      def parse_targets(raw)
-        entries = raw.is_a?(Array) ? raw : [raw]
-        return nil if entries.any? { |e| e.nil? || e.is_a?(Array) || e.is_a?(Hash) }
-        entries.flat_map { |e| e.to_s.split(",") }.map(&:strip).reject(&:empty?)
       end
 
       def match_targets(targets, versions, resolved)
@@ -447,14 +422,15 @@ module Rails
         []
       end
 
-      private_class_method :each_artifact_path, :skill_paths, :guideline_paths,
+      private_class_method :each_artifact_path, :warn_unknown_manifest_keys, :skill_paths,
+                           :guideline_paths,
                            :resolve_same_dir_tie, :pair_with_templates, :warn_template_extras,
                            :opted_in?, :metadata_present?, :notice_skills_sh_content,
                            :skills_dir_override, :skill_templates_dir, :parse, :support_files_for,
                            :conditioned_support_files, :apply_conditional_filter,
-                           :conditional_satisfied?, :malformed_requirements?,
+                           :conditional_satisfied?,
                            :render_support_templates, :erb_template?,
-                           :parse_targets, :match_targets,
+                           :match_targets,
                            :version_satisfied?, :no_match_reason, :safe_bundler_specs
     end
   end

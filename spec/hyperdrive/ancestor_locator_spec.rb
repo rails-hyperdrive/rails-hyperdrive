@@ -99,7 +99,7 @@ RSpec.describe Rails::Hyperdrive::AncestorLocator do
   it "reconstructs a template-paired skill's ancestor from the SKILL.md.erb twin" do
     relpath = "lib/rails-hyperdrive-x/hyperdrive/skills/jobs/SKILL.md"
     ship("#{relpath}.erb",
-      "---\nname: jobs\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# jobs <%= gem_version('sidekiq') %>\n")
+      "---\nname: jobs\ndescription: d\n---\n\n# jobs <%= gem_version('sidekiq') %>\n")
     installed = "---\nname: jobs\ndescription: d\n---\n\n# jobs 7.2.0\n"
 
     body = described_class.locate(
@@ -111,9 +111,9 @@ RSpec.describe Rails::Hyperdrive::AncestorLocator do
     expect(body).to eq(installed)
   end
 
-  it "rebuilds a collision-postfixed skill: installer keys stripped, name: rewritten to the final name" do
+  it "rebuilds a collision-postfixed skill: name: rewritten to the final name" do
     relpath = "lib/rails-hyperdrive-x/hyperdrive/skills/jobs/SKILL.md"
-    shipped = "---\nname: jobs\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# jobs\n"
+    shipped = "---\nname: jobs\ndescription: d\n---\n\n# jobs\n"
     installed = "---\nname: jobs--rails-hyperdrive-x\ndescription: d\n---\n\n# jobs\n"
     ship(relpath, shipped)
 

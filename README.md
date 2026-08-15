@@ -121,7 +121,7 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
   index.md                             # managed aggregator: @guidelines/<name>.md
   guidelines/<name>.md                 # companion-shipped, frontmatter stripped
 .claude/skills/<name>/
-  SKILL.md                             # companion-shipped, frontmatter kept minus installer keys
+  SKILL.md                             # companion-shipped, installed verbatim (frontmatter included)
   <supporting files>                   # optional companion-shipped extras, installed as shipped (*.md.erb rendered)
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
@@ -182,18 +182,29 @@ lib/<gem_name>/hyperdrive/guidelines/<name>.md         # guideline (flat file)
 
 Top-level `skills/` is the recommended home for skill content — it is the tool-agnostic face of your gem, readable by skills.sh and plain git-clone consumers as well as hyperdrive. `lib/<gem_name>/hyperdrive/` is hyperdrive-specific machinery: guidelines (no skills.sh analogue), ERB skill templates (`SKILL.md.erb` — raw ERB must not reach generic consumers, so keep it out of `skills/`), and legacy static skills (still scanned for back-compat).
 
-Only `name` and `description` are required — a plain skills.sh SKILL.md works as-is. `gem:` and `versions:` are optional narrowing keys:
+Frontmatter is pure [skills.sh](https://skills.sh) — only `name` and `description` are read, so a skill repo's content integrates without modification:
 
 ```yaml
 ---
 name: jobs-sidekiq                # kebab-case; determines the install path
 description: Background job conventions for Sidekiq.
-gem: sidekiq                      # optional: TARGET gem(s), resolved + version-matched in the bundle
-versions: ">= 7.0, < 9.0"         # optional: Gem::Requirement matched against the target gem
 ---
 ```
 
-And declare your targets in gemspec metadata — it opts your gem in as a companion, and it is the only pre-install targeting signal for skills that omit `gem:` (also how `hyperdrive:discover` suggests you before anyone installs you):
+Gating — which bundles an artifact installs into — lives in a `hyperdrive.yml` manifest at the gem root (or at the path named by a `rails_hyperdrive_manifest` gemspec metadata key), never in the content. Every key is optional; no manifest (or an empty one) means everything installs universally:
+
+```yaml
+gem: sidekiq                # gem-wide default: TARGET gem(s), resolved + version-matched in the bundle
+versions: ">= 7.0, < 9.0"   # gem-wide default: Gem::Requirement matched against the target gem
+skills:                     # per-skill overrides, keyed by skill dir relative to its skills root
+  jobs-sidekiq:
+    versions: ">= 8.0"
+guidelines:                 # per-guideline overrides, keyed by filename
+  jobs.md:
+    gem: sidekiq
+```
+
+Shipping a `hyperdrive.yml` (or declaring `rails_hyperdrive_manifest`) opts your gem in as a companion. Also declare your targets in gemspec metadata — it opts your gem in too, and it is the pre-install targeting signal (how `hyperdrive:discover` suggests you before anyone installs you):
 
 ```ruby
 spec.metadata["rails_hyperdrive_targets"] = "sidekiq"

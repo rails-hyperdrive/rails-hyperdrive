@@ -1,8 +1,6 @@
 ---
 name: shared-skill
 description: A skill name shipped by BOTH alpha and beta (collision fixture).
-gem: railties
-versions: ">= 7.0"
 ---
 
 # Shared Skill (alpha variant)

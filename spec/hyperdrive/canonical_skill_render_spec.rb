@@ -30,11 +30,6 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
     ---
     name: paired
     description: d
-    gem: railties
-    versions: ">= 7.0"
-    conditional:
-      references/notes.md:
-        gem: sqlite3
     allowed-tools: Read
     ---
 
@@ -46,7 +41,7 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
   MD
 
   describe ".write" do
-    it "renders the fail-open canonical face with the installer keys stripped" do
+    it "renders the fail-open canonical face verbatim" do
       write_gemspec
       write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
 
@@ -54,14 +49,28 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
       expect(written.map(&:dest)).to eq([File.join(@dir, "skills/paired/SKILL.md")])
 
       body = File.read(File.join(@dir, "skills/paired/SKILL.md"))
-      expect(body).to include("SQLite (any version) notes.")
-      expect(body).not_to include("<%")
-      expect(body).to include("name: paired")
-      expect(body).to include("description: d")
-      expect(body).to include("allowed-tools: Read")
-      expect(body).not_to include("gem:")
-      expect(body).not_to include("versions:")
-      expect(body).not_to include("conditional:")
+      expect(body).to eq(<<~MD)
+        ---
+        name: paired
+        description: d
+        allowed-tools: Read
+        ---
+
+        # Paired
+
+        SQLite (any version) notes.
+      MD
+    end
+
+    it "keeps every frontmatter key the template renders, stripping nothing" do
+      write_gemspec
+      write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb",
+        "---\nname: paired\ndescription: d\ngem: railties\nversions: \">= 7.0\"\n---\n\n# Paired\n")
+
+      described_class.write(dir: @dir)
+      body = File.read(File.join(@dir, "skills/paired/SKILL.md"))
+      expect(body).to include("gem: railties")
+      expect(body).to include("versions: \">= 7.0\"")
     end
 
     it "preserves nested template layouts" do

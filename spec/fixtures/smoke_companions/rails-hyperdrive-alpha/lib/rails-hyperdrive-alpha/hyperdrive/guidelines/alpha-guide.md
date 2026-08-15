@@ -1,8 +1,6 @@
 ---
 name: alpha-guide
 description: A smoke-fixture guideline shipped by rails-hyperdrive-alpha.
-gem: railties
-versions: ">= 7.0"
 ---
 
 # Alpha Guideline

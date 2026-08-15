@@ -1,0 +1,14 @@
+skills:
+  dummy-v1:
+    gem: dummy_gem
+    versions: "~> 1.0"
+    conditional:
+      references/conditional.md:
+        gem: companion_gem
+  dummy-v2:
+    gem: dummy_gem
+    versions: "~> 2.0"
+guidelines:
+  dummy-guideline.md:
+    gem: dummy_gem
+    versions: "~> 1.0"

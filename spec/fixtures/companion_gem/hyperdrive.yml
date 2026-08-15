@@ -1,0 +1,2 @@
+gem: dummy_gem
+versions: "~> 1.0"

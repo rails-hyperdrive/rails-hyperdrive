@@ -28,7 +28,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     Artifact.new(
       name: name, description: "d", target_gem: ["dummy_gem"], versions: "~> 1.0",
       artifact_type: :skill, source_gem: source, path: "/x/#{name}/SKILL.md",
-      body: body || "---\nname: #{name}\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n# #{name}\n",
+      body: body || "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n",
       spec_version: "1.0.0", support_files: support_files
     )
   end
@@ -286,15 +286,13 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
-  describe "skill install (frontmatter kept)" do
+  describe "skill install (body verbatim)" do
     before { stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")]) }
 
-    it "installs the skill body verbatim, with runtime frontmatter only" do
+    it "installs the skill body verbatim, frontmatter included" do
       run_generator([])
       body = File.read(path(".claude/skills/jobs-sidekiq/SKILL.md"))
-      expect(body).to start_with("---")
-      expect(body).to include("name: jobs-sidekiq")
-      expect(body).not_to include("gem:")
+      expect(body).to eq("---\nname: jobs-sidekiq\ndescription: d\n---\n\n# jobs-sidekiq\n")
       expect(body).not_to include("hyperdrive:")
     end
   end
