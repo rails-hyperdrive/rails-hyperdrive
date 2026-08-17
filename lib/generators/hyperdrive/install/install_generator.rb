@@ -117,10 +117,16 @@ module Rails
           say "  Next steps:"
           say "    1. bin/rails server"
           say "    2. Open Claude Code in this directory; it will read .mcp.json"
-          say "    3. Verify the connection: curl http://localhost:3000#{mount_path}/mcp"
+          say "    3. Verify the connection: #{connection_check_command}"
         end
 
         no_tasks do
+          def connection_check_command
+            "curl -s http://localhost:3000#{mount_path}/mcp " \
+              "-H 'Content-Type: application/json' -H 'Accept: application/json' " \
+              "-d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}'"
+          end
+
           def mcp_json_on_disk
             abs = ::Rails.root.join(MCP_JSON_PATH)
             File.exist?(abs) ? File.read(abs) : nil

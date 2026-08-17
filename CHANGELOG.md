@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `run_sql` now labels an over-cap result `(showing first 100 of <total> rows)`
   instead of `(<total> rows, truncated)`, which read as though rows beyond the
   count shown had been dropped from a smaller set.
+- The connection check printed under `hyperdrive:init`'s "Next steps" is now a
+  JSON-RPC `tools/list` POST carrying the `Content-Type` and `Accept` headers
+  the endpoint requires. The previous bare `curl <url>` was a GET, which the
+  stateless MCP transport answers with 405 — the suggested check read as a
+  failure against a perfectly working install.
 
 ## [0.5.0] - 2026-08-15
 

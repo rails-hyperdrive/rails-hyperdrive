@@ -732,6 +732,27 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       expect(out).to include("Mount: /_hyperdrive (in config/routes.rb)")
       expect(out).to include("Server: #{count} MCP tools at http://localhost:3000/_hyperdrive/mcp")
     end
+
+    it "prints a connection check the mounted endpoint actually answers" do
+      line = run_generator([]).lines.find { |l| l.include?("curl ") }
+      expect(line).not_to be_nil
+
+      url = line[%r{https?://\S+}]
+      headers = line.scan(/-H '([^:']+): ([^']+)'/).to_h
+      payload = line[/-d '(.+)'/, 1]
+
+      env = Rack::MockRequest.env_for(
+        url,
+        method: "POST",
+        input: payload,
+        "CONTENT_TYPE" => headers.fetch("Content-Type"),
+        "HTTP_ACCEPT" => headers.fetch("Accept")
+      )
+      status, _headers, body = Rails::Hyperdrive::McpServer.rack_app.call(env)
+
+      expect(status).to eq(200)
+      expect(JSON.parse(body.to_a.join).dig("result", "tools")).to be_an(Array)
+    end
   end
 
   describe "gitignored install destination" do
