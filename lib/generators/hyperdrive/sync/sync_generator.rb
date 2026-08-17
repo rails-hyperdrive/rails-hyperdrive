@@ -6,7 +6,7 @@ module Rails
   module Generators
     module Hyperdrive
       # Content-only by contract: no step may write a bootstrap artifact
-      # (.mcp.json, the engine mount, the initializer, the .gitignore rule).
+      # (.mcp.json, the engine mount, the .gitignore rule).
       class SyncGenerator < ::Rails::Generators::Base
         include ContentSyncSupport
 

@@ -834,14 +834,14 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       expect(File.read(path(".hyperdrive/lock.yml"))).to include("state: present")
     end
 
-    it "honors --mount-at and writes the initializer when non-default" do
+    it "honors --mount-at in both the routes mount and the .mcp.json URL" do
       run_generator(["--mount-at", "/admin/hyperdrive"])
+      expect(File.read(path("config/routes.rb"))).to include(%(mount Rails::Hyperdrive::Engine => "/admin/hyperdrive"))
       expect(File.read(path(".mcp.json"))).to include("/admin/hyperdrive/mcp")
-      expect(File).to exist(path("config/initializers/hyperdrive.rb"))
     end
 
-    it "does NOT write the initializer when --mount-at is the default" do
-      run_generator([])
+    it "writes no initializer" do
+      run_generator(["--mount-at", "/admin/hyperdrive"])
       expect(File).not_to exist(path("config/initializers/hyperdrive.rb"))
     end
 

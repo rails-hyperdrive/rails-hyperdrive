@@ -18,6 +18,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stateless MCP transport answers with 405 — the suggested check read as a
   failure against a perfectly working install.
 
+### Removed
+
+- **BREAKING:** `Rails::Hyperdrive.configure` /
+  `Rails::Hyperdrive::Configuration`, and the `config/initializers/hyperdrive.rb`
+  initializer that `hyperdrive:init --mount-at` used to write. The
+  initializer's only setting, `config.mount_at`, was read by nothing — the
+  live mount is the `mount Rails::Hyperdrive::Engine` line the generator
+  writes into `config/routes.rb`, and `.mcp.json` records the URL — so
+  editing it never moved the endpoint. The `--mount-at` flag is unchanged.
+
+  **Manual migration:** delete `config/initializers/hyperdrive.rb` if an
+  earlier `hyperdrive:init --mount-at` wrote one. The file calls
+  `Rails::Hyperdrive.configure` unguarded, so with the gem in the
+  `:development` group it raises `NameError` on any boot that excludes that
+  group (e.g. a production deploy) — deleting it also removes that hazard.
+
 ## [0.5.0] - 2026-08-15
 
 ### Added

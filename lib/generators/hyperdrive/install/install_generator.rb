@@ -22,6 +22,8 @@ module Rails
         GEMFILE = "Gemfile".freeze
         BUNDLER_PLUGIN = "bundler-rails-hyperdrive".freeze
 
+        # No templates are rendered; source_root exists so Rails resolves the
+        # sibling USAGE file for `--help`.
         source_root File.expand_path("templates", __dir__)
 
         class_option :mount_at,      type: :string,  default: DEFAULT_MOUNT_AT, desc: "Engine mount path."
@@ -75,11 +77,6 @@ module Rails
 
           prefix = body.end_with?("\n") || body.empty? ? "" : "\n"
           append_to_file GEMFILE, "#{prefix}plugin #{BUNDLER_PLUGIN.inspect}\n"
-        end
-
-        def write_initializer
-          return if mount_path == DEFAULT_MOUNT_AT
-          template "initializer.rb.tt", "config/initializers/hyperdrive.rb"
         end
 
         def mount_engine

@@ -70,7 +70,6 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
     it "writes no bootstrap artifact" do
       run_generator([])
       expect(File).not_to exist(path(".mcp.json"))
-      expect(File).not_to exist(path("config/initializers/hyperdrive.rb"))
       expect(File).not_to exist(path(".gitignore"))
       expect(File.read(path("config/routes.rb"))).not_to include("Rails::Hyperdrive::Engine")
     end
