@@ -15,7 +15,11 @@ Rails Hyperdrive is a development-only Rails engine for working on Rails apps wi
 - **Live introspection.** The engine mounts an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server at `http://localhost:3000/_hyperdrive/mcp` with **8 tools** that answer from the running app itself: eval Ruby, query the DB (read-only), tail logs, list models and routes, jump to source, look up docs, snapshot the stack. The agent asks the router instead of grepping `routes.rb`, and reads the live schema instead of replaying migrations.
 - **Stack-specific knowledge.** `bin/rails hyperdrive:init` discovers **skills** and **guidelines** shipped by companion gems and installs only the ones matching your Gemfile: guidance targeting Sidekiq, for example, lands only if your app bundles Sidekiq, at a version the guidance covers.
 
-**rails-hyperdrive is the mechanism; companion gems are the content.** The gem itself ships no skills or guidelines, only the contract and the discovery/install engine. Content comes from companion gems, conventionally named `rails-hyperdrive-<library>` (e.g. `rails-hyperdrive-sidekiq`), following the [RuboCop ecosystem](https://github.com/rubocop/rubocop) precedent.
+**rails-hyperdrive is the mechanism; companion gems are the content.** The gem itself ships no skills or guidelines, only the contract and the discovery/install engine. Content reaches your app three ways:
+
+- **Native support**: the library gem itself ships a top-level `skills/` directory in the [skills.sh](https://www.skills.sh) layout and opts in as a hyperdrive companion. The preferred route when the maintainer is on board: one gem, one source of truth.
+- **Adopted skill repos**: an existing skills.sh skill repo packaged as a gem, content untouched, gating declared on the side.
+- **Dedicated companion gems**: third-party guidance for a library that ships none itself. A name like `rails-hyperdrive-<library>` or `<library>-skills` keeps the gem legible in a Gemfile, but naming plays no part in discovery.
 
 ---
 
@@ -57,8 +61,6 @@ $ bin/dev
 # → agent has 8 tools, the eager guidelines (via CLAUDE.md), and the lazy skills
 ```
 
-That's it: no API keys, no config files to write, and no per-project setup beyond the generator.
-
 The generated `.mcp.json` points at `http://localhost:3000<mount>/mcp`. If your dev server runs on another port, edit the URL there.
 
 ---
@@ -89,15 +91,15 @@ Companion gems ship two artifact types, tuned for how agents consume context:
 
 A companion gem declares in its manifest which gem each artifact targets and at which versions, so what lands in your app is what matches your `Gemfile.lock`, and nothing aimed at a library or version you don't run.
 
-With no companion gems, `hyperdrive:init` sets up just the server plumbing (`.mcp.json`, the engine mount, the lockfile) and puts **nothing** into your agent's context window. Zero context cost until you opt in.
+With no companion gems, `hyperdrive:init` sets up just the server plumbing (`.mcp.json`, the engine mount, the lockfile) and puts **nothing** into your agent's context window.
 
 ---
 
 ## Staying in sync
 
-**After `bundle install`: automatic.** `hyperdrive:init` registers the [`bundler-rails-hyperdrive`](bundler-rails-hyperdrive/) Bundler plugin in your Gemfile. From then on, `bundle add rails-hyperdrive-<library>` lands the companion's artifacts on that very `bundle install`, with no extra command to run. The plugin is additive only (it never touches an existing file); version bumps and orphaned artifacts are only reported, with a pointer to `hyperdrive:sync`.
+**After `bundle install`: automatic.** `hyperdrive:init` registers the [`bundler-rails-hyperdrive`](bundler-rails-hyperdrive/) Bundler plugin in your Gemfile. From then on, adding a companion gem lands its artifacts on that very `bundle install`, with no extra command to run. The plugin is additive only (it never touches an existing file); version bumps and orphaned artifacts are only reported, with a pointer to `hyperdrive:sync`.
 
-**`bin/rails hyperdrive:sync`: on demand.** Run it any time (e.g. after `bundle update`) to refresh installed content to the current bundle. It touches no bootstrap artifact and leaves locally-modified files untouched (skip + warn). When you *have* edited an installed file and its gem ships a new version, three mutually-exclusive flags reconcile the two:
+**`bin/rails hyperdrive:sync`: on demand.** Run it any time (e.g. after `bundle update`) to refresh installed content to the current bundle. It touches no bootstrap artifact and leaves locally modified files untouched (skip + warn). When you *have* edited an installed file and its gem ships a new version, three mutually exclusive flags reconcile the two:
 
 | Strategy | What happens to the live file | What happens to your edits |
 |---|---|---|
@@ -124,7 +126,7 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
   guidelines/<name>.md                 # companion-shipped, frontmatter stripped
 .claude/skills/<name>/
   SKILL.md                             # companion-shipped, installed verbatim (frontmatter included)
-  <supporting files>                   # optional companion-shipped extras, installed as shipped (*.md.erb rendered)
+  <supporting files>                   # optional extras (references/, examples/, …), installed as shipped (*.md.erb rendered)
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
 
@@ -148,7 +150,7 @@ disabled:
     - jobs-sidekiq
 ```
 
-A disabled artifact is never installed, and one already on disk is removed on the next `hyperdrive:init` or `hyperdrive:sync`, but only if you haven't edited it. A locally-modified file is reported and left alone, for you to delete when you're ready. Disabling a skill removes its shipped supporting files under the same per-file rule; files you created yourself in the skill directory survive and keep the directory alive. Disabling a guideline also drops its line from `index.md`, so it leaves eager context along with the file.
+A disabled artifact is never installed, and one already on disk is removed on the next `hyperdrive:init` or `hyperdrive:sync`, but **only if you haven't edited it**. A locally modified file is reported and left alone, for you to delete when you're ready. Disabling a skill removes its shipped supporting files under the same per-file rule; files you created yourself in the skill directory survive and keep the directory alive. Disabling a guideline also drops its line from `index.md`, so it leaves eager context along with the file.
 
 The list is yours to edit; the generator only reads it and carries it forward. Delete a name to get the artifact back on the next run. When two companion gems ship the same artifact name, both install under a `<name>--<source-gem>` suffix: the plain name disables both, the suffixed name disables one.
 
@@ -156,7 +158,7 @@ To skip installed content wholesale instead, pass `--skip-content` to `hyperdriv
 
 ### Opting into a gem's bundled skills
 
-Ordinary gems (not built as hyperdrive companions) sometimes ship a top-level `skills/` directory of [skills.sh](https://skills.sh)-style skills. Those are never installed automatically: `hyperdrive:init` and `hyperdrive:sync` only report them, e.g. `gem 'foo' ships 2 skills.sh skill(s)`. To install them, name the gem in the `enabled:` list in `.hyperdrive/lock.yml` and re-run `hyperdrive:sync`:
+Ordinary gems (not built as hyperdrive companions) sometimes ship a top-level `skills/` directory of skills.sh-style skills. Those are never installed automatically: `hyperdrive:init` and `hyperdrive:sync` only report them, e.g. `gem 'foo' ships 2 skills.sh skill(s)`. To install them, name the gem in the `enabled:` list in `.hyperdrive/lock.yml` and re-run `hyperdrive:sync`:
 
 ```yaml
 enabled:
@@ -182,9 +184,9 @@ skills/<name>/SKILL.md                                 # skill (dir-per-skill, m
 lib/<gem_name>/hyperdrive/guidelines/<name>.md         # guideline (flat file)
 ```
 
-Top-level `skills/` is the recommended home for skill content: it is the tool-agnostic face of your gem, readable by skills.sh and plain git-clone consumers as well as hyperdrive. `lib/<gem_name>/hyperdrive/` is hyperdrive-specific machinery: guidelines (no skills.sh analogue), ERB skill templates (`SKILL.md.erb`, which must stay out of `skills/` so raw ERB never reaches generic consumers), and legacy static skills (still scanned for back-compat).
+Top-level `skills/` is the recommended home for skill content: it is the tool-agnostic face of your gem, readable by skills.sh and plain git-clone consumers as well as hyperdrive, and it is scanned by default. `lib/<gem_name>/hyperdrive/` is the hyperdrive-specific root: guidelines, and ERB skill templates (`SKILL.md.erb`, which must stay out of `skills/` so raw ERB never reaches generic consumers). Plain skills shipped under it remain scanned as well.
 
-Frontmatter is pure [skills.sh](https://skills.sh): only `name` and `description` are read, so a skill repo's content integrates without modification:
+Frontmatter is pure skills.sh: only `name` and `description` are read, so a skill repo's content integrates without modification:
 
 ```yaml
 ---
