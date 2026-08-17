@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `run_sql` now labels an over-cap result `(showing first 100 of <total> rows)`
+  instead of `(<total> rows, truncated)`, which read as though rows beyond the
+  count shown had been dropped from a smaller set.
+
 ## [0.5.0] - 2026-08-15
 
 ### Added

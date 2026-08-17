@@ -63,6 +63,18 @@ RSpec.describe "MCP tools end-to-end" do
       expect(lines[1].strip).to match(/\A\d+\z/)
     end
 
+    it "caps oversized results and reports how many of the total are shown" do
+      cap = Rails::Hyperdrive::Tools::RunSql::ROW_CAP
+      total = cap + 5
+      resp = call_tool("run_sql", {
+        "sql" => "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < #{total}) SELECT n FROM seq"
+      })
+      lines = text_payload(resp).lines
+
+      expect(lines.length).to eq(cap + 2)
+      expect(lines.last.strip).to eq("(showing first #{cap} of #{total} rows)")
+    end
+
     it "refuses INSERT (returns error response prefixed 'SQL not allowed:')" do
       resp = call_tool("run_sql", { "sql" => "INSERT INTO users (email) VALUES ('x')" })
       expect(resp[:result][:isError]).to be true

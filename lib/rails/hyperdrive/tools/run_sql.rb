@@ -40,7 +40,7 @@ module Rails
           shown = rows.first(ROW_CAP)
           lines = [result.columns.join("\t")]
           shown.each { |row| lines << row.map { |v| v.to_s }.join("\t") }
-          lines << "(#{rows.length} rows, truncated)" if rows.length > ROW_CAP
+          lines << "(showing first #{ROW_CAP} of #{rows.length} rows)" if rows.length > ROW_CAP
           lines.join("\n")
         end
       end
