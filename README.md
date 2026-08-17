@@ -19,7 +19,9 @@ Rails Hyperdrive is a development-only Rails engine for working on Rails apps wi
 
 - **Native support**: the library gem itself ships a top-level `skills/` directory in the [skills.sh](https://www.skills.sh) layout and opts in as a hyperdrive companion. The preferred route when the maintainer is on board: one gem, one source of truth.
 - **Adopted skill repos**: an existing skills.sh skill repo packaged as a gem, content untouched, gating declared on the side.
-- **Dedicated companion gems**: third-party guidance for a library that ships none itself. A name like `rails-hyperdrive-<library>` or `<library>-skills` keeps the gem legible in a Gemfile, but naming plays no part in discovery.
+- **Dedicated companion gems**: third-party guidance for a library that ships none itself.
+
+On the last two routes, name the gem `rails-hyperdrive-<name>`: the prefix tells a Gemfile reader exactly what the gem is, though naming plays no part in discovery.
 
 ---
 

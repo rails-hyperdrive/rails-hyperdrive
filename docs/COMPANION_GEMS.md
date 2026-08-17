@@ -194,6 +194,6 @@ spec.metadata["rails_hyperdrive_targets"]   = "sidekiq"          # required; com
 spec.metadata["rails_hyperdrive_artifacts"] = "guideline,skill"  # optional; presentational hint
 ```
 
-`rails_hyperdrive_targets` is what makes a gem discoverable: `hyperdrive:discover` searches rubygems for gems declaring it, so a companion is found by what it declares rather than by what it is named. Naming plays no part in discovery: pick whatever reads well in a Gemfile: `<library>-skills`, `rails-hyperdrive-<library>`, or a name under your own namespace are all found on the same terms.
+`rails_hyperdrive_targets` is what makes a gem discoverable: `hyperdrive:discover` searches rubygems for gems declaring it, so a companion is found by what it declares rather than by what it is named. Naming plays no part in discovery: every name is found on the same terms. Still, prefer `rails-hyperdrive-<name>`: the prefix tells a Gemfile reader the gem is agent guidance consumed by rails-hyperdrive, not runtime code.
 
 `rails_hyperdrive_targets` is a coarse pre-install hint, never reconciled against the manifest's `gem:`. Once the gem is bundled, the manifest alone governs what installs.
