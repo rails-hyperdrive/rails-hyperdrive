@@ -51,9 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `require "rails/hyperdrive/skill_tasks"` in the Rakefile provides
   `rake hyperdrive:skills:render` (generate each template's static `SKILL.md`
   with the fail-open canonical binding — every gem present, `gem_version`
-  `nil`; the generated face carries only the skills.sh frontmatter, with the
-  installer-only `gem:`/`versions:`/`conditional:` keys stripped, as they are
-  on install) and `rake hyperdrive:skills:check` (fail listing stale generated
+  `nil`; the generated face is the rendered template verbatim — with gating
+  in the gem-root manifest there are no installer keys to strip) and
+  `rake hyperdrive:skills:check` (fail listing stale generated
   files — the CI freshness gate). Rails-free; rails-hyperdrive as a
   development dependency suffices.
 - A gem's top-level `skills/` directory is now scanned as a default skills

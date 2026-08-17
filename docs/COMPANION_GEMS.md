@@ -1,6 +1,6 @@
 # Writing a companion gem
 
-rails-hyperdrive is the mechanism; companion gems are the content. This document is the full contract a companion gem ships artifacts under. For the short version — layout, frontmatter, discoverability — see the [README](../README.md#build-a-companion-gem).
+rails-hyperdrive is the mechanism; companion gems are the content. This document is the full contract a companion gem ships artifacts under. For the short version (layout, frontmatter, discoverability), see the [README](../README.md#build-a-companion-gem).
 
 ## Artifact layout
 
@@ -12,7 +12,7 @@ A companion gem ships artifacts under:
 <gem-source>/lib/<gem_name>/hyperdrive/guidelines/<name>.md         # guideline (flat file)
 ```
 
-Top-level `skills/` is the recommended home for skill content: it is the public, tool-agnostic face of the gem, matching what [skills.sh](https://skills.sh) and plain git-clone consumers expect. `lib/<gem_name>/hyperdrive/` holds hyperdrive-specific machinery — guidelines (no skills.sh analogue), ERB skill templates (`SKILL.md.erb` must stay here: raw ERB must not reach generic `skills/` consumers), and legacy static skills. The convention path is deprecated as a location for plain skills but remains scanned indefinitely, so published companions keep working unchanged.
+Top-level `skills/` is the recommended home for skill content: it is the public, tool-agnostic face of the gem, matching what [skills.sh](https://skills.sh) and plain git-clone consumers expect. `lib/<gem_name>/hyperdrive/` holds hyperdrive-specific machinery: guidelines (no skills.sh analogue), ERB skill templates (`SKILL.md.erb` must stay here, so raw ERB never reaches generic `skills/` consumers), and legacy static skills. The convention path is deprecated as a location for plain skills but remains scanned indefinitely, so published companions keep working unchanged.
 
 ### The companion opt-in gate
 
@@ -24,7 +24,7 @@ Discovery walks the entire bundle, and many gemspecs package files via `git ls-f
 - the `rails_hyperdrive_targets` gemspec metadata key, or
 - the gem's name in the app's `enabled:` list in `.hyperdrive/lock.yml`.
 
-An un-opted gem shipping `skills/*/SKILL.md` never auto-installs — `hyperdrive:init`/`hyperdrive:sync` surface it with a pointer to the `enabled:` list instead.
+An un-opted gem shipping `skills/*/SKILL.md` never auto-installs: `hyperdrive:init`/`hyperdrive:sync` surface it with a pointer to the `enabled:` list instead.
 
 Skills may also ship under an additional root declared in gemspec metadata:
 
@@ -32,17 +32,17 @@ Skills may also ship under an additional root declared in gemspec metadata:
 spec.metadata["rails_hyperdrive_skills_dir"] = "extra/skills"   # optional; relative to the gem root
 ```
 
-That root is searched **in addition to** the default roots, never instead of them, so an override never hides skills already shipped elsewhere. Roots are deduplicated by expanded path (declaring `"skills"` explicitly changes nothing), and a value containing a `..` segment is ignored. Guidelines have no override — they are found only at the convention path.
+That root is searched **in addition to** the default roots, never instead of them, so an override never hides skills already shipped elsewhere. Roots are deduplicated by expanded path (declaring `"skills"` explicitly changes nothing), and a value containing a `..` segment is ignored. Guidelines have no override: they are found only at the convention path.
 
 ## Multi-file skills
 
-A skill is a **directory**, and it may ship more than `SKILL.md`. Everything else in the skill directory — nested however you like (`workflows/`, `references/`, `examples/`, …) — installs alongside it as **supporting files**, preserving the relative layout under `.claude/skills/<name>/`. Reference them from `SKILL.md` with directory-relative links; a cross-source name collision renames the whole installed directory, so those links keep working.
+A skill is a **directory**, and it may ship more than `SKILL.md`. Everything else in the skill directory, nested however you like (`workflows/`, `references/`, `examples/`, …), installs alongside it as **supporting files**, preserving the relative layout under `.claude/skills/<name>/`. Reference them from `SKILL.md` with directory-relative links; a cross-source name collision renames the whole installed directory, so those links keep working.
 
-Supporting files carry no frontmatter contract — they install byte-identical to the install-ready body, which is what the gem ships (markdown, code, or binary alike) except for `*.md.erb` templates, which install as their rendered output. Each is tracked per file in `.hyperdrive/lock.yml`, so local edits are preserved on sync exactly like any other installed file. `SKILL.md` frontmatter remains the skill's sole schema surface. Guidelines stay single-file.
+Supporting files carry no frontmatter contract. They install byte-identical to the install-ready body, which is what the gem ships (markdown, code, or binary alike), except for `*.md.erb` templates, which install as their rendered output. Each is tracked per file in `.hyperdrive/lock.yml`, so local edits are preserved on sync exactly like any other installed file. `SKILL.md` frontmatter remains the skill's sole schema surface. Guidelines stay single-file.
 
 ## Frontmatter
 
-Every artifact carries YAML frontmatter with two required fields — `name` and `description`, the skills.sh base contract — and nothing else is read:
+Every artifact carries YAML frontmatter with two required fields, `name` and `description` (the skills.sh base contract); nothing else is read:
 
 ```yaml
 ---
@@ -51,13 +51,13 @@ description: Background job conventions for Sidekiq.
 ---
 ```
 
-A plain skills.sh SKILL.md installs with zero warnings, and the content of an adopted skill repo needs no modification: gating lives entirely in the gem-root manifest (below). Unknown frontmatter keys are silently ignored and installed verbatim. A skill installs byte-identical to its shipped (or ERB-rendered) body, frontmatter included; guidelines are installed with their frontmatter stripped entirely (they are `@`-included eagerly). Provenance (`source`, `sha256`, `installed_at`) is recorded per file in the git-tracked `.hyperdrive/lock.yml`, never inside the installed file. When two gems ship a same-named artifact, both install, each postfixed by source gem.
+A plain skills.sh SKILL.md installs with zero warnings, and the content of an adopted skill repo needs no modification: gating lives entirely in the gem-root manifest (below). Unknown frontmatter keys are silently ignored and installed verbatim. A skill installs byte-identical to its shipped (or ERB-rendered) body, frontmatter included; guidelines are installed with their frontmatter stripped entirely (they are `@`-included eagerly). Provenance (`source`, `source_sha`, `installed_at`) is recorded per file in the git-tracked `.hyperdrive/lock.yml`, never inside the installed file. When two gems ship a same-named artifact, both install, each postfixed by source gem.
 
-`name:` is the artifact's identity, not a label — it is what the installer writes to disk (`.claude/skills/<name>/SKILL.md`, `.claude/hyperdrive/guidelines/<name>.md`). Keep it equal to the file or directory stem: if the two disagree the install still succeeds, but the artifact lands under `name:`. Within one gem, two artifacts of the same type declaring the same `name:` collapse to a single installed file; which one survives is not a guarantee to build on, so give each a distinct `name:`.
+`name:` is the artifact's identity, not a label. It is what the installer writes to disk (`.claude/skills/<name>/SKILL.md`, `.claude/hyperdrive/guidelines/<name>.md`). Keep it equal to the file or directory stem: if the two disagree the install still succeeds, but the artifact lands under `name:`. Within one gem, two artifacts of the same type declaring the same `name:` collapse to a single installed file; which one survives is not a guarantee to build on, so give each a distinct `name:`.
 
 ## The gem-root manifest
 
-Gating — which bundles an artifact installs into — is declared in a `hyperdrive.yml` at the gem root, or at the path named by a `rails_hyperdrive_manifest` gemspec metadata key (relative to the gem root; a value containing `..` segments, or a blank value, falls back to the conventional path). Every key is optional, and no manifest (or an empty one) means every artifact installs universally:
+Gating (which bundles an artifact installs into) is declared in a `hyperdrive.yml` at the gem root, or at the path named by a `rails_hyperdrive_manifest` gemspec metadata key (relative to the gem root; a value containing `..` segments, or a blank value, falls back to the conventional path). Every key is optional, and no manifest (or an empty one) means every artifact installs universally:
 
 ```yaml
 gem: railties            # gem-wide default TARGET gem(s): string, comma-separated string, or YAML list; "*" universal
@@ -73,13 +73,13 @@ guidelines:              # per-guideline entries, keyed by filename (extension i
     gem: sidekiq
 ```
 
-Skill entries are keyed by directory relpath, not by the skill's `name:` — no frontmatter parse is needed to join, and the key is unambiguous on name collisions (for a template/content-paired skill it is the content dir's relpath). Resolution is per key: an entry's `gem` wins when the key is present, else the top-level default, else `"*"` (ungated); `versions` likewise (else unconstrained). A per-entry `gem: "*"` therefore un-gates an artifact against a gem-wide default — and note that a top-level `versions:` also applies to an entry that names a different `gem:` and omits `versions:`.
+Skill entries are keyed by directory relpath, not by the skill's `name:`. No frontmatter parse is needed to join, and the key is unambiguous on name collisions (for a template/content-paired skill it is the content dir's relpath). Resolution is per key: an entry's `gem` wins when the key is present, else the top-level default, else `"*"` (ungated); `versions` likewise (else unconstrained). A per-entry `gem: "*"` therefore un-gates an artifact against a gem-wide default. Note too that a top-level `versions:` applies to an entry that names a different `gem:` and omits `versions:`.
 
-`gem:` names the **targets** (each must be present in the bundle; its resolved version is matched against `versions:`). Use `railties` for "every Rails app" or `"*"` for "always applicable". A well-formed gate that matches nothing in the bundle skips the artifact with a warning — that is gating working. Malformed gating never skips an artifact: an unreadable or non-map manifest is warned about and treated as absent; a non-map `skills:`/`guidelines:` section is warned about and ignored; a malformed entry (non-map value, unusable `gem:`, unparsable `versions:`) is warned about and the artifact installs **ungated** (the gem-wide defaults are not applied either). An entry whose key matches no shipped skill directory or guideline is warned about and ignored — that warning is the staleness signal when a skill dir is renamed out from under its gating.
+`gem:` names the **targets** (each must be present in the bundle; its resolved version is matched against `versions:`). Use `railties` for "every Rails app" or `"*"` for "always applicable". A well-formed gate that matches nothing in the bundle skips the artifact with a warning; that is gating working. Malformed gating never skips an artifact: an unreadable or non-map manifest is warned about and treated as absent; a non-map `skills:`/`guidelines:` section is warned about and ignored; a malformed entry (non-map value, unusable `gem:`, unparsable `versions:`) is warned about and the artifact installs **ungated** (the gem-wide defaults are not applied either). An entry whose key matches no shipped skill directory or guideline is warned about and ignored. That warning is the staleness signal when a skill dir is renamed out from under its gating.
 
 ### Multiple targets
 
-One artifact can cover several interchangeable libraries — write `gem:` as a comma-separated string or a YAML list, and it installs when **any** listed target is bundled at a satisfying version. `"*"` anywhere in the list makes the artifact universal. Give `versions:` a map keyed by gem name when the targets do not share a version cycle; targets the map omits are unconstrained.
+One artifact can cover several interchangeable libraries: write `gem:` as a comma-separated string or a YAML list, and it installs when **any** listed target is bundled at a satisfying version. `"*"` anywhere in the list makes the artifact universal. Give `versions:` a map keyed by gem name when the targets do not share a version cycle; targets the map omits are unconstrained.
 
 ```yaml
 skills:
@@ -98,7 +98,7 @@ A multi-file skill can condition parts of itself on the app's bundle, so one ski
 
 ### Per-file gating
 
-A `conditional:` map inside a manifest `skills:` entry gates individual supporting files. Keys are dir-relative shipped paths; values take the same `gem:`/`versions:` forms as the whole-artifact gate (single target, comma-separated string, YAML list, per-target `versions:` map, `"*"`), and the file installs when **any** listed target is bundled at a satisfying version. `versions:` is optional — omitted means unconstrained — though `gem:` is required in each entry. Files the map doesn't mention install unconditionally, and the supporting files themselves stay byte-identical to upstream — the condition lives entirely out-of-band.
+A `conditional:` map inside a manifest `skills:` entry gates individual supporting files. Keys are dir-relative shipped paths; values take the same `gem:`/`versions:` forms as the whole-artifact gate (single target, comma-separated string, YAML list, per-target `versions:` map, `"*"`), and the file installs when **any** listed target is bundled at a satisfying version. `versions:` is optional (omitted means unconstrained), though `gem:` is required in each entry. Files the map doesn't mention install unconditionally, and the supporting files themselves stay byte-identical to upstream; the condition lives entirely out-of-band.
 
 ```yaml
 skills:
@@ -114,25 +114,25 @@ skills:
           sidekiq: ">= 7.0"
 ```
 
-A malformed condition **fails open**: the file installs unconditionally and the problem is reported with the other discovery warnings — a surplus reference file is harmless, a missing one breaks links from `SKILL.md`. A key naming no shipped file, or naming `SKILL.md` itself (the entry's own `gem:`/`versions:` gate the whole skill), is warned about and ignored. The `conditional:` map lives only in the manifest — its keys name shipped paths that gating and ERB rendering may leave pointing at files absent from disk, so gate as extensively as you like at no cost to the installed skill.
+A malformed condition **fails open**: the file installs unconditionally and the problem is reported with the other discovery warnings. A surplus reference file is harmless; a missing one breaks links from `SKILL.md`. A key naming no shipped file, or naming `SKILL.md` itself (the entry's own `gem:`/`versions:` gate the whole skill), is warned about and ignored. The `conditional:` map lives only in the manifest: its keys name shipped paths that gating and ERB rendering may leave pointing at files absent from disk, so gate as extensively as you like at no cost to the installed skill.
 
 ### ERB-templated markdown
 
-A file named `*.md.erb` in a skill directory — including `SKILL.md.erb` in place of `SKILL.md` — is rendered at install time and lands as plain `.md` (the `.erb` suffix is dropped; a `SKILL.md.erb` defines a skill exactly like `SKILL.md`, with frontmatter read from the rendered output). Templates see a sealed binding of exactly three helpers over the resolved bundle, nothing else:
+A file named `*.md.erb` in a skill directory, including `SKILL.md.erb` in place of `SKILL.md`, is rendered at install time and lands as plain `.md` (the `.erb` suffix is dropped; a `SKILL.md.erb` defines a skill exactly like `SKILL.md`, with frontmatter read from the rendered output). Templates see a sealed binding of exactly three helpers over the resolved bundle, nothing else:
 
-- `gem?("name")` / `gem?("name", ">= 2.0")` — is the gem bundled (at a satisfying version)?
-- `any_gem?("a", "b", …)` — is any of these bundled?
-- `gem_version("name")` — the resolved version as a String, or `nil`.
+- `gem?("name")` / `gem?("name", ">= 2.0")`: is the gem bundled (at a satisfying version)?
+- `any_gem?("a", "b", …)`: is any of these bundled?
+- `gem_version("name")`: the resolved version as a String, or `nil`.
 
 Rendering uses ERB's trim mode, so `<%- if gem?("alba") -%>` … `<%- end -%>` control lines leave no blank lines behind. A template that fails to render is skipped with a warning (the whole skill, when it's `SKILL.md.erb`); when a plain file and a template would land at the same path, the plain file wins with a warning. `conditional:` keys refer to templates by their shipped `x.md.erb` name and gate them before rendering. Guidelines get no ERB support.
 
-Use ERB sparingly — condition reference manuals via `conditional:` and wrap link-table rows that point at gated files, but keep "consider adopting gem X" recommendations unconditional. An all-wrapped `.md.erb` renders to an empty file; to omit a file entirely, gate it with `conditional:` instead.
+Use ERB sparingly: condition reference manuals via `conditional:` and wrap link-table rows that point at gated files, but keep "consider adopting gem X" recommendations unconditional. An all-wrapped `.md.erb` renders to an empty file; to omit a file entirely, gate it with `conditional:` instead.
 
 Gated files appear and disappear as the bundle changes: `hyperdrive:init`/`hyperdrive:sync` install newly gated-in files and remove unedited gated-out ones. The auto top-up after `bundle install` adds newly gated-in files but never removes anything and never rewrites an already-installed file, so removals and re-rendered template output wait for the next `hyperdrive:sync`.
 
 ## The universal layout: template/content pairing
 
-Conditional content and the universal skills convention pull in opposite directions: tools like `npx skills` (and people browsing a git clone) expect a static `skills/<name>/SKILL.md` with its supporting files in the same directory, while hyperdrive wants the `SKILL.md.erb` master. Neither can live in the other's directory — a static `SKILL.md` beside the template would take precedence over it, and a `SKILL.md.erb` in the static dir would be copied verbatim by tools that don't render it.
+Conditional content and the universal skills convention pull in opposite directions: tools like `npx skills` (and people browsing a git clone) expect a static `skills/<name>/SKILL.md` with its supporting files in the same directory, while hyperdrive wants the `SKILL.md.erb` master. Neither can live in the other's directory: a static `SKILL.md` beside the template would take precedence over it, and a `SKILL.md.erb` in the static dir would be copied verbatim by tools that don't render it.
 
 Pairing splits the skill across two directories:
 
@@ -151,7 +151,7 @@ spec.metadata["rails_hyperdrive_skills_dir"] = "skills"
 spec.metadata["rails_hyperdrive_skill_templates_dir"] = "lib/<gem_name>/hyperdrive/skills"
 ```
 
-A skill dir holding a static `SKILL.md` pairs with the template dir at the **same relative path** under the templates root (nested layouts like `skills/<category>/<name>/` pair too). The pair is one skill: hyperdrive renders the **template** against the app's bundle and takes the supporting files from the **content dir**; the static `SKILL.md` is never read by hyperdrive — it exists for consumers that can't inspect a bundle. A template dir with no matching content dir, or a content dir with no matching template, is a standalone skill exactly as before, so pairing is strictly opt-in. Keep the template dir down to `SKILL.md.erb` alone: anything else in it is ignored with a warning — the content dir is the single source of truth for supporting files. A template that fails to render skips the skill (the static file is deliberately not used as a fallback — that would silently un-condition the skill).
+A skill dir holding a static `SKILL.md` pairs with the template dir at the **same relative path** under the templates root (nested layouts like `skills/<category>/<name>/` pair too). The pair is one skill: hyperdrive renders the **template** against the app's bundle and takes the supporting files from the **content dir**. It never reads the static `SKILL.md`, which exists for consumers that can't inspect a bundle. A template dir with no matching content dir, or a content dir with no matching template, is an ordinary standalone skill, so pairing is strictly opt-in. Keep the template dir down to `SKILL.md.erb` alone: anything else in it is ignored with a warning, since the content dir is the single source of truth for supporting files. A template that fails to render skips the skill (the static file is deliberately not a fallback, because falling back would silently un-condition the skill).
 
 ### Generating and checking the static face
 
@@ -161,14 +161,14 @@ The static `SKILL.md` is generated, not hand-written. In the companion repo's `R
 require "rails/hyperdrive/skill_tasks"
 ```
 
-- `rake hyperdrive:skills:render` — renders each `SKILL.md.erb` to its paired static `SKILL.md` using the **canonical** binding: `gem?`/`any_gem?` always true (even with a version requirement), `gem_version` always `nil` — the fail-open, everything-included face for consumers whose bundle can't be inspected. Templates that interpolate `gem_version` must handle `nil` (e.g. `<%= gem_version("sidekiq") || "(any version)" %>`).
-- `rake hyperdrive:skills:check` — renders in memory and fails listing any stale static file; run it in CI so the generated face never drifts from its template.
+- `rake hyperdrive:skills:render` renders each `SKILL.md.erb` to its paired static `SKILL.md` using the **canonical** binding: `gem?`/`any_gem?` always true (even with a version requirement), `gem_version` always `nil`. That is the fail-open, everything-included face for consumers whose bundle can't be inspected. Templates that interpolate `gem_version` must handle `nil` (e.g. `<%= gem_version("sidekiq") || "(any version)" %>`).
+- `rake hyperdrive:skills:check` renders in memory and fails, listing any stale static file. Run it in CI so the generated face never drifts from its template.
 
-Both read the single `*.gemspec` in the working directory (pass an explicit path as a task argument otherwise: `rake "hyperdrive:skills:render[path/to/name.gemspec]"`) and require rails-hyperdrive only as a development dependency — no Rails app involved. The generated file is the rendered template verbatim — with gating in the manifest, the static face is already the pristine skills.sh view. Template-using companions require the rails-hyperdrive release that ships pairing.
+Both read the single `*.gemspec` in the working directory (pass an explicit path as a task argument otherwise: `rake "hyperdrive:skills:render[path/to/name.gemspec]"`) and require rails-hyperdrive only as a development dependency, with no Rails app involved. The generated file is the rendered template verbatim; with gating in the manifest, the static face is already the pristine skills.sh view. Template-using companions require the rails-hyperdrive release that ships pairing. Unlike discovery, which quietly ignores a `..` segment in `rails_hyperdrive_skills_dir` or `rails_hyperdrive_skill_templates_dir`, these tasks fail on one (`gemspec metadata <key> must not contain '..' segments`).
 
 ## Discovery never raises
 
-An artifact with missing or malformed frontmatter, a missing `name:` or `description:`, no manifest-declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there — read that section first when a gem you expected to contribute produces no files.
+An artifact with missing or malformed frontmatter, a missing `name:` or `description:`, no manifest-declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there. Read that section first when a gem you expected to contribute produces no files.
 
 ## Being found by `hyperdrive:discover`
 
@@ -179,6 +179,6 @@ spec.metadata["rails_hyperdrive_targets"]   = "sidekiq"          # required; com
 spec.metadata["rails_hyperdrive_artifacts"] = "guideline,skill"  # optional; presentational hint
 ```
 
-`rails_hyperdrive_targets` is what makes a gem discoverable: `hyperdrive:discover` searches rubygems for gems declaring it, so a companion is found by what it declares rather than by what it is named. Naming it `rails-hyperdrive-<library>` is a recommended convention — it makes the gem legible in a Gemfile — but it plays no part in discovery, and a companion published under your own namespace is found on the same terms.
+`rails_hyperdrive_targets` is what makes a gem discoverable: `hyperdrive:discover` searches rubygems for gems declaring it, so a companion is found by what it declares rather than by what it is named. Naming it `rails-hyperdrive-<library>` is a recommended convention (it makes the gem legible in a Gemfile), but it plays no part in discovery, and a companion published under your own namespace is found on the same terms.
 
-`rails_hyperdrive_targets` is a coarse pre-install hint — it is never reconciled against the manifest's `gem:`; once the gem is bundled, the manifest alone governs what installs.
+`rails_hyperdrive_targets` is a coarse pre-install hint, never reconciled against the manifest's `gem:`. Once the gem is bundled, the manifest alone governs what installs.
