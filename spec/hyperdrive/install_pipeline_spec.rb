@@ -38,14 +38,15 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     ).call
   end
 
-  def run_reporting(mode: :preserve, artifacts: [], notices: [])
+  def run_reporting(mode: :preserve, artifacts: [], notices: [], warnings: [])
     io = StringIO.new
     described_class.new(
       root: root,
       shell: Rails::Hyperdrive::InstallShell.new(root: root, io: io),
       artifacts: artifacts,
       mode: mode,
-      notices: notices
+      notices: notices,
+      warnings: warnings
     ).call
     io.string
   end
@@ -747,6 +748,34 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
       expect(out).to include("git merge-file unavailable")
       expect(exist?("#{gpath}.new")).to be true
+    end
+  end
+
+  describe "an artifact discovery stopped offering" do
+    let(:fence_warning) do
+      "guideline 'auth-pundit' (from rails-hyperdrive-x) requires rails-hyperdrive >= 99 (this is 0.6.0); " \
+        "upgrade rails-hyperdrive to install it"
+    end
+
+    before { run(artifacts: [guideline(name: "auth-pundit")]) }
+
+    it "leaves the installed file alone and prints the reason alongside the orphan line" do
+      before_body = read(".claude/hyperdrive/guidelines/auth-pundit.md")
+
+      out = run_reporting(artifacts: [], warnings: [fence_warning])
+
+      expect(read(".claude/hyperdrive/guidelines/auth-pundit.md")).to eq(before_body)
+      expect(out).to include("no longer shipped by rails-hyperdrive-x")
+      expect(out).to include("discovery skipped 1 artifact(s):").and include(fence_warning)
+    end
+
+    it "still prints the reason in additive mode" do
+      before_body = read(".claude/hyperdrive/guidelines/auth-pundit.md")
+
+      out = run_reporting(mode: :additive, artifacts: [], warnings: [fence_warning])
+
+      expect(read(".claude/hyperdrive/guidelines/auth-pundit.md")).to eq(before_body)
+      expect(out).to include(fence_warning)
     end
   end
 

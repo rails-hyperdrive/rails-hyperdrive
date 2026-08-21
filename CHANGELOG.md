@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Companion manifests can version-fence artifacts against the running
+  rails-hyperdrive with a `hyperdrive_version:` requirement, valid gem-wide at
+  the manifest top level and per `skills:`/`guidelines:` entry. It is matched
+  against the installer's own version rather than the bundle — a constraint
+  `gem:` cannot express, since it is an any-match gate across its targets. An
+  unsatisfied fence skips the artifact and names the upgrade, both in
+  `hyperdrive:init`/`hyperdrive:sync` output and during `bundle install` via the
+  bundler plugin.
+
 ### Changed
 
 - `hyperdrive:init`, `hyperdrive:sync`, and `hyperdrive:discover` are Rails

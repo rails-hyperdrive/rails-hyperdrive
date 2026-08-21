@@ -93,7 +93,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
     data["enabled"] = ["some_gem"]
     File.write(lock_path, data.to_yaml)
     expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
-      .to receive(:discover).with(enabled_gems: ["some_gem"]).and_return([])
+      .to receive(:discover).with(hash_including(enabled_gems: ["some_gem"])).and_return([])
 
     described_class.run(root: root)
   end
@@ -166,6 +166,59 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       described_class.run(root: root)
 
       expect(File).to exist(File.join(root, ".claude/hyperdrive/guidelines/auth-pundit.md"))
+    end
+  end
+
+  describe "version-fenced artifacts" do
+    before { initialize_app([guideline(name: "auth-pundit")]) }
+
+    # The bundler-plugin hook prints result.messages and nothing else, so the
+    # fence is invisible at bundle install unless it lands there.
+    def bundle_fences(warning, artifacts: [guideline(name: "auth-pundit")])
+      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |fence_warnings: [], **|
+        fence_warnings << warning
+        artifacts
+      end
+    end
+
+    it "reports a fence skip verbatim" do
+      bundle_fences("skill 'turbo-morph' (from rails-hyperdrive-turbo) requires rails-hyperdrive >= 99 " \
+                    "(this is 0.6.0); upgrade rails-hyperdrive to install it")
+
+      result = described_class.run(root: root)
+
+      expect(result.messages).to include(
+        "skill 'turbo-morph' (from rails-hyperdrive-turbo) requires rails-hyperdrive >= 99 " \
+        "(this is 0.6.0); upgrade rails-hyperdrive to install it"
+      )
+    end
+
+    it "says nothing extra when discovery reports no fence" do
+      bundle_ships([guideline(name: "auth-pundit")])
+
+      expect(described_class.run(root: root).messages).to be_empty
+    end
+
+    it "leaves every other discovery warning to init/sync" do
+      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |warnings: [], **|
+        warnings << "skip jobs-sidekiq (from rails-hyperdrive-sidekiq): target gem 'sidekiq' not in bundle"
+        []
+      end
+
+      expect(described_class.run(root: root).messages.join("\n")).not_to include("not in bundle")
+    end
+
+    it "leaves a previously installed artifact on disk when its new release fences it out" do
+      bundle_fences("skill 'x' requires rails-hyperdrive >= 99 (this is 0.6.0); " \
+                    "upgrade rails-hyperdrive to install it", artifacts: [])
+      path = File.join(root, ".claude/hyperdrive/guidelines/auth-pundit.md")
+      before_body = File.read(path)
+
+      result = described_class.run(root: root)
+
+      expect(File.read(path)).to eq(before_body)
+      expect(result.orphaned.map(&:path)).to eq([".claude/hyperdrive/guidelines/auth-pundit.md"])
+      expect(result.messages.last).to include("upgrade rails-hyperdrive to install it")
     end
   end
 
