@@ -91,6 +91,59 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
       expect(manifest.guideline_gate("g.md").conditional).to be_nil
     end
 
+    it "resolves an any:/all: map form to targets plus a match mode" do
+      write("hyperdrive.yml", <<~YAML)
+        skills:
+          a:
+            gem:
+              any: [sidekiq, solid_queue]
+          b:
+            gem:
+              all: [devise, pundit]
+      YAML
+      manifest, warnings = load_manifest
+      expect(warnings).to be_empty
+      expect(manifest.skill_gate("a").to_h).to include(targets: %w[sidekiq solid_queue], match_mode: :any)
+      expect(manifest.skill_gate("b").to_h).to include(targets: %w[devise pundit], match_mode: :all)
+    end
+
+    it "accepts the comma-separated string form inside an any:/all: map" do
+      write("hyperdrive.yml", "skills:\n  a:\n    gem:\n      all: \"devise, pundit\"\n")
+      manifest, warnings = load_manifest
+      expect(warnings).to be_empty
+      expect(manifest.skill_gate("a").to_h).to include(targets: %w[devise pundit], match_mode: :all)
+    end
+
+    it "applies a top-level all: default to entries that omit gem:" do
+      write("hyperdrive.yml", "gem:\n  all: [devise, pundit]\nskills:\n  a:\n    versions: \">= 1.0\"\n")
+      manifest, warnings = load_manifest
+      expect(warnings).to be_empty
+      expect(manifest.skill_gate("a").to_h).to include(targets: %w[devise pundit], match_mode: :all)
+      expect(manifest.guideline_gate("g.md").to_h).to include(targets: %w[devise pundit], match_mode: :all)
+    end
+
+    it "warns and drops a \"*\" member from all:, leaving the rest of the gate" do
+      write("hyperdrive.yml", "skills:\n  a:\n    gem:\n      all: [devise, \"*\"]\n")
+      manifest, warnings = load_manifest
+      expect(manifest.skill_gate("a").to_h).to include(targets: ["devise"], match_mode: :all)
+      expect(warnings.join).to include("'*' in all: is always satisfied; ignoring it")
+    end
+
+    it "warns and resolves universal when all: names nothing but \"*\"" do
+      write("hyperdrive.yml", "gem: railties\nskills:\n  a:\n    gem:\n      all: [\"*\"]\n")
+      manifest, warnings = load_manifest
+      expect(manifest.skill_gate("a").targets).to eq(["*"])
+      expect(warnings.join).to include("'*' in all: is always satisfied")
+    end
+
+    it "warns once and drops a \"*\" member from a top-level all: default" do
+      write("hyperdrive.yml", "gem:\n  all: [devise, \"*\"]\nskills:\n  a:\n    versions: \">= 1.0\"\n")
+      manifest, warnings = load_manifest
+      expect(manifest.skill_gate("a").to_h).to include(targets: ["devise"], match_mode: :all)
+      expect(manifest.guideline_gate("g.md").to_h).to include(targets: ["devise"], match_mode: :all)
+      expect(warnings.grep(/top-level gem: '\*' in all: is always satisfied/).size).to eq(1)
+    end
+
     it "resolves no fence when hyperdrive_version: is absent everywhere" do
       write("hyperdrive.yml", "gem: railties\nskills:\n  a:\n    gem: sidekiq\n")
       manifest, = load_manifest
@@ -153,6 +206,37 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
       expect(warnings.join).to include("gem: must name a gem")
     end
 
+    it "warns and resolves ungated on a malformed gem: map, ignoring the defaults" do
+      write("hyperdrive.yml", <<~YAML)
+        gem: railties
+        skills:
+          both:
+            gem:
+              any: [sidekiq]
+              all: [devise]
+          neither:
+            gem:
+              some: [sidekiq]
+          unknown:
+            gem:
+              all: [devise]
+              extra: true
+          unusable:
+            gem:
+              all:
+          nested:
+            gem:
+              all:
+                - [devise]
+      YAML
+      manifest, warnings = load_manifest
+      %w[both neither unknown unusable nested].each do |key|
+        expect(manifest.skill_gate(key).to_h).to include(targets: ["*"], versions: nil, match_mode: :any)
+      end
+      expect(warnings.grep(/gem: must name a gem/).size).to eq(5)
+      expect(warnings.join).to include("or an any:/all: map")
+    end
+
     it "warns and resolves ungated on an unparsable versions: requirement, scalar or map" do
       write("hyperdrive.yml", <<~YAML)
         skills:
@@ -193,6 +277,13 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
       expect(warnings.grep(%r{top-level gem:/versions:/hyperdrive_version: defaults are unusable}).size).to eq(1)
       expect(manifest.skill_gate("unlisted").targets).to eq(["*"])
       expect(manifest.skill_gate("a").to_h).to include(targets: ["sidekiq"], versions: nil)
+    end
+
+    it "warns once and ignores a malformed gem: map in the gem-wide defaults" do
+      write("hyperdrive.yml", "gem:\n  any: [sidekiq]\n  all: [devise]\nskills:\n  a:\n    versions: \">= 1.0\"\n")
+      manifest, warnings = load_manifest
+      expect(warnings.grep(%r{top-level gem:/versions:/hyperdrive_version: defaults are unusable}).size).to eq(1)
+      expect(manifest.skill_gate("a").targets).to eq(["*"])
     end
 
     it "drops every gem-wide default on an unusable top-level hyperdrive_version:" do

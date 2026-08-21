@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Companion-manifest `gem:` gating accepts a map with exactly one of `any:` or
+  `all:`, so an artifact can require *every* listed target rather than any one
+  of them: `gem: {all: [devise, pundit]}`. `any:` is an explicit spelling of the
+  existing any-match, which every bare form (single name, comma-separated
+  string, YAML list, `"*"`) keeps by default. The map values take those same
+  flat forms, `versions:` applies per member under `all:`, and the form is
+  accepted everywhere `gem:` is — gem-wide defaults, `skills:`/`guidelines:`
+  entries, and per-file `conditional:` entries. A `"*"` inside `all:` is
+  always satisfied, so it is dropped with a warning; a malformed map takes the
+  usual fail-open path (warn, install ungated).
 - Companion manifests can version-fence artifacts against the running
   rails-hyperdrive with a `hyperdrive_version:` requirement, valid gem-wide at
   the manifest top level and per `skills:`/`guidelines:` entry. It is matched

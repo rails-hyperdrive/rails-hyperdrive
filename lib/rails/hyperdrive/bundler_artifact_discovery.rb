@@ -259,9 +259,10 @@ module Rails
           return nil
         end
 
-        matched = match_targets(gate.targets, gate.versions, resolved)
+        matched = match_targets(gate.targets, gate.versions, resolved, mode: gate.match_mode)
         if matched.empty?
-          warnings << "skip #{name} (from #{source_spec.name}): #{no_match_reason(gate.targets, gate.versions, resolved)}"
+          reason = no_match_reason(gate.targets, gate.versions, resolved, mode: gate.match_mode)
+          warnings << "skip #{name} (from #{source_spec.name}): #{reason}"
           return nil
         end
 
@@ -344,9 +345,9 @@ module Rails
           return true
         end
 
-        targets = entry["gem"] && GemManifest.parse_targets(entry["gem"])
-        if targets.nil? || targets.empty?
-          warnings << "#{label}: conditional entry for '#{key}' needs gem: naming a gem, a comma-separated list, or a YAML list; installing the file"
+        parsed = entry["gem"] && GemManifest.parse_targets(entry["gem"])
+        if parsed.nil? || parsed.targets.empty?
+          warnings << "#{label}: conditional entry for '#{key}' needs gem: naming a gem, a comma-separated list, a YAML list, or an any:/all: map; installing the file"
           return true
         end
 
@@ -355,8 +356,9 @@ module Rails
           warnings << "#{label}: conditional entry for '#{key}' has an unparsable versions: requirement; installing the file"
           return true
         end
+        warnings << "#{label}: conditional entry for '#{key}' gem: #{parsed.warning}" if parsed.warning
 
-        match_targets(targets, versions, resolved).any?
+        match_targets(parsed.targets, versions, resolved, mode: parsed.match_mode).any?
       end
 
       def render_support_templates(files, skill_dir, resolved:, warnings:)
@@ -415,29 +417,54 @@ module Rails
         parts.join(", ")
       end
 
-      def match_targets(targets, versions, resolved)
+      def match_targets(targets, versions, resolved, mode: :any)
         return ["*"] if targets.include?("*")
 
-        targets.select do |t|
+        matched = targets.select do |t|
           version = resolved[t]
           version && version_satisfied?(versions, t, version)
         end
+        return matched unless mode == :all
+        matched.size == targets.size ? matched : []
       end
 
       def version_satisfied?(versions, target, version)
-        requirement = versions.is_a?(Hash) ? versions[target] : versions
+        requirement = requirement_for(versions, target)
         requirement.nil? || SkillTemplate.version_matches?(requirement, version)
       end
 
-      def no_match_reason(targets, versions, resolved)
+      def requirement_for(versions, target)
+        versions.is_a?(Hash) ? versions[target] : versions
+      end
+
+      def no_match_reason(targets, versions, resolved, mode: :any)
+        return all_no_match_reason(targets, versions, resolved) if mode == :all
+
         present = targets.select { |t| resolved.key?(t) }
         if present.empty?
           label = targets.size == 1 ? "target gem" : "target gems"
           "#{label} '#{targets.join(", ")}' not in bundle"
         else
-          present.map { |t| "#{t} #{resolved[t]} does not satisfy '#{versions.is_a?(Hash) ? versions[t] : versions}'" }
-                 .join("; ")
+          present.map { |t| unsatisfied_reason(t, versions, resolved) }.join("; ")
         end
+      end
+
+      def all_no_match_reason(targets, versions, resolved)
+        present, missing = targets.partition { |t| resolved.key?(t) }
+        reasons = []
+        unless missing.empty?
+          label = missing.size == 1 ? "required target gem" : "required target gems"
+          reasons << "#{label} '#{missing.join(", ")}' not in bundle"
+        end
+        present.each do |t|
+          next if version_satisfied?(versions, t, resolved[t])
+          reasons << unsatisfied_reason(t, versions, resolved)
+        end
+        reasons.join("; ")
+      end
+
+      def unsatisfied_reason(target, versions, resolved)
+        "#{target} #{resolved[target]} does not satisfy '#{requirement_for(versions, target)}'"
       end
 
       def safe_bundler_specs
@@ -455,7 +482,8 @@ module Rails
                            :conditional_satisfied?,
                            :render_support_templates, :erb_template?,
                            :unmet_fence, :match_targets,
-                           :version_satisfied?, :no_match_reason, :safe_bundler_specs
+                           :version_satisfied?, :requirement_for, :no_match_reason,
+                           :all_no_match_reason, :unsatisfied_reason, :safe_bundler_specs
     end
   end
 end
