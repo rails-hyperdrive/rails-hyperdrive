@@ -81,8 +81,7 @@ Dir.chdir(dest) do
   if run_init
     hyperdrive_flags = ["--yes", *extra_hyperdrive_flags]
     puts "playground: bin/rails hyperdrive:init #{hyperdrive_flags.join(" ")}"
-    # `--` separator stops Rails' own command runner from eating our flags.
-    system(child_env, "bundle", "exec", "bin/rails", "hyperdrive:init", "--", *hyperdrive_flags) or die("hyperdrive:init failed")
+    system(child_env, "bundle", "exec", "bin/rails", "hyperdrive:init", *hyperdrive_flags) or die("hyperdrive:init failed")
   end
 end
 
