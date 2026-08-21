@@ -17,7 +17,7 @@ RSpec.describe "hyperdrive:init smoke", :smoke do
 
         expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
 
-        # The banner prints once per task run, so a count > 1 means rake loaded the task twice.
+        # The banner prints once per run, so a count > 1 means the generator was invoked twice.
         expect(out.scan("hyperdrive initialized").length).to eq(1), "hyperdrive:init ran more than once:\n#{out}"
 
         expect(File.exist?(File.join(app_dir, ".mcp.json"))).to be(true)
@@ -52,6 +52,23 @@ RSpec.describe "hyperdrive:init smoke", :smoke do
         routes = File.read(File.join(app_dir, "config/routes.rb"))
         expect(routes).not_to include("Rails::Hyperdrive::Engine")
       end
+    end
+  end
+
+  context "with a flag behind the legacy `--` separator" do
+    let(:app_dir) { Smoke.copy_fixture("minimal") }
+
+    before do
+      Smoke.add_path_gem!(app_dir)
+      Smoke.bundle_install!(app_dir)
+      out, status = Smoke.run_hyperdrive_init!(app_dir)
+      raise "hyperdrive:init failed:\n#{out}" unless status.success?
+    end
+
+    it "reaches the generator" do
+      out, status = Smoke.run_hyperdrive_sync!(app_dir, "--", "--dry-run")
+      expect(status.success?).to be(true), "hyperdrive:sync failed:\n#{out}"
+      expect(out).to include("hyperdrive synced")
     end
   end
 end

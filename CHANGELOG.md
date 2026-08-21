@@ -20,6 +20,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   always satisfied, so it is dropped with a warning; a malformed map takes the
   usual fail-open path (warn, install ungated).
 
+### Changed
+
+- `hyperdrive:init`, `hyperdrive:sync`, and `hyperdrive:discover` are Rails
+  commands rather than rake tasks, so their flags now work bare —
+  `bin/rails hyperdrive:sync --merge` instead of
+  `bin/rails hyperdrive:sync -- --merge` — and
+  `bin/rails hyperdrive:sync --help` prints usage. The `-- --flag` form keeps
+  working, so existing scripts and docs need no change.
+
+### Removed
+
+- **BREAKING:** the `hyperdrive:*` rake tasks. `bundle exec rake hyperdrive:init`
+  (and `:sync` / `:discover`) is no longer available, and the tasks no longer
+  appear in `bin/rails -T`. Use `bin/rails hyperdrive:<command>`, which is
+  unchanged.
+
 ## [0.6.0] - 2026-08-17
 
 ### Changed
