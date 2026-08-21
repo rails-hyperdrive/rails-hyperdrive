@@ -15,7 +15,8 @@ module Rails
       UNGATED = ["*"].freeze
       MATCH_MODES = %w[any all].freeze
 
-      Gate = Struct.new(:targets, :versions, :conditional, :match_mode, keyword_init: true)
+      Gate = Struct.new(:targets, :versions, :hyperdrive_version, :conditional, :match_mode,
+        keyword_init: true)
 
       # `warning`, when set, is phrased for the caller to prefix with its own
       # context — the parser has no idea which entry it is reading.
@@ -47,14 +48,24 @@ module Rails
         def malformed_requirements?(versions)
           requirements = versions.is_a?(Hash) ? versions.values : [versions]
           requirements.compact.any? do |req|
-            parts = Array(req).flat_map { |s| s.is_a?(String) ? s.split(",").map(&:strip) : s }
             begin
-              Gem::Requirement.new(*parts)
+              Gem::Requirement.new(*requirement_parts(req))
               false
             rescue ArgumentError
               true
             end
           end
+        end
+
+        # The fence names one requirement against a single version, so the
+        # per-gem map form versions: accepts is meaningless here.
+        def malformed_fence?(value)
+          return true if value.is_a?(Hash)
+          malformed_requirements?(value)
+        end
+
+        def requirement_parts(req)
+          Array(req).flat_map { |s| s.is_a?(String) ? s.split(",").map(&:strip) : s }
         end
 
         private
@@ -96,7 +107,7 @@ module Rails
         root = load_root
         @skills = section(root, "skills", "skill relpath")
         @guidelines = section(root, "guidelines", "guideline filename")
-        @default_spec, @default_versions = defaults(root)
+        @default_spec, @default_versions, @default_fence = defaults(root)
       end
 
       def skill_gate(rel)
@@ -167,26 +178,28 @@ module Rails
       def defaults(root)
         parsed = root.key?("gem") ? self.class.parse_targets(root["gem"]) : nil
         bad_targets = root.key?("gem") && (parsed.nil? || parsed.targets.empty?)
-        if bad_targets || self.class.malformed_requirements?(root["versions"])
-          report("manifest top-level gem:/versions: defaults are unusable; ignoring them")
-          return [nil, nil]
+        if bad_targets || self.class.malformed_requirements?(root["versions"]) ||
+           self.class.malformed_fence?(root["hyperdrive_version"])
+          report("manifest top-level gem:/versions:/hyperdrive_version: defaults are unusable; ignoring them")
+          return [nil, nil, nil]
         end
         report("manifest top-level gem: #{parsed.warning}") if parsed&.warning
-        [parsed, root["versions"]]
+        [parsed, root["versions"], root["hyperdrive_version"]]
       end
 
       def default_gate
-        build_gate(@default_spec, versions: @default_versions)
+        build_gate(@default_spec, versions: @default_versions, hyperdrive_version: @default_fence)
       end
 
       def ungated
         build_gate(nil)
       end
 
-      def build_gate(target_spec, versions: nil, conditional: nil)
+      def build_gate(target_spec, versions: nil, hyperdrive_version: nil, conditional: nil)
         Gate.new(
           targets: target_spec ? target_spec.targets : UNGATED,
           versions: versions,
+          hyperdrive_version: hyperdrive_version,
           conditional: conditional,
           match_mode: target_spec ? target_spec.match_mode : :any
         )
@@ -211,11 +224,16 @@ module Rails
           report("manifest entry for '#{key}' has an unparsable versions: requirement; installing ungated")
           return ungated
         end
+        if self.class.malformed_fence?(entry["hyperdrive_version"])
+          report("manifest entry for '#{key}' has an unparsable hyperdrive_version: requirement; installing ungated")
+          return ungated
+        end
         report("manifest entry for '#{key}' gem: #{parsed.warning}") if parsed&.warning
 
         build_gate(
           parsed || @default_spec,
           versions: entry.key?("versions") ? entry["versions"] : @default_versions,
+          hyperdrive_version: entry.key?("hyperdrive_version") ? entry["hyperdrive_version"] : @default_fence,
           conditional: with_conditional ? entry["conditional"] : nil
         )
       end

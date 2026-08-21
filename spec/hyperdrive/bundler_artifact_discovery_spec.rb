@@ -1403,8 +1403,151 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       write("hyperdrive.yml", "gem: [nested_list_entry, [oops]]\nversions: \">= 1.0\"\n")
 
       results, warnings = discover
-      expect(warnings.grep(/top-level gem:\/versions: defaults are unusable/).size).to eq(1)
+      expect(warnings.grep(%r{top-level gem:/versions:/hyperdrive_version: defaults are unusable}).size).to eq(1)
       expect(results.first.target_gem).to eq(["*"])
+    end
+
+    describe "hyperdrive_version: fence" do
+      def discover_fenced(*extra_specs)
+        warnings = []
+        fence_warnings = []
+        results = described_class.discover(specs: [spec, *extra_specs], warnings: warnings,
+          fence_warnings: fence_warnings)
+        [results, warnings, fence_warnings]
+      end
+
+      before { stub_const("Rails::Hyperdrive::VERSION", "0.6.0") }
+
+      it "discovers an artifact whose fence the running installer satisfies" do
+        write_skill("a")
+        write_guideline("g")
+        write("hyperdrive.yml", "hyperdrive_version: \">= 0.1\"\n")
+
+        results, warnings, fence_warnings = discover_fenced
+        expect(results.map(&:name)).to contain_exactly("a", "g")
+        expect(warnings).to be_empty
+        expect(fence_warnings).to be_empty
+      end
+
+      it "skips a fenced-out skill with an actionable upgrade warning" do
+        write_skill("a")
+        write("hyperdrive.yml", "hyperdrive_version: \">= 99\"\n")
+
+        results, warnings, fence_warnings = discover_fenced
+        expect(results).to be_empty
+        expect(warnings).to eq(
+          ["skill 'a' (from source_gem) requires rails-hyperdrive >= 99 (this is 0.6.0); " \
+           "upgrade rails-hyperdrive to install it"]
+        )
+        expect(fence_warnings).to eq(warnings)
+      end
+
+      it "labels a fenced-out guideline by its own artifact type" do
+        write_guideline("g")
+        write("hyperdrive.yml", "guidelines:\n  g.md:\n    hyperdrive_version: \">= 99\"\n")
+
+        results, _warnings, fence_warnings = discover_fenced
+        expect(results).to be_empty
+        expect(fence_warnings.first).to start_with("guideline 'g' (from source_gem) requires rails-hyperdrive >= 99")
+      end
+
+      it "renders a multi-part requirement as written, listed or comma-separated" do
+        write_skill("a")
+        write_skill("b")
+        write("hyperdrive.yml", <<~YAML)
+          skills:
+            a:
+              hyperdrive_version: [">= 0.1", "< 0.5"]
+            b:
+              hyperdrive_version: ">= 0.1, < 0.5"
+        YAML
+
+        results, _warnings, fence_warnings = discover_fenced
+        expect(results).to be_empty
+        expect(fence_warnings.size).to eq(2)
+        expect(fence_warnings).to all(include("requires rails-hyperdrive >= 0.1, < 0.5 (this is 0.6.0)"))
+      end
+
+      it "lets a satisfied per-entry fence override an unsatisfied default" do
+        write_skill("a")
+        write_skill("b")
+        write("hyperdrive.yml", "hyperdrive_version: \">= 99\"\nskills:\n  a:\n    hyperdrive_version: \">= 0\"\n")
+
+        results, _warnings, fence_warnings = discover_fenced
+        expect(results.map(&:name)).to eq(["a"])
+        expect(fence_warnings.map { |w| w[/'\w+'/] }).to eq(["'b'"])
+      end
+
+      it "lets an unsatisfied per-entry fence override a satisfied default" do
+        write_skill("a")
+        write_skill("b")
+        write("hyperdrive.yml", "hyperdrive_version: \">= 0.1\"\nskills:\n  a:\n    hyperdrive_version: \">= 99\"\n")
+
+        results, _warnings, fence_warnings = discover_fenced
+        expect(results.map(&:name)).to eq(["b"])
+        expect(fence_warnings.map { |w| w[/'\w+'/] }).to eq(["'a'"])
+      end
+
+      it "reports only the fence when the target gem would also miss" do
+        write_skill("a")
+        write("hyperdrive.yml", "gem: absent_gem\nhyperdrive_version: \">= 99\"\n")
+
+        results, warnings, = discover_fenced
+        expect(results).to be_empty
+        expect(warnings.size).to eq(1)
+        expect(warnings.first).to include("requires rails-hyperdrive >= 99")
+      end
+
+      it "keeps an ordinary target-gem miss out of the fence collector" do
+        write_skill("a")
+        write("hyperdrive.yml", "gem: absent_gem\n")
+
+        results, warnings, fence_warnings = discover_fenced
+        expect(results).to be_empty
+        expect(warnings.join).to include("target gem 'absent_gem' not in bundle")
+        expect(fence_warnings).to be_empty
+      end
+
+      it "installs unfenced and ungated on a malformed top-level fence" do
+        write_skill("a")
+        write("hyperdrive.yml", "gem: sidekiq\nhyperdrive_version: garbage\n")
+
+        results, warnings, fence_warnings = discover_fenced
+        expect(results.first.target_gem).to eq(["*"])
+        expect(warnings.grep(%r{top-level gem:/versions:/hyperdrive_version: defaults are unusable}).size).to eq(1)
+        expect(fence_warnings).to be_empty
+      end
+
+      it "installs unfenced and ungated on a malformed per-entry fence" do
+        write_skill("a")
+        write("hyperdrive.yml", "gem: absent_gem\nskills:\n  a:\n    hyperdrive_version: garbage\n")
+
+        results, warnings, fence_warnings = discover_fenced
+        expect(results.first.target_gem).to eq(["*"])
+        expect(warnings.grep(/unparsable hyperdrive_version:/).size).to eq(1)
+        expect(fence_warnings).to be_empty
+      end
+
+      it "parses a manifest carrying only pre-fence keys with zero warnings" do
+        write_skill("a")
+        write("lib/source_gem/hyperdrive/skills/a/x.md", "x")
+        write_guideline("g")
+        write("hyperdrive.yml", <<~YAML)
+          gem: sidekiq
+          versions: ">= 7.0"
+          skills:
+            a:
+              conditional:
+                x.md: { gem: sidekiq }
+          guidelines:
+            g.md:
+              gem: sidekiq
+        YAML
+
+        _results, warnings, fence_warnings = discover_fenced(sidekiq)
+        expect(warnings).to be_empty
+        expect(fence_warnings).to be_empty
+      end
     end
 
     it "honors a rails_hyperdrive_manifest metadata path" do

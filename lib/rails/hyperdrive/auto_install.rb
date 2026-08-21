@@ -13,7 +13,8 @@ module Rails
     module AutoInstall
       DEVELOPMENT = "development".freeze
 
-      Result = Struct.new(:installed, :outdated, :orphaned, :unwired, :skipped, :error, keyword_init: true) do
+      Result = Struct.new(:installed, :outdated, :orphaned, :unwired, :fence_warnings, :skipped, :error,
+        keyword_init: true) do
         def ran?
           skipped.nil?
         end
@@ -35,6 +36,7 @@ module Rails
             lines << "#{stale.size} artifact(s) need attention — run bin/rails hyperdrive:sync"
             stale.each { |entry| lines << "  #{entry}" }
           end
+          Array(fence_warnings).each { |warning| lines << warning }
           lines
         end
       end
@@ -48,7 +50,8 @@ module Rails
         return skip(:not_initialized) unless File.exist?(File.join(root, InstallLayout::LOCK_PATH))
 
         enabled = LockFile.load(File.join(root, InstallLayout::LOCK_PATH)).enabled_gems
-        artifacts = BundlerArtifactDiscovery.discover(enabled_gems: enabled)
+        fence_warnings = []
+        artifacts = BundlerArtifactDiscovery.discover(enabled_gems: enabled, fence_warnings: fence_warnings)
         status = ArtifactStatus.compare(root: root, artifacts: artifacts)
 
         installed = []
@@ -68,7 +71,8 @@ module Rails
           unwired = pipeline.lock.claude_md_state.nil? && (installed & pipeline.lock.guideline_paths).any?
         end
 
-        Result.new(installed: installed, outdated: status.outdated, orphaned: status.orphaned, unwired: unwired)
+        Result.new(installed: installed, outdated: status.outdated, orphaned: status.orphaned,
+          unwired: unwired, fence_warnings: fence_warnings)
       rescue StandardError => e
         skip(:error, e)
       end
@@ -93,7 +97,7 @@ module Rails
       end
 
       def skip(reason, error = nil)
-        Result.new(installed: [], outdated: [], orphaned: [], skipped: reason, error: error)
+        Result.new(installed: [], outdated: [], orphaned: [], fence_warnings: [], skipped: reason, error: error)
       end
     end
   end

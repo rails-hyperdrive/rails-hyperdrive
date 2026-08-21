@@ -205,12 +205,15 @@ versions: ">= 7.0, < 9.0"   # gem-wide default: Gem::Requirement matched against
 skills:                     # per-skill overrides, keyed by skill dir relative to its skills root
   jobs-sidekiq:
     versions: ">= 8.0"
+    hyperdrive_version: ">= 0.7"   # require a minimum rails-hyperdrive for this artifact
 guidelines:                 # per-guideline overrides, keyed by filename
   jobs.md:
     gem: sidekiq
 ```
 
 A `gem:` naming several targets can be written as a map with one of `any:`/`all:` — `gem: {any: [sidekiq, solid_queue]}` installs when either is bundled, `gem: {all: [devise, pundit]}` only when both are. A bare list is shorthand for `any:`.
+
+`hyperdrive_version:` is valid at the top level too, and is matched against the running rails-hyperdrive rather than the bundle — the sanctioned way to fence content that needs a newer installer.
 
 Shipping a `hyperdrive.yml` (or declaring `rails_hyperdrive_manifest`) opts your gem in as a companion. Also declare your targets in gemspec metadata. That opts your gem in too, and it is the pre-install targeting signal (how `hyperdrive:discover` suggests you before anyone installs you):
 

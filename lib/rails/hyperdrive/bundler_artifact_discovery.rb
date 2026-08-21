@@ -2,6 +2,7 @@ require "yaml"
 require "bundler"
 require "rails/hyperdrive/gem_manifest"
 require "rails/hyperdrive/skill_template"
+require "rails/hyperdrive/version"
 
 module Rails
   module Hyperdrive
@@ -36,8 +37,9 @@ module Rails
       # Non-fatal problems are appended to `warnings` and the artifact is
       # dropped; discovery never raises. A gem that has not opted in as a
       # companion is never scanned — its skills.sh content is only reported
-      # through `notices`.
-      def discover(specs: nil, warnings: [], enabled_gems: [], notices: [])
+      # through `notices`. Version-fence skips go to `warnings` as well as to
+      # `fence_warnings`, which carries them to surfaces that print nothing else.
+      def discover(specs: nil, warnings: [], enabled_gems: [], notices: [], fence_warnings: [])
         specs ||= safe_bundler_specs
         enabled = Array(enabled_gems).map(&:to_s)
         resolved = specs.each_with_object({}) { |s, h| h[s.name.to_s] = s.version }
@@ -54,7 +56,7 @@ module Rails
             seen[type] << key
             gate = type == :skill ? manifest.skill_gate(key) : manifest.guideline_gate(key)
             artifact = parse(path, source_spec: spec, type: type, resolved: resolved,
-              warnings: warnings, support_root: support_root, gate: gate)
+              warnings: warnings, fence_warnings: fence_warnings, support_root: support_root, gate: gate)
             candidates << artifact if artifact
           end
           warn_unknown_manifest_keys(manifest, spec, seen, warnings)
@@ -219,7 +221,7 @@ module Rails
 
       # Frontmatter's schema is exactly name and description; any other key is
       # unknown to the parser and rides untouched in the installed body.
-      def parse(path, source_spec:, type:, resolved:, warnings:, gate:, support_root: nil)
+      def parse(path, source_spec:, type:, resolved:, warnings:, gate:, fence_warnings: [], support_root: nil)
         support_root ||= File.dirname(path)
         body = File.read(path)
         if erb_template?(path)
@@ -244,6 +246,16 @@ module Rails
 
         unless name && description
           warnings << "skip #{path}: missing a required field (name, description)"
+          return nil
+        end
+
+        # The fence is decided before the bundle gate so a fenced-out artifact
+        # reports the one thing the user can act on.
+        if (required = unmet_fence(gate))
+          message = "#{type} '#{name}' (from #{source_spec.name}) requires rails-hyperdrive #{required} " \
+                    "(this is #{Rails::Hyperdrive::VERSION}); upgrade rails-hyperdrive to install it"
+          warnings << message
+          fence_warnings << message
           return nil
         end
 
@@ -393,6 +405,18 @@ module Rails
         [lines[1...absolute_closing].join, lines[(absolute_closing + 1)..].join]
       end
 
+      # Compares against the running installer's own version rather than the
+      # bundle, so content depending on an installer feature stays out of apps
+      # whose rails-hyperdrive cannot honor it. Returns the unmet requirement
+      # for the warning, or nil when the fence is absent or satisfied.
+      def unmet_fence(gate)
+        return nil if gate.hyperdrive_version.nil?
+
+        parts = GemManifest.requirement_parts(gate.hyperdrive_version)
+        return nil if Gem::Requirement.new(*parts).satisfied_by?(Gem::Version.new(Rails::Hyperdrive::VERSION))
+        parts.join(", ")
+      end
+
       def match_targets(targets, versions, resolved, mode: :any)
         return ["*"] if targets.include?("*")
 
@@ -457,7 +481,7 @@ module Rails
                            :conditioned_support_files, :apply_conditional_filter,
                            :conditional_satisfied?,
                            :render_support_templates, :erb_template?,
-                           :match_targets,
+                           :unmet_fence, :match_targets,
                            :version_satisfied?, :requirement_for, :no_match_reason,
                            :all_no_match_reason, :unsatisfied_reason, :safe_bundler_specs
     end
