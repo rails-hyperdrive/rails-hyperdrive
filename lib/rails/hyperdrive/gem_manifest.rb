@@ -13,8 +13,13 @@ module Rails
       METADATA_KEY = "rails_hyperdrive_manifest"
 
       UNGATED = ["*"].freeze
+      MATCH_MODES = %w[any all].freeze
 
-      Gate = Struct.new(:targets, :versions, :conditional, keyword_init: true)
+      Gate = Struct.new(:targets, :versions, :conditional, :match_mode, keyword_init: true)
+
+      # `warning`, when set, is phrased for the caller to prefix with its own
+      # context — the parser has no idea which entry it is reading.
+      TargetSpec = Struct.new(:targets, :match_mode, :warning, keyword_init: true)
 
       class << self
         def load(spec, warnings: [])
@@ -31,10 +36,11 @@ module Rails
           !raw.to_s.strip.empty?
         end
 
+        # nil signals malformed; the caller decides how to fail open.
         def parse_targets(raw)
-          entries = raw.is_a?(Array) ? raw : [raw]
-          return nil if entries.any? { |e| e.nil? || e.is_a?(Array) || e.is_a?(Hash) }
-          entries.flat_map { |e| e.to_s.split(",") }.map(&:strip).reject(&:empty?)
+          return parse_target_map(raw) if raw.is_a?(Hash)
+          names = parse_target_names(raw)
+          names && TargetSpec.new(targets: names, match_mode: :any)
         end
 
         # versions: is optional everywhere; nil means unconstrained.
@@ -50,6 +56,38 @@ module Rails
             end
           end
         end
+
+        private
+
+        def parse_target_names(raw)
+          entries = raw.is_a?(Array) ? raw : [raw]
+          return nil if entries.any? { |e| e.nil? || e.is_a?(Array) || e.is_a?(Hash) }
+          entries.flat_map { |e| e.to_s.split(",") }.map(&:strip).reject(&:empty?)
+        end
+
+        def parse_target_map(raw)
+          keys = raw.keys.map(&:to_s)
+          return nil unless keys.size == 1 && MATCH_MODES.include?(keys.first)
+
+          names = parse_target_names(raw.values.first)
+          return nil if names.nil?
+          return TargetSpec.new(targets: names, match_mode: :any) if keys.first == "any"
+
+          all_target_spec(names)
+        end
+
+        # "*" is satisfied by definition, so dropping it leaves the remaining
+        # targets gating; a list of nothing else has no targets left to gate on.
+        def all_target_spec(names)
+          kept = names.reject { |n| n == "*" }
+          return TargetSpec.new(targets: names, match_mode: :all) if kept.size == names.size
+
+          TargetSpec.new(
+            targets: kept.empty? ? UNGATED : kept,
+            match_mode: :all,
+            warning: "'*' in all: is always satisfied; ignoring it"
+          )
+        end
       end
 
       def initialize(spec, warnings:)
@@ -58,7 +96,7 @@ module Rails
         root = load_root
         @skills = section(root, "skills", "skill relpath")
         @guidelines = section(root, "guidelines", "guideline filename")
-        @default_targets, @default_versions = defaults(root)
+        @default_spec, @default_versions = defaults(root)
       end
 
       def skill_gate(rel)
@@ -127,21 +165,31 @@ module Rails
       end
 
       def defaults(root)
-        targets = root.key?("gem") ? self.class.parse_targets(root["gem"]) : nil
-        bad_targets = root.key?("gem") && (targets.nil? || targets.empty?)
+        parsed = root.key?("gem") ? self.class.parse_targets(root["gem"]) : nil
+        bad_targets = root.key?("gem") && (parsed.nil? || parsed.targets.empty?)
         if bad_targets || self.class.malformed_requirements?(root["versions"])
           report("manifest top-level gem:/versions: defaults are unusable; ignoring them")
           return [nil, nil]
         end
-        [targets, root["versions"]]
+        report("manifest top-level gem: #{parsed.warning}") if parsed&.warning
+        [parsed, root["versions"]]
       end
 
       def default_gate
-        Gate.new(targets: @default_targets || UNGATED, versions: @default_versions, conditional: nil)
+        build_gate(@default_spec, versions: @default_versions)
       end
 
       def ungated
-        Gate.new(targets: UNGATED, versions: nil, conditional: nil)
+        build_gate(nil)
+      end
+
+      def build_gate(target_spec, versions: nil, conditional: nil)
+        Gate.new(
+          targets: target_spec ? target_spec.targets : UNGATED,
+          versions: versions,
+          conditional: conditional,
+          match_mode: target_spec ? target_spec.match_mode : :any
+        )
       end
 
       # A malformed entry drops the gem-wide defaults too: gating that cannot
@@ -153,19 +201,20 @@ module Rails
         end
 
         entry = entry.transform_keys(&:to_s)
-        targets = entry.key?("gem") ? self.class.parse_targets(entry["gem"]) : nil
-        if entry.key?("gem") && (targets.nil? || targets.empty?)
+        parsed = entry.key?("gem") ? self.class.parse_targets(entry["gem"]) : nil
+        if entry.key?("gem") && (parsed.nil? || parsed.targets.empty?)
           report("manifest entry for '#{key}': gem: must name a gem, a comma-separated list, " \
-                 "or a YAML list; installing ungated")
+                 "a YAML list, or an any:/all: map; installing ungated")
           return ungated
         end
         if self.class.malformed_requirements?(entry["versions"])
           report("manifest entry for '#{key}' has an unparsable versions: requirement; installing ungated")
           return ungated
         end
+        report("manifest entry for '#{key}' gem: #{parsed.warning}") if parsed&.warning
 
-        Gate.new(
-          targets: targets || @default_targets || UNGATED,
+        build_gate(
+          parsed || @default_spec,
           versions: entry.key?("versions") ? entry["versions"] : @default_versions,
           conditional: with_conditional ? entry["conditional"] : nil
         )

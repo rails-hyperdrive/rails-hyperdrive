@@ -210,6 +210,8 @@ guidelines:                 # per-guideline overrides, keyed by filename
     gem: sidekiq
 ```
 
+A `gem:` naming several targets can be written as a map with one of `any:`/`all:` — `gem: {any: [sidekiq, solid_queue]}` installs when either is bundled, `gem: {all: [devise, pundit]}` only when both are. A bare list is shorthand for `any:`.
+
 Shipping a `hyperdrive.yml` (or declaring `rails_hyperdrive_manifest`) opts your gem in as a companion. Also declare your targets in gemspec metadata. That opts your gem in too, and it is the pre-install targeting signal (how `hyperdrive:discover` suggests you before anyone installs you):
 
 ```ruby

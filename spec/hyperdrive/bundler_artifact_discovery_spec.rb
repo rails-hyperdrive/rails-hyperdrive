@@ -246,6 +246,46 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         expect(paths(skill)).to include("references/extra.md")
       end
 
+      it "gates a file in and out with the all: map form" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              gem:
+                all: [sidekiq, solid_queue]
+        YAML
+        skill, warnings = discover(sidekiq)
+        expect(warnings).to be_empty
+        expect(paths(skill)).to be_empty
+
+        skill, = discover(sidekiq, solid)
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "fails open on a malformed gem: map" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              gem:
+                any: [sidekiq]
+                all: [solid_queue]
+        YAML
+        skill, warnings = discover
+        expect(warnings.join).to include("or an any:/all: map")
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "warns about and drops a \"*\" member of all:" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              gem:
+                all: [sidekiq, "*"]
+        YAML
+        skill, warnings = discover
+        expect(warnings.join).to include("'*' in all: is always satisfied")
+        expect(paths(skill)).to be_empty
+      end
+
       it "warns about and ignores a SKILL.md key" do
         write_skill(<<~YAML)
           conditional:
@@ -931,6 +971,93 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       write_skill("jobs", "gem:\n  - sidekiq\n  - [nested]\nversions: \">= 0\"\n")
       results, warnings = discover(sidekiq)
       expect(warnings.join).to include("gem: must name a gem")
+      expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "treats an any: map as the equivalent bare list" do
+      write_skill("jobs", "gem:\n  any: [sidekiq, solid_queue]\nversions: \">= 0\"\n")
+      results, warnings = discover(solid)
+      expect(warnings).to be_empty
+      expect(results.first.target_gem).to eq(["solid_queue"])
+    end
+
+    it "is universal when \"*\" appears in an any: map" do
+      write_skill("jobs", "gem:\n  any: [sidekiq, \"*\"]\nversions: \">= 99\"\n")
+      results, warnings = discover
+      expect(warnings).to be_empty
+      expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "installs under all: only when every target is bundled, reporting them all" do
+      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions: \">= 0\"\n")
+      results, warnings = discover(sidekiq, solid)
+      expect(warnings).to be_empty
+      expect(results.first.target_gem).to eq(%w[sidekiq solid_queue])
+    end
+
+    it "accepts the comma-separated string form inside all:" do
+      write_skill("jobs", "gem:\n  all: \"sidekiq, solid_queue\"\nversions: \">= 0\"\n")
+      results, = discover(sidekiq, solid)
+      expect(results.first.target_gem).to eq(%w[sidekiq solid_queue])
+    end
+
+    it "skips under all: when a required target is missing from the bundle" do
+      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions: \">= 0\"\n")
+      results, warnings = discover(sidekiq)
+      expect(results).to be_empty
+      expect(warnings.join).to include("required target gem 'solid_queue' not in bundle")
+    end
+
+    it "names every missing target when several are absent" do
+      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions: \">= 0\"\n")
+      results, warnings = discover
+      expect(results).to be_empty
+      expect(warnings.join).to include("required target gems 'sidekiq, solid_queue' not in bundle")
+    end
+
+    it "skips under all: when a bundled target fails its version constraint" do
+      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions: \">= 2.0\"\n")
+      results, warnings = discover(sidekiq, solid)
+      expect(results).to be_empty
+      expect(warnings.join).to include("solid_queue 1.1.0 does not satisfy '>= 2.0'")
+    end
+
+    it "reports missing and version-failing targets together" do
+      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions:\n  sidekiq: \">= 99\"\n")
+      results, warnings = discover(sidekiq)
+      expect(results).to be_empty
+      expect(warnings.join).to include("required target gem 'solid_queue' not in bundle")
+      expect(warnings.join).to include("sidekiq 7.3.0 does not satisfy '>= 99'")
+    end
+
+    it "constrains each all: member independently, leaving omitted ones unconstrained" do
+      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions:\n  sidekiq: \">= 7.0\"\n")
+      results, warnings = discover(sidekiq, solid)
+      expect(warnings).to be_empty
+      expect(results.first.target_gem).to eq(%w[sidekiq solid_queue])
+    end
+
+    it "warns about a \"*\" member of all: without un-gating the rest" do
+      write_skill("jobs", "gem:\n  all: [sidekiq, \"*\"]\nversions: \">= 0\"\n")
+      results, warnings = discover
+      expect(warnings.join).to include("'*' in all: is always satisfied")
+      expect(results).to be_empty
+
+      results, = discover(sidekiq)
+      expect(results.first.target_gem).to eq(["sidekiq"])
+    end
+
+    it "installs universally when all: names nothing but \"*\"" do
+      write_skill("jobs", "gem:\n  all: [\"*\"]\nversions: \">= 99\"\n")
+      results, warnings = discover
+      expect(warnings.join).to include("'*' in all: is always satisfied")
+      expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "installs ungated on a malformed gem: map" do
+      write_skill("jobs", "gem:\n  neither: [sidekiq]\nversions: \">= 0\"\n")
+      results, warnings = discover
+      expect(warnings.join).to include("a YAML list, or an any:/all: map")
       expect(results.first.target_gem).to eq(["*"])
     end
   end

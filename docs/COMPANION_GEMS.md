@@ -62,7 +62,8 @@ A plain skills.sh SKILL.md installs with zero warnings, and an adopted skill rep
 Gating (which bundles an artifact installs into) is declared in a `hyperdrive.yml` at the gem root, or at the path named by a `rails_hyperdrive_manifest` gemspec metadata key (relative to the gem root; a value containing `..` segments, or a blank value, falls back to the conventional path). Every key is optional, and no manifest (or an empty one) means every artifact installs universally:
 
 ```yaml
-gem: railties            # gem-wide default TARGET gem(s): string, comma-separated string, or YAML list; "*" universal
+gem: railties            # gem-wide default TARGET gem(s): string, comma-separated string, YAML list, or an
+                         # any:/all: map (see Multiple targets); "*" universal
 versions: ">= 7.2"       # gem-wide default Gem::Requirement: one string, a list, or a map keyed by gem name
 skills:                  # per-skill entries, keyed by the skill dir's path relative to its skills root
   layered-rails:
@@ -89,16 +90,29 @@ Entries are keyed by path, never by the skill's `name:`: a skill entry's key is 
 
 ### Multiple targets
 
-One artifact can cover several interchangeable libraries: write `gem:` as a comma-separated string or a YAML list, and it installs when **any** listed target is bundled at a satisfying version. `"*"` anywhere in the list makes the artifact universal. Give `versions:` a map keyed by gem name when the targets do not share a version cycle; targets the map omits are unconstrained.
+One artifact can cover several libraries. Write `gem:` as a map with exactly one of `any:` or `all:` — the recommended spelling once more than one target is involved, because it states the intent in the manifest:
 
 ```yaml
 skills:
   jobs-conventions:
-    gem: [sidekiq, solid_queue, good_job]
+    gem:
+      any: [sidekiq, solid_queue, good_job]   # installs when ANY listed target is bundled
     versions:
       sidekiq: ">= 7.0"
       solid_queue: ">= 1.0"
+  authorized-devise:
+    gem:
+      all: [devise, pundit]                   # installs only when EVERY listed target is bundled
+    versions: ">= 2.0"
 ```
+
+A bare `gem:` — single name, comma-separated string, or YAML list — is shorthand for `any:`, and keeps working unchanged. The `any:`/`all:` values take those same flat forms, so `gem: {all: "devise, pundit"}` is the `gem: {all: [devise, pundit]}` spelling.
+
+`versions:` behaves identically under both modes: one requirement string covers every listed target, and a map keyed by gem name constrains each independently (targets the map omits are unconstrained). Under `all:` that applies per member — the gate fails when any member is absent from the bundle *or* present at a non-satisfying version, and the skip warning names every failing member.
+
+`"*"` anywhere in an `any:` list (or a bare list) makes the artifact universal. Under `all:` a `"*"` member is satisfied by definition and only obscures the real targets, so it is dropped with a warning: `all: [devise, "*"]` gates on `devise` alone, and `all: ["*"]` is simply universal.
+
+Malformed maps take the usual fail-open path — a map with both keys, with neither, with an unknown key, or with a value that is not a list of gem names is warned about and the artifact installs ungated.
 
 Draw the listed targets from the gem's own `hyperdrive_targets` (below): the gem-level declaration decides whether a companion is suggested at all, and an artifact naming a target the gemspec omits is unreachable for apps that have only that target.
 
@@ -108,7 +122,7 @@ A multi-file skill can condition parts of itself on the app's bundle, so one ski
 
 ### Per-file gating
 
-A `conditional:` map inside a manifest `skills:` entry gates individual supporting files. Keys are dir-relative shipped paths; values take the same `gem:`/`versions:` forms as the whole-artifact gate (single target, comma-separated string, YAML list, per-target `versions:` map, `"*"`), and the file installs when **any** listed target is bundled at a satisfying version. `versions:` is optional (omitted means unconstrained), though `gem:` is required in each entry. Files the map doesn't mention install unconditionally, and the supporting files themselves stay byte-identical to upstream; the condition lives entirely out of band.
+A `conditional:` map inside a manifest `skills:` entry gates individual supporting files. Keys are dir-relative shipped paths; values take the same `gem:`/`versions:` forms as the whole-artifact gate (single target, comma-separated string, YAML list, an `any:`/`all:` map, per-target `versions:` map, `"*"`), with the same any-match default. `versions:` is optional (omitted means unconstrained), though `gem:` is required in each entry. Files the map doesn't mention install unconditionally, and the supporting files themselves stay byte-identical to upstream; the condition lives entirely out of band.
 
 ```yaml
 skills:
@@ -196,4 +210,4 @@ spec.metadata["rails_hyperdrive_artifacts"] = "guideline,skill"  # optional; pre
 
 `rails_hyperdrive_targets` is what makes a gem discoverable: `hyperdrive:discover` searches rubygems for gems declaring it, so a companion is found by what it declares rather than by what it is named. Naming plays no part in discovery: every name is found on the same terms. Still, prefer `rails-hyperdrive-<name>`: the prefix tells a Gemfile reader the gem is agent guidance consumed by rails-hyperdrive, not runtime code.
 
-`rails_hyperdrive_targets` is a coarse pre-install hint, never reconciled against the manifest's `gem:`. It is matched against the app's `Gemfile.lock` by presence alone, ignoring versions; `versions:` constraints exist only in the manifest. Once the gem is bundled, the manifest alone governs what installs.
+`rails_hyperdrive_targets` is a coarse pre-install hint, never reconciled against the manifest's `gem:`. It is matched against the app's `Gemfile.lock` by presence alone, ignoring versions; `versions:` constraints exist only in the manifest. It is also a flat any-match list with no way to express `all:`, so a companion whose artifacts are all AND-gated is still suggested to an app holding any one of its declared targets. Once the gem is bundled, the manifest alone governs what installs.
