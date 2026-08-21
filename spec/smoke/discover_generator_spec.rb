@@ -44,7 +44,7 @@ RSpec.describe "hyperdrive:discover smoke", :smoke do
     expect(File.read(File.join(app_dir, "Gemfile"))).not_to match(/rails-hyperdrive-/)
   end
 
-  it "accepts --refresh through the rake/Thor argv plumbing" do
+  it "accepts --refresh through the command/Thor argv plumbing" do
     out, status = Smoke.run_hyperdrive_discover!(app_dir, "--refresh")
     expect(status.success?).to be(true), "hyperdrive:discover --refresh failed:\n#{out}"
     assert_healthy_or_degraded(out)

@@ -62,13 +62,11 @@ module Smoke
     end
   end
 
-  # The `--` separator is required because Rails' command runner parses
-  # `--flag` itself unless told to stop.
   def run_hyperdrive_init!(app_dir, *flags)
     Bundler.with_unbundled_env do
       Open3.capture2e(
         env_for(app_dir),
-        "bundle", "exec", "bin/rails", "hyperdrive:init", "--", *flags,
+        "bundle", "exec", "bin/rails", "hyperdrive:init", *flags,
         chdir: app_dir
       )
     end
@@ -78,7 +76,7 @@ module Smoke
     Bundler.with_unbundled_env do
       Open3.capture2e(
         env_for(app_dir),
-        "bundle", "exec", "bin/rails", "hyperdrive:sync", "--", *flags,
+        "bundle", "exec", "bin/rails", "hyperdrive:sync", *flags,
         chdir: app_dir
       )
     end
@@ -89,7 +87,7 @@ module Smoke
     Bundler.with_unbundled_env do
       Open3.capture2e(
         env_for(app_dir),
-        "bundle", "exec", "bin/rails", "hyperdrive:discover", "--", *flags,
+        "bundle", "exec", "bin/rails", "hyperdrive:discover", *flags,
         chdir: app_dir
       )
     end
