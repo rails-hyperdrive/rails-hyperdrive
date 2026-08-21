@@ -64,10 +64,12 @@ Gating (which bundles an artifact installs into) is declared in a `hyperdrive.ym
 ```yaml
 gem: railties            # gem-wide default TARGET gem(s): string, comma-separated string, or YAML list; "*" universal
 versions: ">= 7.2"       # gem-wide default Gem::Requirement: one string, a list, or a map keyed by gem name
+hyperdrive_version: ">= 0.7"   # gem-wide default fence against the INSTALLER's own version — see below
 skills:                  # per-skill entries, keyed by the skill dir's path relative to its skills root
   layered-rails:
     gem: railties
     versions: ">= 8.0"
+    hyperdrive_version: ">= 0.8"
     conditional:         # per-file supporting-file gating — see below
       references/gems/alba.md: { gem: alba }
 guidelines:              # per-guideline entries, keyed by filename (extension included)
@@ -79,12 +81,13 @@ Entries are keyed by path, never by the skill's `name:`: a skill entry's key is 
 
 - **`gem`**: the entry's own value when its key is present, else the top-level default, else `"*"` (ungated). A per-entry `gem: "*"` therefore un-gates an artifact against a gem-wide default.
 - **`versions`**: same lookup (entry, then top-level, else unconstrained), so a top-level `versions:` also applies to an entry that names a different `gem:` and omits `versions:`.
+- **`hyperdrive_version`**: same lookup (entry, then top-level, else no fence). A per-entry `hyperdrive_version: ">= 0"` therefore un-fences an artifact against a gem-wide fence.
 
 `gem:` names the **targets**: each must be present in the bundle, its resolved version matched against `versions:`. Use `railties` for "every Rails app" or `"*"` for "always applicable". A well-formed gate matching nothing in the bundle skips the artifact with a warning; that is gating working. Malformed gating, by contrast, never skips an artifact:
 
 - an unreadable or non-map manifest is warned about and treated as absent;
 - a non-map `skills:`/`guidelines:` section is warned about and ignored;
-- a malformed entry (non-map value, unusable `gem:`, unparsable `versions:`) is warned about and the artifact installs **ungated** (the gem-wide defaults are not applied either);
+- a malformed entry (non-map value, unusable `gem:`, unparsable `versions:` or `hyperdrive_version:`) is warned about and the artifact installs **ungated** (the gem-wide defaults are not applied either);
 - an entry whose key matches no shipped skill directory or guideline is warned about and ignored; this is the staleness signal when a skill dir is renamed out from under its gating.
 
 ### Multiple targets
@@ -101,6 +104,29 @@ skills:
 ```
 
 Draw the listed targets from the gem's own `hyperdrive_targets` (below): the gem-level declaration decides whether a companion is suggested at all, and an artifact naming a target the gemspec omits is unreachable for apps that have only that target.
+
+### Version-fencing against rails-hyperdrive
+
+`hyperdrive_version:` is the sanctioned way to require a minimum rails-hyperdrive for a piece of content. Write it at the top level for the whole gem, or in a `skills:`/`guidelines:` entry for one artifact, as a `Gem::Requirement`: one string (comma-separated allowed) or a YAML list of requirement strings.
+
+```yaml
+skills:
+  turbo-morph:
+    gem: [turbo-rails, hotwire-rails]
+    hyperdrive_version: ">= 0.8"
+```
+
+The fence is matched against the running installer's own version, never against the bundle. That is what makes it a separate key: `gem:` is any-match across its targets, so adding `rails-hyperdrive` to the list would read as "turbo-rails **or** rails-hyperdrive", not "turbo-rails **and** a new enough installer".
+
+An unsatisfied fence skips the artifact — gating working, exactly like a `gem:` gate matching nothing — and reports it, at `hyperdrive:init`/`hyperdrive:sync` and in `bundle install` output:
+
+```
+skill 'turbo-morph' (from rails-hyperdrive-turbo) requires rails-hyperdrive >= 0.8 (this is 0.6.0); upgrade rails-hyperdrive to install it
+```
+
+The fence is decided before `gem:`, so a fenced-out artifact reports the upgrade and nothing about its targets — including in apps that bundle none of them. Skipped means not installed, not uninstalled: a copy already on disk from an earlier release stays exactly where it is, reported as an orphan. A malformed `hyperdrive_version:` fails open like any other unreadable gating — it is warned about and the artifact installs, unfenced.
+
+Reach for the fence when content depends on an installer capability (a manifest key, a discovery behavior) rather than on a library in the app. Note what it cannot do: releases predating the key ignore it as an unknown manifest key, so it constrains only installers that understand it, and it has no effect on `hyperdrive:discover`, which is version-blind.
 
 ## Gem-conditional skill content
 

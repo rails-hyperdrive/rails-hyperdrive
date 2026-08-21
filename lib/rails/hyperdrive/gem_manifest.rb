@@ -14,7 +14,7 @@ module Rails
 
       UNGATED = ["*"].freeze
 
-      Gate = Struct.new(:targets, :versions, :conditional, keyword_init: true)
+      Gate = Struct.new(:targets, :versions, :hyperdrive_version, :conditional, keyword_init: true)
 
       class << self
         def load(spec, warnings: [])
@@ -41,14 +41,24 @@ module Rails
         def malformed_requirements?(versions)
           requirements = versions.is_a?(Hash) ? versions.values : [versions]
           requirements.compact.any? do |req|
-            parts = Array(req).flat_map { |s| s.is_a?(String) ? s.split(",").map(&:strip) : s }
             begin
-              Gem::Requirement.new(*parts)
+              Gem::Requirement.new(*requirement_parts(req))
               false
             rescue ArgumentError
               true
             end
           end
+        end
+
+        # The fence names one requirement against a single version, so the
+        # per-gem map form versions: accepts is meaningless here.
+        def malformed_fence?(value)
+          return true if value.is_a?(Hash)
+          malformed_requirements?(value)
+        end
+
+        def requirement_parts(req)
+          Array(req).flat_map { |s| s.is_a?(String) ? s.split(",").map(&:strip) : s }
         end
       end
 
@@ -58,7 +68,7 @@ module Rails
         root = load_root
         @skills = section(root, "skills", "skill relpath")
         @guidelines = section(root, "guidelines", "guideline filename")
-        @default_targets, @default_versions = defaults(root)
+        @default_targets, @default_versions, @default_fence = defaults(root)
       end
 
       def skill_gate(rel)
@@ -129,19 +139,21 @@ module Rails
       def defaults(root)
         targets = root.key?("gem") ? self.class.parse_targets(root["gem"]) : nil
         bad_targets = root.key?("gem") && (targets.nil? || targets.empty?)
-        if bad_targets || self.class.malformed_requirements?(root["versions"])
-          report("manifest top-level gem:/versions: defaults are unusable; ignoring them")
-          return [nil, nil]
+        if bad_targets || self.class.malformed_requirements?(root["versions"]) ||
+           self.class.malformed_fence?(root["hyperdrive_version"])
+          report("manifest top-level gem:/versions:/hyperdrive_version: defaults are unusable; ignoring them")
+          return [nil, nil, nil]
         end
-        [targets, root["versions"]]
+        [targets, root["versions"], root["hyperdrive_version"]]
       end
 
       def default_gate
-        Gate.new(targets: @default_targets || UNGATED, versions: @default_versions, conditional: nil)
+        Gate.new(targets: @default_targets || UNGATED, versions: @default_versions,
+          hyperdrive_version: @default_fence, conditional: nil)
       end
 
       def ungated
-        Gate.new(targets: UNGATED, versions: nil, conditional: nil)
+        Gate.new(targets: UNGATED, versions: nil, hyperdrive_version: nil, conditional: nil)
       end
 
       # A malformed entry drops the gem-wide defaults too: gating that cannot
@@ -163,10 +175,15 @@ module Rails
           report("manifest entry for '#{key}' has an unparsable versions: requirement; installing ungated")
           return ungated
         end
+        if self.class.malformed_fence?(entry["hyperdrive_version"])
+          report("manifest entry for '#{key}' has an unparsable hyperdrive_version: requirement; installing ungated")
+          return ungated
+        end
 
         Gate.new(
           targets: targets || @default_targets || UNGATED,
           versions: entry.key?("versions") ? entry["versions"] : @default_versions,
+          hyperdrive_version: entry.key?("hyperdrive_version") ? entry["hyperdrive_version"] : @default_fence,
           conditional: with_conditional ? entry["conditional"] : nil
         )
       end
