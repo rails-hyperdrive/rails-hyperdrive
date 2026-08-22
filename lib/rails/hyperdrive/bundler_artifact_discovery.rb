@@ -319,7 +319,7 @@ module Rails
       def apply_conditional_filter(files, conditional, resolved:, warnings:, label:)
         return files if conditional.nil?
         unless conditional.is_a?(Hash)
-          warnings << "#{label}: conditional: must be a map of supporting-file path to {gem:, versions:}; installing all supporting files"
+          warnings << "#{label}: conditional: must be a map of supporting-file path to a gating map; installing all supporting files"
           return files
         end
 
@@ -327,7 +327,7 @@ module Rails
         shipped = files.map { |f| f[:path] }
         conditions.each_key do |key|
           if SKILL_FILE_NAMES.include?(key)
-            warnings << "#{label}: conditional key '#{key}' ignored; the entry's own gem:/versions: gate the whole skill"
+            warnings << "#{label}: conditional key '#{key}' ignored; the entry's own gem: gates the whole skill"
           elsif !shipped.include?(key)
             warnings << "#{label}: conditional key '#{key}' names no shipped supporting file"
           end
@@ -341,24 +341,23 @@ module Rails
 
       def conditional_satisfied?(key, entry, resolved, warnings:, label:)
         unless entry.is_a?(Hash)
-          warnings << "#{label}: conditional entry for '#{key}' must be a map with gem: (and optional versions:); installing the file"
+          warnings << "#{label}: conditional entry for '#{key}' must be a map with gem:; installing the file"
           return true
         end
 
-        parsed = entry["gem"] && GemManifest.parse_targets(entry["gem"])
+        entry = entry.transform_keys(&:to_s)
+        gem_key = GemManifest.gem_key(entry)
+        warnings << "#{label}: conditional entry for '#{key}': #{gem_key.warning}" if gem_key.warning
+
+        parsed = gem_key.present ? GemManifest.parse_targets(gem_key.value) : nil
         if parsed.nil? || parsed.targets.empty?
-          warnings << "#{label}: conditional entry for '#{key}' needs gem: naming a gem, a comma-separated list, a YAML list, or an any:/all: map; installing the file"
+          warnings << "#{label}: conditional entry for '#{key}' needs gem: naming #{GemManifest::GEM_FORMS}; installing the file"
           return true
         end
-
-        versions = entry["versions"]
-        if GemManifest.malformed_requirements?(versions)
-          warnings << "#{label}: conditional entry for '#{key}' has an unparsable versions: requirement; installing the file"
-          return true
-        end
+        warnings << "#{label}: conditional entry for '#{key}': #{GemManifest::VERSIONS_REMOVED}" if entry.key?("versions")
         warnings << "#{label}: conditional entry for '#{key}' gem: #{parsed.warning}" if parsed.warning
 
-        match_targets(parsed.targets, versions, resolved, mode: parsed.match_mode).any?
+        match_targets(parsed.targets, parsed.versions, resolved, mode: parsed.match_mode).any?
       end
 
       def render_support_templates(files, skill_dir, resolved:, warnings:)
