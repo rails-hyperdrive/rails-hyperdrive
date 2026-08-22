@@ -3,7 +3,7 @@ require "yaml"
 module Rails
   module Hyperdrive
     # A companion gem's root manifest (hyperdrive.yml) declares artifact
-    # gating: top-level gem:/versions: defaults for the whole gem,
+    # gating: top-level gem:/gems: defaults for the whole gem,
     # per-skill entries keyed by the skill dir's relative path from its skills
     # root, per-guideline entries keyed by filename. Fail-open at every level:
     # malformed input warns and resolves to an ungated install — an artifact is
@@ -14,17 +14,35 @@ module Rails
 
       UNGATED = ["*"].freeze
       MATCH_MODES = %w[any all].freeze
+      GEM_FORMS = "a gem, a comma-separated list, a YAML list of names and name: requirement " \
+                  "pairs, or an any:/all: map (gems: is an alias)".freeze
+      VERSIONS_REMOVED = "versions: is no longer supported; version constraints ignored — " \
+                         "put the requirement on the gem: member, e.g. `- name: \">= 1.0\"`".freeze
 
       Gate = Struct.new(:targets, :versions, :hyperdrive_version, :conditional, :match_mode,
         keyword_init: true)
 
       # `warning`, when set, is phrased for the caller to prefix with its own
       # context — the parser has no idea which entry it is reading.
-      TargetSpec = Struct.new(:targets, :match_mode, :warning, keyword_init: true)
+      TargetSpec = Struct.new(:targets, :match_mode, :versions, :warning, keyword_init: true)
+
+      GemKey = Struct.new(:value, :present, :warning, keyword_init: true)
 
       class << self
         def load(spec, warnings: [])
           new(spec, warnings: warnings)
+        end
+
+        # gems: and gem: are exact aliases. A map carrying both is a stylistic
+        # slip, not malformed input: picking a winner keeps the gate intact
+        # where failing open would silently widen it.
+        def gem_key(map)
+          both = map.key?("gem") && map.key?("gems")
+          GemKey.new(
+            value: map.key?("gems") ? map["gems"] : map["gem"],
+            present: map.key?("gem") || map.key?("gems"),
+            warning: ("gem: and gems: are aliases; reading gems: and ignoring gem:" if both)
+          )
         end
 
         # The metadata key counts even when its value is unusable — declaring
@@ -40,11 +58,10 @@ module Rails
         # nil signals malformed; the caller decides how to fail open.
         def parse_targets(raw)
           return parse_target_map(raw) if raw.is_a?(Hash)
-          names = parse_target_names(raw)
-          names && TargetSpec.new(targets: names, match_mode: :any)
+          parse_target_names(raw)
         end
 
-        # versions: is optional everywhere; nil means unconstrained.
+        # A version requirement is optional everywhere; nil means unconstrained.
         def malformed_requirements?(versions)
           requirements = versions.is_a?(Hash) ? versions.values : [versions]
           requirements.compact.any? do |req|
@@ -57,8 +74,8 @@ module Rails
           end
         end
 
-        # The fence names one requirement against a single version, so the
-        # per-gem map form versions: accepts is meaningless here.
+        # The fence names one requirement against one version, so a per-gem
+        # requirement map is meaningless here.
         def malformed_fence?(value)
           return true if value.is_a?(Hash)
           malformed_requirements?(value)
@@ -70,33 +87,86 @@ module Rails
 
         private
 
+        # A list member is either a bare gem name (unconstrained, comma-split
+        # for the inline multi-name spelling) or a single-pair map carrying
+        # that member's own version requirement.
         def parse_target_names(raw)
           entries = raw.is_a?(Array) ? raw : [raw]
-          return nil if entries.any? { |e| e.nil? || e.is_a?(Array) || e.is_a?(Hash) }
-          entries.flat_map { |e| e.to_s.split(",") }.map(&:strip).reject(&:empty?)
+          names = []
+          requirements = {}
+          dropped_star = false
+
+          entries.each do |entry|
+            case entry
+            when Hash
+              name, requirement = pair_member(entry)
+              return nil unless name
+              if name == "*"
+                dropped_star = true
+                next
+              end
+              names << name
+              requirements[name] = requirement if requirement
+            when nil, Array
+              return nil
+            else
+              names.concat(entry.to_s.split(",").map(&:strip).reject(&:empty?))
+            end
+          end
+
+          names = UNGATED.dup if names.empty? && dropped_star
+          TargetSpec.new(
+            targets: names,
+            match_mode: :any,
+            versions: requirements.empty? ? nil : requirements,
+            warning: ("a version requirement on '*' is meaningless; ignoring that member" if dropped_star)
+          )
+        end
+
+        # nil signals a malformed member. A "*" key is kept for the caller to
+        # drop — its requirement is meaningless, not unreadable.
+        def pair_member(entry)
+          return nil unless entry.size == 1
+
+          name, requirement = entry.first
+          name = name.to_s.strip
+          return nil if name.empty?
+          return [name, nil] if name == "*"
+          return nil if requirement.is_a?(Hash)
+          return [name, nil] if requirement.nil? || requirement == "*"
+          return nil if malformed_requirements?(requirement)
+
+          [name, requirement]
         end
 
         def parse_target_map(raw)
           keys = raw.keys.map(&:to_s)
           return nil unless keys.size == 1 && MATCH_MODES.include?(keys.first)
 
-          names = parse_target_names(raw.values.first)
-          return nil if names.nil?
-          return TargetSpec.new(targets: names, match_mode: :any) if keys.first == "any"
+          # The list is the only container a mode key accepts. Reading a bare
+          # map as a one-member pair would make `{sidekiq: ">= 7"}` gate while
+          # its two-gem sibling falls open to ungated.
+          return nil if raw.values.first.is_a?(Hash)
 
-          all_target_spec(names)
+          spec = parse_target_names(raw.values.first)
+          return nil if spec.nil?
+          return spec if keys.first == "any"
+
+          all_target_spec(spec)
         end
 
         # "*" is satisfied by definition, so dropping it leaves the remaining
         # targets gating; a list of nothing else has no targets left to gate on.
-        def all_target_spec(names)
-          kept = names.reject { |n| n == "*" }
-          return TargetSpec.new(targets: names, match_mode: :all) if kept.size == names.size
+        def all_target_spec(spec)
+          kept = spec.targets.reject { |n| n == "*" }
+          dropped = kept.size != spec.targets.size
 
           TargetSpec.new(
-            targets: kept.empty? ? UNGATED : kept,
+            targets: dropped && kept.empty? ? UNGATED : kept,
             match_mode: :all,
-            warning: "'*' in all: is always satisfied; ignoring it"
+            versions: spec.versions,
+            warning: [spec.warning, ("'*' in all: is always satisfied; ignoring it" if dropped)]
+              .compact.join("; ").then { |w| w.empty? ? nil : w }
           )
         end
       end
@@ -107,7 +177,7 @@ module Rails
         root = load_root
         @skills = section(root, "skills", "skill relpath")
         @guidelines = section(root, "guidelines", "guideline filename")
-        @default_spec, @default_versions, @default_fence = defaults(root)
+        @default_spec, @default_fence = defaults(root)
       end
 
       def skill_gate(rel)
@@ -169,36 +239,38 @@ module Rails
         value = root[key]
         return {} if value.nil?
         unless value.is_a?(Hash)
-          report("manifest #{key}: must be a map of #{key_label} to {gem:, versions:}; ignoring the section")
+          report("manifest #{key}: must be a map of #{key_label} to a gating map; ignoring the section")
           return {}
         end
         value.transform_keys(&:to_s)
       end
 
       def defaults(root)
-        parsed = root.key?("gem") ? self.class.parse_targets(root["gem"]) : nil
-        bad_targets = root.key?("gem") && (parsed.nil? || parsed.targets.empty?)
-        if bad_targets || self.class.malformed_requirements?(root["versions"]) ||
-           self.class.malformed_fence?(root["hyperdrive_version"])
-          report("manifest top-level gem:/versions:/hyperdrive_version: defaults are unusable; ignoring them")
-          return [nil, nil, nil]
+        gem_key = self.class.gem_key(root)
+        report("manifest top-level #{gem_key.warning}") if gem_key.warning
+        parsed = gem_key.present ? self.class.parse_targets(gem_key.value) : nil
+        bad_targets = gem_key.present && (parsed.nil? || parsed.targets.empty?)
+        if bad_targets || self.class.malformed_fence?(root["hyperdrive_version"])
+          report("manifest top-level gem:/hyperdrive_version: defaults are unusable; ignoring them")
+          return [nil, nil]
         end
+        report("manifest top-level #{VERSIONS_REMOVED}") if root.key?("versions")
         report("manifest top-level gem: #{parsed.warning}") if parsed&.warning
-        [parsed, root["versions"], root["hyperdrive_version"]]
+        [parsed, root["hyperdrive_version"]]
       end
 
       def default_gate
-        build_gate(@default_spec, versions: @default_versions, hyperdrive_version: @default_fence)
+        build_gate(@default_spec, hyperdrive_version: @default_fence)
       end
 
       def ungated
         build_gate(nil)
       end
 
-      def build_gate(target_spec, versions: nil, hyperdrive_version: nil, conditional: nil)
+      def build_gate(target_spec, hyperdrive_version: nil, conditional: nil)
         Gate.new(
           targets: target_spec ? target_spec.targets : UNGATED,
-          versions: versions,
+          versions: target_spec&.versions,
           hyperdrive_version: hyperdrive_version,
           conditional: conditional,
           match_mode: target_spec ? target_spec.match_mode : :any
@@ -209,30 +281,27 @@ module Rails
       # be read must not skip the artifact, so it installs ungated.
       def entry_gate(entry, key, with_conditional:)
         unless entry.is_a?(Hash)
-          report("manifest entry for '#{key}' must be a map with gem:/versions:; installing ungated")
+          report("manifest entry for '#{key}' must be a map with gem:; installing ungated")
           return ungated
         end
 
         entry = entry.transform_keys(&:to_s)
-        parsed = entry.key?("gem") ? self.class.parse_targets(entry["gem"]) : nil
-        if entry.key?("gem") && (parsed.nil? || parsed.targets.empty?)
-          report("manifest entry for '#{key}': gem: must name a gem, a comma-separated list, " \
-                 "a YAML list, or an any:/all: map; installing ungated")
-          return ungated
-        end
-        if self.class.malformed_requirements?(entry["versions"])
-          report("manifest entry for '#{key}' has an unparsable versions: requirement; installing ungated")
+        gem_key = self.class.gem_key(entry)
+        report("manifest entry for '#{key}': #{gem_key.warning}") if gem_key.warning
+        parsed = gem_key.present ? self.class.parse_targets(gem_key.value) : nil
+        if gem_key.present && (parsed.nil? || parsed.targets.empty?)
+          report("manifest entry for '#{key}': gem: must name #{GEM_FORMS}; installing ungated")
           return ungated
         end
         if self.class.malformed_fence?(entry["hyperdrive_version"])
           report("manifest entry for '#{key}' has an unparsable hyperdrive_version: requirement; installing ungated")
           return ungated
         end
+        report("manifest entry for '#{key}': #{VERSIONS_REMOVED}") if entry.key?("versions")
         report("manifest entry for '#{key}' gem: #{parsed.warning}") if parsed&.warning
 
         build_gate(
           parsed || @default_spec,
-          versions: entry.key?("versions") ? entry["versions"] : @default_versions,
           hyperdrive_version: entry.key?("hyperdrive_version") ? entry["hyperdrive_version"] : @default_fence,
           conditional: with_conditional ? entry["conditional"] : nil
         )

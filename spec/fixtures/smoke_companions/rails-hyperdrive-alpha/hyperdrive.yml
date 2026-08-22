@@ -1,5 +1,5 @@
-gem: railties
-versions: ">= 7.0"
+gems:
+  - railties: ">= 7.0"
 skills:
   alpha-skill:
     conditional:
