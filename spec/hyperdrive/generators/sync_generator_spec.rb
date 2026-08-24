@@ -207,6 +207,44 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       expect(File).not_to exist(path(".hyperdrive/lock.yml"))
       expect(File).not_to exist(path("CLAUDE.md"))
     end
+
+    it "announces a destination the plan no longer claims once, and leaves it on disk" do
+      shipped = [skill_artifact(name: "jobs", source: "rails-hyperdrive-sidekiq")]
+      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |bundled_gems: [], **_|
+        bundled_gems << "rails-hyperdrive-sidekiq"
+        shipped
+      end
+      run_generator([])
+      shipped = [skill_artifact(name: "tasks", source: "rails-hyperdrive-sidekiq")]
+
+      out = run_generator(["--dry-run"])
+
+      expect(File).to exist(path(".claude/skills/jobs/SKILL.md"))
+      expect(out.scan(".claude/skills/jobs/SKILL.md").size).to eq(1)
+    end
+  end
+
+  describe "a lock written by a newer installer" do
+    before do
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
+      run_generator([])
+      lock = YAML.safe_load(File.read(path(".hyperdrive/lock.yml")))
+      lock["version"] = 2
+      File.write(path(".hyperdrive/lock.yml"), lock.to_yaml)
+    end
+
+    ["", "--dry-run"].each do |flag|
+      it "refuses to sync#{flag.empty? ? "" : " under #{flag}"}, naming the remedy, and leaves the lock byte-identical" do
+        before_lock = File.read(path(".hyperdrive/lock.yml"))
+
+        err = capture(:stderr) { run_generator([flag].reject(&:empty?)) }
+
+        expect(err).to include(".hyperdrive/lock.yml was written by a newer rails-hyperdrive")
+          .and include("lock schema 2, this installer supports 1")
+          .and include("upgrade rails-hyperdrive")
+        expect(File.read(path(".hyperdrive/lock.yml"))).to eq(before_lock)
+      end
+    end
   end
 
   describe "reconcile flag exclusivity" do

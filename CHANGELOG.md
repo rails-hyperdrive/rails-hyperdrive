@@ -74,6 +74,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   No compatibility shim: older rails-hyperdrive releases read a pair member as a
   malformed `gem:` and install the artifact ungated.
+- `.hyperdrive/lock.yml` is now read-guarded against its own schema version. The
+  lock is git-tracked and shared across branches that pin different
+  rails-hyperdrive versions, so an installer can meet a lock a newer one wrote.
+  It previously salvaged nothing it did not recognize and rewrote the file,
+  silently dropping `disabled:`, `enabled:`, and the `CLAUDE.md` import state.
+  `hyperdrive:init` and `hyperdrive:sync` now fail with the upgrade remedy
+  before any content write (`--dry-run` included, and init's bootstrap steps
+  still complete), and `bundle install`'s auto-install prints the same reason
+  and installs nothing.
+- An artifact that changes destination — a companion renaming a skill, or a
+  cross-source name collision appearing or resolving, flipping between
+  `.claude/skills/<name>/` and `.claude/skills/<name>--<source_gem>/` — now has
+  its old copy removed, supporting files and emptied directories included,
+  instead of being left behind as a byte-duplicate that warns on every sync.
+  Removal requires the source gem to still be bundled and to have lost no
+  artifact to a discovery skip this run, so a broken companion release or a
+  version fence never deletes a good install; a locally-modified copy is always
+  warned about and left. The bundler plugin's auto-install removes nothing, as
+  before.
+- Orphan warnings no longer claim an artifact is "no longer shipped by" a gem
+  that is still in the bundle, in both `hyperdrive:sync` output and the
+  "need attention" lines printed during `bundle install`.
+- A `disabled:` entry naming a skill by its postfixed name (`foo--gem_a`) now
+  opts that source's artifact out permanently, rather than only while the
+  collision that produced the postfix exists.
 - `hyperdrive:init`, `hyperdrive:sync`, and `hyperdrive:discover` are Rails
   commands rather than rake tasks, so their flags now work bare —
   `bin/rails hyperdrive:sync --merge` instead of

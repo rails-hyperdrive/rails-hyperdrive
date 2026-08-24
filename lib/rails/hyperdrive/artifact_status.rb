@@ -10,26 +10,35 @@ module Rails
     class ArtifactStatus
       STATES = %i[installed missing outdated orphaned].freeze
 
-      Entry = Struct.new(:path, :state, :artifact, :locked_source, :bundle_source, keyword_init: true) do
+      Entry = Struct.new(:path, :state, :artifact, :locked_source, :bundle_source, :bundled_source_gem,
+        keyword_init: true) do
         def to_s
           case state
           when :missing  then "#{path} (from #{bundle_source})"
           when :outdated then "#{path} (#{locked_source} → #{bundle_source})"
-          when :orphaned then "#{path} (no longer shipped by #{locked_source})"
+          when :orphaned then "#{path} (#{orphan_reason})"
           else path
           end
         end
+
+        private
+
+        def orphan_reason
+          return "no longer shipped by #{locked_source}" unless bundled_source_gem
+          "#{bundled_source_gem} is still bundled but did not offer this file"
+        end
       end
 
-      def self.compare(root:, artifacts:)
-        new(root: root, artifacts: artifacts).tap(&:compare)
+      def self.compare(root:, artifacts:, bundled_gems: [])
+        new(root: root, artifacts: artifacts, bundled_gems: bundled_gems).tap(&:compare)
       end
 
       attr_reader :entries
 
-      def initialize(root:, artifacts:)
+      def initialize(root:, artifacts:, bundled_gems: [])
         @root = File.expand_path(root.to_s)
         @artifacts = artifacts
+        @bundled_gems = Array(bundled_gems).map(&:to_s)
         @entries = []
       end
 
@@ -63,11 +72,12 @@ module Rails
           # A disabled artifact left on disk was reported at install time; the
           # bundle still ships it, so it is not an orphan.
           type = InstallLayout::ARTIFACT_TYPES[locked.kind]
-          next if type && InstallPlan.disabled_dest?(lock, type, locked.path)
+          next if type && InstallPlan.disabled_dest?(lock, type, locked.path, source_gem: locked.source_gem)
 
           @entries << Entry.new(
             path: locked.path, state: :orphaned, artifact: locked.kind&.to_sym,
-            locked_source: locked.source_label, bundle_source: nil
+            locked_source: locked.source_label, bundle_source: nil,
+            bundled_source_gem: (locked.source_gem if @bundled_gems.include?(locked.source_gem.to_s))
           )
         end
 
