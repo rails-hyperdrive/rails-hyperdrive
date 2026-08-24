@@ -186,7 +186,9 @@ skills/<name>/SKILL.md                                 # skill (dir-per-skill, m
 lib/<gem_name>/hyperdrive/guidelines/<name>.md         # guideline (flat file)
 ```
 
-Top-level `skills/` is the recommended home for skill content: it is the tool-agnostic face of your gem, readable by skills.sh and plain git-clone consumers as well as hyperdrive, and it is scanned by default. `lib/<gem_name>/hyperdrive/` is the hyperdrive-specific root: guidelines, and ERB skill templates (`SKILL.md.erb`, which must stay out of `skills/` so raw ERB never reaches generic consumers). Plain skills shipped under it remain scanned as well.
+`<gem_name>` is your gem's name exactly as published, dashes and all — `rails-hyperdrive-sidekiq` ships guidelines under `lib/rails-hyperdrive-sidekiq/hyperdrive/guidelines/`, not `lib/rails/hyperdrive/sidekiq/`.
+
+Top-level `skills/` is the recommended home for skill content: it is the tool-agnostic face of your gem, readable by skills.sh and plain git-clone consumers as well as hyperdrive, and it is scanned by default once your gem has opted in (below). `lib/<gem_name>/hyperdrive/` is the hyperdrive-specific root: guidelines, and ERB skill templates (`SKILL.md.erb`, which must stay out of `skills/` so raw ERB never reaches generic consumers). Plain skills shipped under it remain scanned as well.
 
 Frontmatter is pure skills.sh: only `name` and `description` are read, so a skill repo's content integrates without modification:
 
@@ -221,6 +223,8 @@ Shipping a `hyperdrive.yml` (or declaring `rails_hyperdrive_manifest`) opts your
 ```ruby
 spec.metadata["rails_hyperdrive_targets"] = "sidekiq"
 ```
+
+Companion repos get author-side CI checks by adding `require "rails/hyperdrive/skill_tasks"` to the `Rakefile`: `rake hyperdrive:skills:check` keeps generated skill content in step with its templates, and `rake hyperdrive:manifest:check` lints `hyperdrive.yml` strictly.
 
 [docs/COMPANION_GEMS.md](docs/COMPANION_GEMS.md) has the full contract: multi-target artifacts, multi-file skills, per-file gem gating, ERB-templated content, the template/content paired layout that also serves `npx skills` and git-clone consumers, and the collision and dedup rules.
 
