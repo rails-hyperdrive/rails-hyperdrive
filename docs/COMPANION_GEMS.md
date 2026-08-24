@@ -159,7 +159,7 @@ skills:
     hyperdrive_version: ">= 0.7"
 ```
 
-The fence is matched against the running installer's own version, never against the bundle. That is what makes it a separate key: `gem:` is any-match across its targets, so adding `rails-hyperdrive` to the list would read as "turbo-rails **or** rails-hyperdrive", not "turbo-rails **and** a new enough installer".
+The fence is matched against the running installer's own version, never against the bundle. That is what makes it a separate key: `gem:` is any-match across its targets, so adding `rails-hyperdrive` to the list would read as "turbo-rails **or** rails-hyperdrive", not "turbo-rails **and** a new enough installer". The installer is whichever gem implements artifact discovery and install — today rails-hyperdrive — and that version numbering is guaranteed continuous across any future restructuring of the gem, so `">= 0.7"` keeps its meaning permanently.
 
 An unsatisfied fence skips the artifact — gating working, exactly like a `gem:` gate matching nothing — and reports it, at `hyperdrive:init`/`hyperdrive:sync` and in `bundle install` output:
 
@@ -249,7 +249,7 @@ The template dir holds templates and nothing else: `SKILL.md.erb` plus any suppo
 The static `SKILL.md` is generated, not hand-written. In the companion repo's `Rakefile`:
 
 ```ruby
-require "rails/hyperdrive/skill_tasks"
+require "hyperdrive/skill_tasks"
 ```
 
 - `rake hyperdrive:skills:render` renders each `SKILL.md.erb` to its paired static `SKILL.md`, and each supporting `*.md.erb` to its own face in the same content dir, using the **canonical** binding: `gem?`/`any_gem?` always true (even with a version requirement), `gem_version` always `nil`. Templates that interpolate `gem_version` must handle `nil` (e.g. `<%= gem_version("sidekiq") || "(any version)" %>`).
