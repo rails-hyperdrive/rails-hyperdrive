@@ -132,5 +132,18 @@ RSpec.describe Bundler::Hyperdrive do
 
       expect { run }.to output(/\A\[hyperdrive\] auto-install skipped \(ArgumentError: bad root\).*\n\z/).to_stdout
     end
+
+    # LoadError is a ScriptError, not a StandardError. `require` is stubbed
+    # because the real file is already loaded here, so a bad path never raises.
+    it "rescues a ScriptError raised while requiring the host gem" do
+      stub_bundle([host_spec("0.2.0")])
+      allow(described_class).to receive(:require)
+        .and_raise(LoadError, "cannot load such file -- rails/hyperdrive/auto_install")
+
+      expect { run }.to output(
+        "[hyperdrive] auto-install skipped (LoadError: cannot load such file -- " \
+        "rails/hyperdrive/auto_install); run bin/rails hyperdrive:sync manually\n"
+      ).to_stdout
+    end
   end
 end
