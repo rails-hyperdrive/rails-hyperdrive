@@ -11,6 +11,9 @@ Description:
         a guideline, and both removed when the last one goes
       - tracks everything in .hyperdrive/lock.yml
 
+    The .mcp.json entry and the engine mount are skippable with --skip-mcp;
+    existing MCP configuration is left untouched either way.
+
     Re-running re-syncs content and leaves locally-modified files untouched
     (skip + warn). Routine content refresh is bin/rails hyperdrive:sync
     (see its --merge, --sidecar, and --overwrite flags for reconciling
@@ -20,4 +23,5 @@ Examples:
     bin/rails hyperdrive:init
     bin/rails hyperdrive:init --mount-at /admin/hyperdrive
     bin/rails hyperdrive:init --skip-content
+    bin/rails hyperdrive:init --skip-mcp
     bin/rails hyperdrive:init --dry-run
