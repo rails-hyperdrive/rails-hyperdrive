@@ -34,7 +34,7 @@ module Bundler
       result.messages.each do |line|
         line.match?(/\A\s/) ? $stdout.puts(line) : report(line)
       end
-    rescue StandardError => e
+    rescue StandardError, ScriptError => e
       report "auto-install skipped (#{e.class}: #{e.message}); run bin/rails hyperdrive:sync manually"
       nil
     end

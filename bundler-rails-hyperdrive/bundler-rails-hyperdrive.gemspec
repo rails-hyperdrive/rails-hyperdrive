@@ -20,7 +20,7 @@ Gem::Specification.new do |spec|
 
   spec.metadata["homepage_uri"]          = spec.homepage
   spec.metadata["source_code_uri"]       = spec.homepage
-  spec.metadata["changelog_uri"]         = "#{spec.homepage}/blob/main/CHANGELOG.md"
+  spec.metadata["changelog_uri"]         = "#{spec.homepage}/blob/main/bundler-rails-hyperdrive/CHANGELOG.md"
   spec.metadata["allowed_push_host"]     = "https://rubygems.org"
   spec.metadata["rubygems_mfa_required"] = "true"
 
@@ -30,7 +30,8 @@ Gem::Specification.new do |spec|
     Dir[
       "plugins.rb",
       "lib/**/*",
-      "LICENSE.txt"
+      "LICENSE.txt",
+      "CHANGELOG.md"
     ].reject { |f| File.directory?(f) }
   end
 

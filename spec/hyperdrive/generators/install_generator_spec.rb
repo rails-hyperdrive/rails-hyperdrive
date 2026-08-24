@@ -834,6 +834,65 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       expect(File.read(path(".hyperdrive/lock.yml"))).to include("state: present")
     end
 
+    it "honors --skip-mcp (no .mcp.json, no mount, everything else still written)" do
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
+      run_generator(["--skip-mcp"])
+      expect(File).not_to exist(path(".mcp.json"))
+      expect(File.read(path("config/routes.rb"))).not_to include("Rails::Hyperdrive::Engine")
+      expect(File).to exist(path(".hyperdrive/lock.yml"))
+      expect(File).to exist(path(".claude/hyperdrive/guidelines/auth-pundit.md"))
+      expect(File.read(path(".gitignore"))).to include(".hyperdrive/discover_cache.json")
+    end
+
+    it "leaves pre-existing MCP configuration byte-identical under --skip-mcp" do
+      mcp_json = %({\n  "mcpServers": {\n    "other": {\n      "url": "http://localhost:9000/mcp"\n    }\n  }\n}\n)
+      routes = %(Rails.application.routes.draw do\n  mount Rails::Hyperdrive::Engine => "/admin/hyperdrive" if Rails.env.development?\nend\n)
+      File.write(path(".mcp.json"), mcp_json)
+      File.write(path("config/routes.rb"), routes)
+
+      run_generator(["--skip-mcp"])
+      expect(File.read(path(".mcp.json"))).to eq(mcp_json)
+      expect(File.read(path("config/routes.rb"))).to eq(routes)
+    end
+
+    it "honors --skip-mcp --skip-content together" do
+      File.write(path("Gemfile"), %(source "https://rubygems.org"\n))
+      run_generator(["--skip-mcp", "--skip-content"])
+      expect(File).not_to exist(path(".mcp.json"))
+      expect(File.read(path("config/routes.rb"))).not_to include("Rails::Hyperdrive::Engine")
+      expect(File).not_to exist(path(".claude"))
+      expect(File).not_to exist(path("CLAUDE.md"))
+      expect(File).not_to exist(path(".hyperdrive/lock.yml"))
+      expect(File.read(path("Gemfile"))).to include('plugin "bundler-rails-hyperdrive"')
+      expect(File.read(path(".gitignore"))).to include(".hyperdrive/discover_cache.json")
+    end
+
+    it "ignores --mount-at under --skip-mcp" do
+      out = run_generator(["--skip-mcp", "--mount-at", "/admin/hyperdrive"])
+      expect(File).not_to exist(path(".mcp.json"))
+      expect(File.read(path("config/routes.rb"))).not_to include("/admin/hyperdrive")
+      expect(out).not_to match(/warn/i)
+    end
+
+    it "drops the mount, server, and next-steps lines from the --skip-mcp summary" do
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
+      out = run_generator(["--skip-mcp"])
+      expect(out).not_to match(/Mount:/)
+      expect(out).not_to match(/MCP tools/)
+      expect(out).not_to match(/Next steps/)
+      expect(out).to include("MCP: skipped (--skip-mcp)")
+      expect(out).to match(/Installed/)
+    end
+
+    it "writes .mcp.json and the mount on a later init after --skip-mcp" do
+      run_generator(["--skip-mcp"])
+      expect(File).not_to exist(path(".mcp.json"))
+
+      run_generator([])
+      expect(File.read(path(".mcp.json"))).to include("/_hyperdrive/mcp")
+      expect(File.read(path("config/routes.rb"))).to include("Rails::Hyperdrive::Engine")
+    end
+
     it "honors --mount-at in both the routes mount and the .mcp.json URL" do
       run_generator(["--mount-at", "/admin/hyperdrive"])
       expect(File.read(path("config/routes.rb"))).to include(%(mount Rails::Hyperdrive::Engine => "/admin/hyperdrive"))

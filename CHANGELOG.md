@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `*.md.erb` found under a public skills root. A supporting `*.md.erb` shipped
   under a public skills root still renders, but draws a warning steering it to
   the template directory.
+- `hyperdrive:init --skip-mcp` skips MCP setup entirely: no `rails-hyperdrive`
+  entry in `.mcp.json` and no engine mount in `config/routes.rb`. Content
+  install, the discover-cache `.gitignore` rule, and the bundler-plugin Gemfile
+  directive all still run, and the summary reports `MCP: skipped (--skip-mcp)`
+  in place of the mount/server lines. Like `--skip-content`, it only suppresses
+  writes — existing MCP configuration is left untouched — and the two flags
+  combine.
 - Companion-manifest `gem:` gating accepts a map with exactly one of `any:` or
   `all:`, so an artifact can require *every* listed target rather than any one
   of them: `gem: {all: [devise, pundit]}`. `any:` is an explicit spelling of the
