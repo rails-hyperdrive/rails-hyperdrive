@@ -45,6 +45,16 @@ module Rails
           )
         end
 
+        # ".." segments are rejected (silent fallback to the conventional path)
+        # to prevent escaping the gem root.
+        def manifest_relpath(spec)
+          return FILE_NAME unless spec.respond_to?(:metadata)
+          raw = spec.metadata && spec.metadata[METADATA_KEY]
+          return FILE_NAME if raw.nil? || raw.to_s.strip.empty?
+          return FILE_NAME if raw.to_s.split(%r{[/\\]}).include?("..")
+          raw.to_s
+        end
+
         # The metadata key counts even when its value is unusable — declaring
         # it at all signals companion intent.
         def opt_in?(spec)
@@ -204,14 +214,8 @@ module Rails
         @warnings << "#{@spec.name}: #{message}"
       end
 
-      # ".." segments are rejected (silent fallback to the conventional path)
-      # to prevent escaping the gem root.
       def manifest_relpath
-        return FILE_NAME unless @spec.respond_to?(:metadata)
-        raw = @spec.metadata && @spec.metadata[METADATA_KEY]
-        return FILE_NAME if raw.nil? || raw.to_s.strip.empty?
-        return FILE_NAME if raw.to_s.split(%r{[/\\]}).include?("..")
-        raw.to_s
+        self.class.manifest_relpath(@spec)
       end
 
       # An empty file is a valid manifest (nothing gated); only content that
@@ -245,26 +249,40 @@ module Rails
         value.transform_keys(&:to_s)
       end
 
+      # Independent axes: an unusable gem: must not silence a parseable fence,
+      # the one gate that keeps content out of an installer too old to read it.
       def defaults(root)
+        report("manifest top-level #{VERSIONS_REMOVED}") if root.key?("versions")
+        [default_target_spec(root), default_fence(root)]
+      end
+
+      def default_target_spec(root)
         gem_key = self.class.gem_key(root)
         report("manifest top-level #{gem_key.warning}") if gem_key.warning
-        parsed = gem_key.present ? self.class.parse_targets(gem_key.value) : nil
-        bad_targets = gem_key.present && (parsed.nil? || parsed.targets.empty?)
-        if bad_targets || self.class.malformed_fence?(root["hyperdrive_version"])
-          report("manifest top-level gem:/hyperdrive_version: defaults are unusable; ignoring them")
-          return [nil, nil]
+        return nil unless gem_key.present
+
+        parsed = self.class.parse_targets(gem_key.value)
+        if parsed.nil? || parsed.targets.empty?
+          report("manifest top-level gem: default is unusable; ignoring it")
+          return nil
         end
-        report("manifest top-level #{VERSIONS_REMOVED}") if root.key?("versions")
-        report("manifest top-level gem: #{parsed.warning}") if parsed&.warning
-        [parsed, root["hyperdrive_version"]]
+        report("manifest top-level gem: #{parsed.warning}") if parsed.warning
+        parsed
+      end
+
+      def default_fence(root)
+        return root["hyperdrive_version"] unless self.class.malformed_fence?(root["hyperdrive_version"])
+
+        report("manifest top-level hyperdrive_version: default is unusable; ignoring it")
+        nil
       end
 
       def default_gate
         build_gate(@default_spec, hyperdrive_version: @default_fence)
       end
 
-      def ungated
-        build_gate(nil)
+      def ungated(hyperdrive_version: nil)
+        build_gate(nil, hyperdrive_version: hyperdrive_version)
       end
 
       def build_gate(target_spec, hyperdrive_version: nil, conditional: nil)
@@ -277,32 +295,37 @@ module Rails
         )
       end
 
-      # A malformed entry drops the gem-wide defaults too: gating that cannot
-      # be read must not skip the artifact, so it installs ungated.
+      # Gating that cannot be read must not skip the artifact, so a malformed
+      # entry installs ungated, gem-wide gem: default and all. The fence is
+      # resolved first and rides those fall-throughs — except where it is
+      # itself the unparsable part, since the gem-wide default would then apply
+      # a constraint this entry never asked for.
       def entry_gate(entry, key, with_conditional:)
         unless entry.is_a?(Hash)
           report("manifest entry for '#{key}' must be a map with gem:; installing ungated")
-          return ungated
+          return ungated(hyperdrive_version: @default_fence)
         end
 
         entry = entry.transform_keys(&:to_s)
+        if self.class.malformed_fence?(entry["hyperdrive_version"])
+          report("manifest entry for '#{key}' has an unparsable hyperdrive_version: requirement; installing ungated")
+          return ungated
+        end
+        fence = entry.key?("hyperdrive_version") ? entry["hyperdrive_version"] : @default_fence
+
         gem_key = self.class.gem_key(entry)
         report("manifest entry for '#{key}': #{gem_key.warning}") if gem_key.warning
         parsed = gem_key.present ? self.class.parse_targets(gem_key.value) : nil
         if gem_key.present && (parsed.nil? || parsed.targets.empty?)
           report("manifest entry for '#{key}': gem: must name #{GEM_FORMS}; installing ungated")
-          return ungated
-        end
-        if self.class.malformed_fence?(entry["hyperdrive_version"])
-          report("manifest entry for '#{key}' has an unparsable hyperdrive_version: requirement; installing ungated")
-          return ungated
+          return ungated(hyperdrive_version: fence)
         end
         report("manifest entry for '#{key}': #{VERSIONS_REMOVED}") if entry.key?("versions")
         report("manifest entry for '#{key}' gem: #{parsed.warning}") if parsed&.warning
 
         build_gate(
           parsed || @default_spec,
-          hyperdrive_version: entry.key?("hyperdrive_version") ? entry["hyperdrive_version"] : @default_fence,
+          hyperdrive_version: fence,
           conditional: with_conditional ? entry["conditional"] : nil
         )
       end

@@ -1581,7 +1581,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       write("hyperdrive.yml", "gem: [nested_list_entry, [oops]]\n")
 
       results, warnings = discover
-      expect(warnings.grep(%r{top-level gem:/hyperdrive_version: defaults are unusable}).size).to eq(1)
+      expect(warnings.grep(/top-level gem: default is unusable/).size).to eq(1)
       expect(results.first.target_gem).to eq(["*"])
     end
 
@@ -1686,14 +1686,43 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         expect(fence_warnings).to be_empty
       end
 
-      it "installs unfenced and ungated on a malformed top-level fence" do
+      it "installs unfenced but still gated on a malformed top-level fence" do
         write_skill("a")
         write("hyperdrive.yml", "gem: sidekiq\nhyperdrive_version: garbage\n")
 
-        results, warnings, fence_warnings = discover_fenced
-        expect(results.first.target_gem).to eq(["*"])
-        expect(warnings.grep(%r{top-level gem:/hyperdrive_version: defaults are unusable}).size).to eq(1)
+        results, warnings, fence_warnings = discover_fenced(sidekiq)
+        expect(results.first.target_gem).to eq(["sidekiq"])
+        expect(warnings.grep(/top-level hyperdrive_version: default is unusable/).size).to eq(1)
         expect(fence_warnings).to be_empty
+      end
+
+      it "fences out an artifact whose gem: is unparsable rather than installing it ungated" do
+        write_skill("a")
+        write("hyperdrive.yml", <<~YAML)
+          skills:
+            a:
+              gem:
+                none: [sqlite3]
+              hyperdrive_version: ">= 99"
+        YAML
+
+        results, warnings, fence_warnings = discover_fenced
+        expect(results).to be_empty
+        expect(fence_warnings).to eq(
+          ["skill 'a' (from source_gem) requires rails-hyperdrive >= 99 (this is 0.6.0); " \
+           "upgrade rails-hyperdrive to install it"]
+        )
+        expect(warnings).to include(*fence_warnings)
+      end
+
+      it "fences out every artifact when the top-level gem: default is unparsable" do
+        write_skill("a")
+        write("hyperdrive.yml", "gem:\n  none: [sqlite3]\nhyperdrive_version: \">= 99\"\n")
+
+        results, warnings, fence_warnings = discover_fenced
+        expect(results).to be_empty
+        expect(fence_warnings).to all(include("requires rails-hyperdrive >= 99"))
+        expect(warnings.grep(/top-level gem: default is unusable/).size).to eq(1)
       end
 
       it "installs unfenced and ungated on a malformed per-entry fence" do

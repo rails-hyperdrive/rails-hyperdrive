@@ -328,6 +328,66 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
     end
   end
 
+  describe "fence-first evaluation" do
+    it "keeps an entry's own fence when its gem: is unparsable" do
+      write("hyperdrive.yml", <<~YAML)
+        skills:
+          a:
+            gem:
+              none: [sqlite3]
+            hyperdrive_version: ">= 0.9"
+      YAML
+      manifest, warnings = load_manifest
+      expect(manifest.skill_gate("a").to_h)
+        .to include(targets: ["*"], versions: nil, hyperdrive_version: ">= 0.9")
+      expect(warnings.join).to include("gem: must name a gem")
+    end
+
+    it "falls back to the gem-wide fence when an entry with an unparsable gem: declares none" do
+      write("hyperdrive.yml", "hyperdrive_version: \">= 0.9\"\nskills:\n  a:\n    gem:\n      none: [sqlite3]\n")
+      manifest, = load_manifest
+      expect(manifest.skill_gate("a").to_h).to include(targets: ["*"], hyperdrive_version: ">= 0.9")
+    end
+
+    it "keeps the gem-wide fence on a non-map entry" do
+      write("hyperdrive.yml", "gem: railties\nhyperdrive_version: \">= 0.9\"\nskills:\n  a: yes\n")
+      manifest, warnings = load_manifest
+      expect(manifest.skill_gate("a").to_h).to include(targets: ["*"], hyperdrive_version: ">= 0.9")
+      expect(warnings.join).to include("manifest entry for 'a' must be a map")
+    end
+
+    it "installs unfenced on an entry's own malformed fence, never substituting the default" do
+      write("hyperdrive.yml", <<~YAML)
+        hyperdrive_version: ">= 0.9"
+        skills:
+          a:
+            gem: sidekiq
+            hyperdrive_version:
+              min: "0.9"
+      YAML
+      manifest, warnings = load_manifest
+      expect(manifest.skill_gate("a").to_h).to include(targets: ["*"], hyperdrive_version: nil)
+      expect(warnings.join).to include("unparsable hyperdrive_version:")
+    end
+
+    it "keeps a parseable top-level fence when the top-level gem: default is unusable" do
+      write("hyperdrive.yml", "gem:\n  none: [sqlite3]\nhyperdrive_version: \">= 0.9\"\n")
+      manifest, warnings = load_manifest
+      expect(manifest.skill_gate("unlisted").to_h).to include(targets: ["*"], hyperdrive_version: ">= 0.9")
+      expect(warnings.grep(/top-level gem: default is unusable/).size).to eq(1)
+      expect(warnings.join).not_to include("hyperdrive_version: default is unusable")
+    end
+
+    it "keeps the top-level gem: default when only the top-level fence is malformed" do
+      write("hyperdrive.yml", "gems:\n  - railties: \">= 7.2\"\nhyperdrive_version: garbage\n")
+      manifest, warnings = load_manifest
+      expect(manifest.skill_gate("a").to_h)
+        .to include(targets: ["railties"], versions: { "railties" => ">= 7.2" }, hyperdrive_version: nil)
+      expect(warnings.grep(/top-level hyperdrive_version: default is unusable/).size).to eq(1)
+      expect(warnings.join).not_to include("gem: default is unusable")
+    end
+  end
+
   describe "fail-open behavior" do
     it "warns and resolves ungated on a non-map entry, ignoring the defaults" do
       write("hyperdrive.yml", "gem: railties\nskills:\n  a: nope\n")
@@ -438,7 +498,7 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
     it "warns and resolves ungated on a malformed member in the gem-wide defaults" do
       write("hyperdrive.yml", "gems:\n  - sidekiq: garbage\nskills:\n  a: {}\n")
       manifest, warnings = load_manifest
-      expect(warnings.grep(%r{top-level gem:/hyperdrive_version: defaults are unusable}).size).to eq(1)
+      expect(warnings.grep(/top-level gem: default is unusable/).size).to eq(1)
       expect(manifest.skill_gate("a").targets).to eq(["*"])
     end
 
@@ -459,10 +519,10 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
       expect(warnings.grep(/unparsable hyperdrive_version:/).size).to eq(2)
     end
 
-    it "warns once and ignores unusable gem-wide defaults" do
+    it "warns once and ignores an unusable gem-wide gem: default" do
       write("hyperdrive.yml", "gem:\nskills:\n  a:\n    gem: sidekiq\n")
       manifest, warnings = load_manifest
-      expect(warnings.grep(%r{top-level gem:/hyperdrive_version: defaults are unusable}).size).to eq(1)
+      expect(warnings.grep(/top-level gem: default is unusable/).size).to eq(1)
       expect(manifest.skill_gate("unlisted").targets).to eq(["*"])
       expect(manifest.skill_gate("a").to_h).to include(targets: ["sidekiq"], versions: nil)
     end
@@ -470,15 +530,8 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
     it "warns once and ignores a malformed gem: map in the gem-wide defaults" do
       write("hyperdrive.yml", "gem:\n  any: [sidekiq]\n  all: [devise]\nskills:\n  a: {}\n")
       manifest, warnings = load_manifest
-      expect(warnings.grep(%r{top-level gem:/hyperdrive_version: defaults are unusable}).size).to eq(1)
+      expect(warnings.grep(/top-level gem: default is unusable/).size).to eq(1)
       expect(manifest.skill_gate("a").targets).to eq(["*"])
-    end
-
-    it "drops every gem-wide default on an unusable top-level hyperdrive_version:" do
-      write("hyperdrive.yml", "gems:\n  - railties: \">= 7.2\"\nhyperdrive_version: garbage\n")
-      manifest, warnings = load_manifest
-      expect(warnings.grep(%r{top-level gem:/hyperdrive_version: defaults are unusable}).size).to eq(1)
-      expect(manifest.skill_gate("a").to_h).to include(targets: ["*"], versions: nil, hyperdrive_version: nil)
     end
 
     it "warns and reads nothing from malformed YAML" do

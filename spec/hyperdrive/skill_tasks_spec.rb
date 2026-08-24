@@ -3,7 +3,7 @@ require "rake"
 require "fileutils"
 require "tmpdir"
 
-RSpec.describe "hyperdrive:skills rake tasks" do
+RSpec.describe "hyperdrive rake tasks" do
   around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
 
   before do
@@ -74,6 +74,25 @@ RSpec.describe "hyperdrive:skills rake tasks" do
     expect do
       expect { invoke("hyperdrive:skills:check") }.to raise_error(SystemExit)
     end.to output(%r{raw ERB: .*skills/paired/references/notes\.md\.erb}).to_stderr
+  end
+
+  describe "hyperdrive:manifest:check" do
+    it "passes on a clean manifest" do
+      write("hyperdrive.yml", "skills:\n  paired:\n    gem: sidekiq\n")
+      expect { invoke("hyperdrive:manifest:check") }.to output(%r{hyperdrive\.yml is clean}).to_stdout
+    end
+
+    it "passes when the gem ships no manifest" do
+      expect { invoke("hyperdrive:manifest:check") }.to output(/nothing to lint/).to_stdout
+    end
+
+    it "fails listing every problem" do
+      write("hyperdrive.yml", "skills:\n  missing:\n    version: \">= 1\"\n")
+
+      expect do
+        expect { invoke("hyperdrive:manifest:check") }.to raise_error(SystemExit)
+      end.to output(/names no shipped skill directory.*'version:' is not a gating key/m).to_stderr
+    end
   end
 
   it "accepts an explicit gemspec path argument" do
