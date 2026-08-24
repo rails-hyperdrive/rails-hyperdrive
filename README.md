@@ -200,18 +200,19 @@ description: Background job conventions for Sidekiq.
 Gating (which bundles an artifact installs into) lives in a `hyperdrive.yml` manifest at the gem root (or at the path named by a `rails_hyperdrive_manifest` gemspec metadata key), never in the content. Every key is optional; no manifest (or an empty one) means everything installs universally:
 
 ```yaml
-gem: sidekiq                # gem-wide default: TARGET gem(s), resolved + version-matched in the bundle
-versions: ">= 7.0, < 9.0"   # gem-wide default: Gem::Requirement matched against the target gem
+gems:                       # gem-wide default: TARGET gem(s), resolved in the bundle ("gem:" is an alias)
+  - sidekiq: ">= 7.0, < 9.0"   # a list member is a bare name, or a name: requirement pair
 skills:                     # per-skill overrides, keyed by skill dir relative to its skills root
   jobs-sidekiq:
-    versions: ">= 8.0"
+    gems:
+      - sidekiq: ">= 8.0"
     hyperdrive_version: ">= 0.7"   # require a minimum rails-hyperdrive for this artifact
 guidelines:                 # per-guideline overrides, keyed by filename
   jobs.md:
     gem: sidekiq
 ```
 
-A `gem:` naming several targets can be written as a map with one of `any:`/`all:` — `gem: {any: [sidekiq, solid_queue]}` installs when either is bundled, `gem: {all: [devise, pundit]}` only when both are. A bare list is shorthand for `any:`.
+A gate naming several targets can be written as a map with one of `any:`/`all:` — `gems: {any: [sidekiq, solid_queue]}` installs when either is bundled, `gems: {all: [devise, pundit]}` only when both are. A bare list is shorthand for `any:`, and an entry's gate replaces the gem-wide default wholesale.
 
 `hyperdrive_version:` is valid at the top level too, and is matched against the running rails-hyperdrive rather than the bundle — the sanctioned way to fence content that needs a newer installer.
 
