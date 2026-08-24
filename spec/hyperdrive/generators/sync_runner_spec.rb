@@ -61,7 +61,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
     it "collects warnings for the pipeline to print" do
       expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
         .to receive(:discover)
-        .with(warnings: [], enabled_gems: [], notices: [], bundled_gems: [], skipped_gems: [])
+        .with(enabled_gems: [], report: an_instance_of(Rails::Hyperdrive::BundlerArtifactDiscovery::Report))
         .and_return([guideline(name: "g1")])
 
       expect(runner.discover_artifacts.map(&:name)).to eq(["g1"])
@@ -77,7 +77,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
       YAML
       expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
         .to receive(:discover)
-        .with(warnings: [], enabled_gems: ["some_gem"], notices: [], bundled_gems: [], skipped_gems: [])
+        .with(enabled_gems: ["some_gem"], report: an_instance_of(Rails::Hyperdrive::BundlerArtifactDiscovery::Report))
         .and_return([])
 
       runner.discover_artifacts
@@ -93,8 +93,8 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
     end
 
     it "flows discovery notices into the pipeline output" do
-      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |notices:, **_|
-        notices << "gem 'foo' ships 1 skills.sh skill(s)"
+      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |report:, **_|
+        report.notices << "gem 'foo' ships 1 skills.sh skill(s)"
         []
       end
 
@@ -117,8 +117,8 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
 
     it "forwards discovery's bundle report, so a destination the plan dropped is removed" do
       shipped = [guideline(name: "auth-pundit")]
-      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |bundled_gems:, **_|
-        bundled_gems << "rails-hyperdrive-x"
+      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |report:, **_|
+        report.bundled_gems << "rails-hyperdrive-x"
         shipped
       end
       runner.install(mode: :preserve)

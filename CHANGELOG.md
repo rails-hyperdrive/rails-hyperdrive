@@ -170,6 +170,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   warns for its own axis. An entry whose *own* `hyperdrive_version:` is
   unparsable still installs ungated and unfenced — the gem-wide fence is not
   substituted for a constraint the entry never asked for.
+- A `conditional:` key spelled as a template-backed supporting file's rendered
+  face (`references/x.md`) now gates that template, instead of silently
+  matching nothing while the file installed unconditionally. Either spelling —
+  the shipped `references/x.md.erb` or the face — resolves to the same gate;
+  a manifest carrying both for one file draws a warning and the shipped `.erb`
+  spelling wins. `rake hyperdrive:manifest:check` agrees with discovery on
+  both points, and no longer reports a face-spelled key as naming nothing
+  shipped.
+- A `SKILL.md.erb` that fails to render because it reaches for a helper a
+  newer rails-hyperdrive added now reports its `hyperdrive_version:` fence
+  rather than a bare `ERB render failed (NameError)`, and that line reaches the
+  bundler-plugin surface like every other fence warning.
+- An ordinary gate miss — a well-formed `gem:` whose target simply is not
+  bundled — no longer marks its source gem as having lost content, so the
+  stale-destination sweep keeps converging for companions that gate different
+  skills on different stacks. A renamed skill's old directory is now removed
+  instead of being orphan-warned indefinitely.
+- `hyperdrive:sync` sweeps a stale `<dest>.new` sidecar when it removes the
+  destination that sidecar belonged to, under the same rule as everywhere else
+  (machine-pristine → removed; edited → warned about and left). A pristine
+  leftover no longer strands itself or keeps an emptied skill directory alive.
+- `rake hyperdrive:manifest:check` fails when a `hyperdrive_manifest` gemspec
+  metadata key names a path that is not a file — previously read as "this gem
+  ships no manifest" and reported green, while the dangling key still counted
+  as companion opt-in and every artifact installed ungated.
+- `rake hyperdrive:skills:render` / `:check` work for a companion that declares
+  neither `hyperdrive_skills_dir` nor `hyperdrive_skill_templates_dir`: the
+  content root now defaults to top-level `skills/` (matching discovery) rather
+  than to the same lib-convention path as the templates root, which made the
+  tasks hard-error with "content dir equals template dir".
+- `init`/`sync` no longer count advisory discovery warnings as dropped
+  artifacts. Warnings that dropped shipped content — a whole artifact, or one
+  supporting file of one — print under `discovery skipped N item(s):` (was
+  `discovery skipped N artifact(s):`, which counted every warning and named
+  them all artifacts); everything that installed anyway prints under
+  `discovery reported M advisory warning(s):`.
+- The bundler-plugin hook now prints discovery advisories during
+  `bundle install`, so a retired `versions:` key — content this release
+  deliberately installs unconstrained — is no longer silent there. Ordinary
+  artifact skips stay with `init`/`sync`.
+- The `installing ungated` warning on a malformed manifest entry that keeps its
+  fence now reads `installing ungated unless fenced out`, so it can no longer
+  contradict a fence-skip line for the same artifact. Only an unparsable
+  `hyperdrive_version:` says `installing ungated and unfenced`.
+- The warning for a manifest that will not parse now names the parser error
+  (`ignoring manifest hyperdrive.yml: malformed YAML (<reason>)`), matching what
+  `rake hyperdrive:manifest:check` already reported. Behaviour is unchanged:
+  gating that cannot be read still resolves to an absent manifest.
 
 ## [0.6.0] - 2026-08-17
 

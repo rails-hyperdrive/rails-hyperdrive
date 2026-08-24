@@ -12,9 +12,8 @@ module Rails
     class CompanionDiscovery
       TARGETS_KEY         = "hyperdrive_targets".freeze
       ARTIFACTS_KEY       = "hyperdrive_artifacts".freeze
-      # Field-scoped metadata search is an undocumented passthrough to the
-      # rubygems search backend, so it fails open: if it ever stops matching, the
-      # query returns an empty 200 page and discovery reports no suggestions.
+      # An undocumented passthrough to the rubygems search backend: if it stops
+      # matching, it degrades to an empty 200 page (no suggestions), never an error.
       SEARCH_QUERY        = "metadata.#{TARGETS_KEY}:*".freeze
       SEARCH_ENDPOINT     = "https://rubygems.org/api/v1/search.json".freeze
       CACHE_RELATIVE_PATH = ".hyperdrive/discover_cache.json".freeze

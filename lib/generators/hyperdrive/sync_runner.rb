@@ -32,8 +32,7 @@ module Rails
 
         def discover_artifacts(skip: false)
           @artifacts ||= skip ? [] : ::Rails::Hyperdrive::BundlerArtifactDiscovery.discover(
-            warnings: warnings, enabled_gems: enabled_gems, notices: notices,
-            bundled_gems: bundled_gems, skipped_gems: skipped_gems
+            enabled_gems: enabled_gems, report: report
           )
         end
 
@@ -44,10 +43,7 @@ module Rails
             shell: @shell,
             artifacts: discover_artifacts,
             mode: mode,
-            warnings: warnings,
-            notices: notices,
-            bundled_gems: bundled_gems,
-            skipped_gems: skipped_gems
+            report: report
           )
           @pipeline.call
         end
@@ -74,20 +70,8 @@ module Rails
           @root ||= ::Rails.root.to_s
         end
 
-        def warnings
-          @warnings ||= []
-        end
-
-        def notices
-          @notices ||= []
-        end
-
-        def bundled_gems
-          @bundled_gems ||= []
-        end
-
-        def skipped_gems
-          @skipped_gems ||= []
+        def report
+          @report ||= ::Rails::Hyperdrive::BundlerArtifactDiscovery::Report.new
         end
 
         def lock

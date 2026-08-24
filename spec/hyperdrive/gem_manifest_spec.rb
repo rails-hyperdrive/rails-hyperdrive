@@ -370,6 +370,31 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
       expect(warnings.join).to include("unparsable hyperdrive_version:")
     end
 
+    # The artifact can still be skipped for the fence, so a bare "installing
+    # ungated" would contradict the skip line that follows it.
+    it "qualifies the fall-open wording of the two entry warnings that keep a fence" do
+      write("hyperdrive.yml", <<~YAML)
+        hyperdrive_version: ">= 0.9"
+        skills:
+          a: yes
+          b:
+            gem:
+              none: [sqlite3]
+      YAML
+      manifest, warnings = load_manifest
+      manifest.skill_gate("a")
+      manifest.skill_gate("b")
+      expect(warnings.grep(/installing ungated unless fenced out/).size).to eq(2)
+      expect(warnings.join).not_to include("installing ungated and unfenced")
+    end
+
+    it "says unfenced only where the fence itself is the unparsable part" do
+      write("hyperdrive.yml", "hyperdrive_version: \">= 0.9\"\nskills:\n  a:\n    hyperdrive_version: garbage\n")
+      manifest, warnings = load_manifest
+      manifest.skill_gate("a")
+      expect(warnings.join).to include("installing ungated and unfenced")
+    end
+
     it "keeps a parseable top-level fence when the top-level gem: default is unusable" do
       write("hyperdrive.yml", "gem:\n  none: [sqlite3]\nhyperdrive_version: \">= 0.9\"\n")
       manifest, warnings = load_manifest

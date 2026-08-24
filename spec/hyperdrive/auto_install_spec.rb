@@ -207,8 +207,8 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
     # The bundler-plugin hook prints result.messages and nothing else, so the
     # fence is invisible at bundle install unless it lands there.
     def bundle_fences(warning, artifacts: [guideline(name: "auth-pundit")])
-      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |fence_warnings: [], **|
-        fence_warnings << warning
+      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |report:, **|
+        report.fence(warning)
         artifacts
       end
     end
@@ -231,13 +231,24 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(described_class.run(root: root).messages).to be_empty
     end
 
-    it "leaves every other discovery warning to init/sync" do
-      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |warnings: [], **|
-        warnings << "skip jobs-sidekiq (from rails-hyperdrive-sidekiq): target gem 'sidekiq' not in bundle"
+    it "leaves an ordinary artifact skip to init/sync" do
+      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |report:, **|
+        report.skip("skip jobs-sidekiq (from rails-hyperdrive-sidekiq): target gem 'sidekiq' not in bundle")
         []
       end
 
       expect(described_class.run(root: root).messages.join("\n")).not_to include("not in bundle")
+    end
+
+    # The key names content the manifest asked to constrain and this installer
+    # no longer can, so it lands unconstrained during a bundle install.
+    it "reports a retired versions: key, which changes what installs" do
+      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |report:, **|
+        report.warn("rails-hyperdrive-x: manifest top-level #{Rails::Hyperdrive::GemManifest::VERSIONS_REMOVED}")
+        []
+      end
+
+      expect(described_class.run(root: root).messages.join("\n")).to include("versions: is no longer supported")
     end
 
     it "leaves a previously installed artifact on disk when its new release fences it out" do

@@ -197,6 +197,8 @@ skills:
 
 A malformed condition **fails open**: the file installs unconditionally and the problem is reported with the other discovery warnings. The bias is deliberate: a surplus reference file is harmless, while a missing one breaks links from `SKILL.md`. A key naming no shipped file is warned about and ignored, as is one naming `SKILL.md` itself (the entry's own `gem:` already gates the whole skill). And because the `conditional:` map lives only in the manifest, gating adds nothing to the installed content: gate as extensively as you like.
 
+For a template-backed supporting file, either spelling is a valid key: the template's shipped name (`references/x.md.erb`) or the rendered face it installs as (`references/x.md`). Both resolve to the same gate, evaluated before rendering. Supplying both for one file is a warned ambiguity, not a silent merge — the shipped `.erb` spelling wins, and `rake hyperdrive:manifest:check` fails on it.
+
 ### ERB-templated markdown
 
 A file named `*.md.erb` in a skill directory is rendered at install time and lands as plain `.md` (the `.erb` suffix is dropped). `SKILL.md.erb` defines a skill exactly like `SKILL.md`; its frontmatter is parsed from the rendered output. Hyperdrive provides three helpers, and they are the only API a template may rely on:
@@ -214,7 +216,7 @@ Prefer `ActiveJob.perform_all_later` for bulk enqueues.
 <%- end -%>
 ```
 
-Rendering uses ERB's trim mode, so `<%- if gem?("alba") -%>` … `<%- end -%>` control lines leave no blank lines behind. A template that fails to render is skipped with a warning (the whole skill, when it's `SKILL.md.erb`); when a plain file and a template would land at the same path, the plain file wins with a warning. `conditional:` keys refer to templates by their shipped `x.md.erb` name and gate them before rendering. Guidelines get no ERB support.
+Rendering uses ERB's trim mode, so `<%- if gem?("alba") -%>` … `<%- end -%>` control lines leave no blank lines behind. A template that fails to render is skipped with a warning (the whole skill, when it's `SKILL.md.erb`); when a plain file and a template would land at the same path, the plain file wins with a warning. A `SKILL.md.erb` that fails to render on an installer its `hyperdrive_version:` fences out reports the fence instead, since that is the actionable half of the failure. `conditional:` keys name a template by its shipped `x.md.erb` name or its rendered `x.md` face, and gate it before rendering. Guidelines get no ERB support.
 
 Use ERB sparingly: condition reference manuals via `conditional:` and wrap link-table rows that point at gated files, but keep "consider adopting gem X" recommendations unconditional. An all-wrapped `.md.erb` renders to an empty file; to omit a file entirely, gate it with `conditional:` instead.
 
@@ -254,7 +256,7 @@ require "hyperdrive/skill_tasks"
 
 - `rake hyperdrive:skills:render` renders each `SKILL.md.erb` to its paired static `SKILL.md`, and each supporting `*.md.erb` to its own face in the same content dir, using the **canonical** binding: `gem?`/`any_gem?` always true (even with a version requirement), `gem_version` always `nil`. Templates that interpolate `gem_version` must handle `nil` (e.g. `<%= gem_version("sidekiq") || "(any version)" %>`).
 - `rake hyperdrive:skills:check` renders in memory and fails, listing any stale static file; it also fails on any `*.md.erb` found under a public skills root.
-- `rake hyperdrive:manifest:check` lints `hyperdrive.yml` where the installer is deliberately permissive, and fails on: unknown keys at every level (top level, `skills:`/`guidelines:` entries, `conditional:` entries), any `gem:`/`gems:`/`hyperdrive_version:` value the installer cannot parse or would only accept with a warning, and entry keys naming nothing the gem ships — with the retired `versions:` and its `version:` near-miss called out by name. A manifest that lints clean draws no gating warning at install time.
+- `rake hyperdrive:manifest:check` lints `hyperdrive.yml` where the installer is deliberately permissive, and fails on: unknown keys at every level (top level, `skills:`/`guidelines:` entries, `conditional:` entries), any `gem:`/`gems:`/`hyperdrive_version:` value the installer cannot parse or would only accept with a warning, entry keys naming nothing the gem ships — with the retired `versions:` and its `version:` near-miss called out by name — and a `hyperdrive_manifest` metadata key naming a path that is not a file, which would otherwise leave the gem opted in with every artifact ungated. A manifest that lints clean draws no gating warning at install time.
 
 Because every predicate reads true in the canonical binding, the render takes the **first** branch: an `if`/`elsif`/`else` chain contributes only its `if` body to the static face, and an `unless gem?(...)` body vanishes from it entirely — and `skills:check` byte-blesses whatever comes out, so nothing catches the loss. Write templates meant for pairing as independent, additive `if gem?(...)` blocks; never wrap a bundle predicate in `else`, `elsif`, or `unless`.
 
@@ -264,7 +266,7 @@ All three tasks read the single `*.gemspec` in the working directory (pass an ex
 
 ## Discovery never raises
 
-An artifact with missing or malformed frontmatter, a missing `name:` or `description:`, no manifest-declared target in the bundle, or every bundled target resolving outside its member requirement is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there. Read that section first when a gem you expected to contribute produces no files.
+An artifact with missing or malformed frontmatter, a missing `name:` or `description:`, no manifest-declared target in the bundle, or every bundled target resolving outside its member requirement is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, in two yellow `warn` blocks: `discovery skipped N item(s):` for everything that dropped shipped content — a whole artifact, or one supporting file of one — and `discovery reported M advisory warning(s):` for problems that changed nothing about what installed. A companion whose artifacts all fail therefore installs nothing and reports it only there. Read that section first when a gem you expected to contribute produces no files.
 
 ## Being found by `hyperdrive:discover`
 

@@ -61,6 +61,26 @@ RSpec.describe Rails::Command::HyperdriveCommand do
     end
   end
 
+  describe "the help surface" do
+    def declared(command) = described_class.commands[command].options.keys.map(&:to_s)
+
+    it "mirrors each generator's own flags" do
+      expect(declared("init")).to contain_exactly("mount_at", "skip_content", "skip_mcp", "dry_run")
+      expect(declared("sync")).to contain_exactly("overwrite", "merge", "sidecar", "dry_run")
+      expect(declared("discover")).to contain_exactly("refresh")
+    end
+
+    it "carries the generator's own default rather than a restated one" do
+      expect(described_class.commands["init"].options[:mount_at].default)
+        .to eq(install::DEFAULT_MOUNT_AT)
+    end
+
+    it "leaves Thor's inherited runtime options out" do
+      expect(declared("init")).not_to include("force", "pretend", "quiet", "skip",
+        "skip_namespace", "skip_collision_check")
+    end
+  end
+
   describe "the CLI surface" do
     it "exposes exactly the three hyperdrive commands" do
       # Thor registers every public method defined on the class as a command,

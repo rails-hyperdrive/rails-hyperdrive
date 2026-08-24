@@ -35,10 +35,23 @@ module Rails
         spec, gem_root = GemspecLocator.load_spec(gemspec, dir)
         relpath = GemManifest.manifest_relpath(spec)
         path = File.join(gem_root, relpath)
-        return Result.new(manifest: nil, problems: []) unless File.file?(path)
+        return missing_manifest(spec, relpath) unless File.file?(path)
 
         repo_spec = RepoSpec.new(name: spec.name, full_gem_path: gem_root, metadata: spec.metadata || {})
         Result.new(manifest: relpath, problems: problems_in(path, repo_spec))
+      end
+
+      # Shipping no manifest is legal, but a declared path that is not a file
+      # leaves the gem opted in as a companion with every artifact ungated —
+      # the author-side slip this lint exists to catch.
+      def missing_manifest(spec, relpath)
+        declared = (spec.metadata || {})[GemManifest::METADATA_KEY].to_s
+        return Result.new(manifest: nil, problems: []) unless declared == relpath
+
+        Result.new(
+          manifest: relpath,
+          problems: ["gemspec metadata #{GemManifest::METADATA_KEY} names '#{relpath}', which is not a file"]
+        )
       end
 
       def problems_in(path, repo_spec)
@@ -69,18 +82,9 @@ module Rails
 
       # nil means nothing further is readable; an empty manifest is legal.
       def parse_root(path, problems)
-        root = YAML.safe_load(File.read(path), permitted_classes: [Symbol])
-        return {} if root.nil?
-        return root.transform_keys(&:to_s) if root.is_a?(Hash)
-
-        problems << "root must be a YAML map"
-        nil
-      rescue Psych::SyntaxError => e
-        problems << "malformed YAML (#{e.message})"
-        nil
-      rescue StandardError => e
-        problems << "unreadable (#{e.message})"
-        nil
+        root, failure = GemManifest.read_root(path)
+        problems << failure unless root
+        root
       end
 
       def each_entry(root, section, shipped, shipped_label, problems)
@@ -123,9 +127,9 @@ module Rails
       # warning counts as a failure: it names a spelling that installs, but not
       # as written.
       def check_gate(map, where, problems, fence: true)
-        problems << "#{where}: gem: and gems: are aliases; keep only one" if map.key?("gem") && map.key?("gems")
-
         gem_key = GemManifest.gem_key(map)
+        problems << "#{where}: gem: and gems: are aliases; keep only one" if gem_key.conflict
+
         if gem_key.present
           parsed = GemManifest.parse_targets(gem_key.value)
           if parsed.nil? || parsed.targets.empty?
@@ -148,14 +152,17 @@ module Rails
           return
         end
 
+        keys = value.keys.map(&:to_s)
         value.each do |key, entry|
           key = key.to_s
           inner = "#{where} conditional key '#{key}'"
+          face = BundlerArtifactDiscovery.target_path(key)
           if BundlerArtifactDiscovery::SKILL_FILE_NAMES.include?(key)
             problems << "#{inner}: the entry's own gem: gates the whole skill"
           elsif shipped && !shipped.include?(key)
             problems << "#{inner}: names no shipped supporting file"
           end
+          problems << "#{inner}: '#{face}' keys the same file; keep one spelling" if face != key && keys.include?(face)
 
           unless entry.is_a?(Hash)
             problems << "#{inner}: must be a map with gem:"
@@ -168,27 +175,17 @@ module Rails
         end
       end
 
-      # Maps each skill's manifest key to the dir-relative paths of its
-      # supporting files, as shipped: a template-side file is keyed by its
-      # *.md.erb name, the one a conditional: entry names.
+      # Maps each skill's manifest key to the dir-relative paths a conditional:
+      # entry may name: every supporting file as shipped, plus the rendered
+      # face of each *.md.erb, since either spelling gates the same file.
       def shipped_skills(repo_spec)
-        found = BundlerArtifactDiscovery.skill_paths(repo_spec, warnings: [])
+        found = BundlerArtifactDiscovery.skill_paths(repo_spec)
         found.each_with_object({}) do |(path, support_root, rel), h|
-          template_dir = File.dirname(path)
-          template_dir = nil if File.expand_path(template_dir) == File.expand_path(support_root)
-          h[rel] = h.fetch(rel, []) |
-                   support_paths(support_root, "**/*") | support_paths(template_dir, "**/*.md.erb")
-        end
-      end
-
-      def support_paths(root, glob)
-        return [] if root.nil?
-
-        Dir.glob(File.join(root, glob)).filter_map do |file|
-          next unless File.file?(file)
-          rel = file.delete_prefix("#{root}/")
-          next if BundlerArtifactDiscovery::SKILL_FILE_NAMES.include?(File.basename(rel))
-          rel
+          shipped = BundlerArtifactDiscovery.support_relpaths(support_root) |
+                    BundlerArtifactDiscovery.support_relpaths(
+                      BundlerArtifactDiscovery.template_dir_for(path, support_root), glob: "**/*.md.erb"
+                    )
+          h[rel] = h.fetch(rel, []) | shipped | shipped.map { |p| BundlerArtifactDiscovery.target_path(p) }
         end
       end
 
@@ -196,8 +193,8 @@ module Rails
         BundlerArtifactDiscovery.guideline_paths(repo_spec).map { |p| File.basename(p) }
       end
 
-      private_class_method :problems_in, :parse_root, :each_entry, :check_keys, :did_you_mean,
-                           :check_gate, :check_conditional, :shipped_skills, :support_paths,
+      private_class_method :missing_manifest, :problems_in, :parse_root, :each_entry, :check_keys,
+                           :did_you_mean, :check_gate, :check_conditional, :shipped_skills,
                            :shipped_guidelines
     end
   end

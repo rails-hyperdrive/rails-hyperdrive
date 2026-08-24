@@ -33,6 +33,12 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
     write("lib/companion/hyperdrive/guidelines/#{name}", "# guideline\n")
   end
 
+  def write_template_skill
+    write_gemspec("hyperdrive_skill_templates_dir" => "templates")
+    write("templates/alpha/SKILL.md.erb", "---\nname: alpha\ndescription: d\n---\n")
+    write("templates/alpha/references/tips.md.erb", "tips\n")
+  end
+
   def problems(manifest)
     write("hyperdrive.yml", manifest)
     described_class.check(dir: @dir).problems
@@ -75,6 +81,18 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
       result = described_class.check(dir: @dir)
       expect(result.problems).to be_empty
       expect(result.manifest).to be_nil
+    end
+
+    # The dangling key still opts the gem in as a companion, so everything
+    # ships ungated with no other signal anywhere.
+    it "fails when hyperdrive_manifest names a path that is not a file" do
+      write_gemspec("hyperdrive_manifest" => "config/gating.yaml")
+
+      result = described_class.check(dir: @dir)
+      expect(result.manifest).to eq("config/gating.yaml")
+      expect(result.problems).to eq(
+        ["gemspec metadata hyperdrive_manifest names 'config/gating.yaml', which is not a file"]
+      )
     end
 
     it "reads the manifest from the hyperdrive_manifest path" do
@@ -224,6 +242,22 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
 
       manifest = "skills:\n  alpha:\n    conditional:\n      references/tips.md.erb:\n        gem: sidekiq\n"
       expect(problems(manifest)).to be_empty
+    end
+
+    it "matches a template-side supporting file by its rendered face too" do
+      write_template_skill
+
+      manifest = "skills:\n  alpha:\n    conditional:\n      references/tips.md:\n        gem: sidekiq\n"
+      expect(problems(manifest)).to be_empty
+    end
+
+    it "fails when both spellings key the same template-side file" do
+      write_template_skill
+
+      manifest = "skills:\n  alpha:\n    conditional:\n      references/tips.md.erb:\n        gem: sidekiq\n" \
+                 "      references/tips.md:\n        gem: solid_queue\n"
+      expect(problems(manifest).join)
+        .to include("conditional key 'references/tips.md.erb': 'references/tips.md' keys the same file")
     end
 
     it "fails on a non-map entry and on one without gem:" do

@@ -32,42 +32,74 @@ module Rails
         end
       end
 
+      # Everything one discovery walk collects, passed in so a caller reads
+      # back only what it needs. `skips` is the subset of `warnings` that
+      # dropped shipped content; everything else is advisory and installed.
+      # `bundled_gems` and `skipped_gems` report the walk itself: every gem
+      # seen, and every gem that lost at least one artifact to a hard skip.
+      Report = Struct.new(:warnings, :skips, :notices, :fence_warnings, :bundled_gems, :skipped_gems,
+        keyword_init: true) do
+        def initialize(**kw)
+          super(**{ warnings: [], skips: [], notices: [], fence_warnings: [],
+                    bundled_gems: [], skipped_gems: [] }.merge(kw))
+        end
+
+        def warn(message)
+          warnings << message
+        end
+
+        def skip(message)
+          warnings << message
+          skips << message
+        end
+
+        # Version-fence skips are also carried on their own, for surfaces that
+        # print nothing else about discovery.
+        def fence(message)
+          skip(message)
+          fence_warnings << message
+        end
+
+        def advisories
+          warnings - skips
+        end
+
+        def mark_skipped_gem(name)
+          skipped_gems << name unless skipped_gems.include?(name)
+        end
+      end
+
       module_function
 
-      # Non-fatal problems are appended to `warnings` and the artifact is
-      # dropped; discovery never raises. A gem that has not opted in as a
-      # companion is never scanned — its skills.sh content is only reported
-      # through `notices`. Version-fence skips go to `warnings` as well as to
-      # `fence_warnings`, which carries them to surfaces that print nothing else.
-      # `bundled_gems` and `skipped_gems` report the walk itself: every gem seen,
-      # and every gem that lost at least one artifact to a skip.
-      def discover(specs: nil, warnings: [], enabled_gems: [], notices: [], fence_warnings: [],
-                   bundled_gems: [], skipped_gems: [])
+      # Non-fatal problems are reported and the artifact is dropped; discovery
+      # never raises. A gem that has not opted in as a companion is never
+      # scanned — its skills.sh content is only reported through `notices`.
+      def discover(specs: nil, enabled_gems: [], report: Report.new)
         specs ||= safe_bundler_specs
         enabled = Array(enabled_gems).map(&:to_s)
         resolved = specs.each_with_object({}) { |s, h| h[s.name.to_s] = s.version }
 
         candidates = []
         specs.each do |spec|
-          bundled_gems << spec.name.to_s
+          report.bundled_gems << spec.name.to_s
           unless opted_in?(spec, enabled_gems: enabled)
-            notice_skills_sh_content(spec, notices: notices)
+            notice_skills_sh_content(spec, report: report)
             next
           end
-          manifest = GemManifest.load(spec, warnings: warnings)
+          manifest = GemManifest.load(spec, warnings: report.warnings)
           seen = { skill: [], guideline: [] }
-          each_artifact_path(spec, warnings: warnings) do |path, type, support_root, key|
+          each_artifact_path(spec, report: report) do |path, type, support_root, key|
             seen[type] << key
             gate = type == :skill ? manifest.skill_gate(key) : manifest.guideline_gate(key)
             artifact = parse(path, source_spec: spec, type: type, resolved: resolved,
-              warnings: warnings, fence_warnings: fence_warnings, support_root: support_root, gate: gate)
-            if artifact
+              report: report, support_root: support_root, gate: gate, key: key)
+            if artifact.is_a?(Artifact)
               candidates << artifact
-            elsif !skipped_gems.include?(spec.name.to_s)
-              skipped_gems << spec.name.to_s
+            elsif artifact != :gate_miss
+              report.mark_skipped_gem(spec.name.to_s)
             end
           end
-          warn_unknown_manifest_keys(manifest, spec, seen, warnings)
+          warn_unknown_manifest_keys(manifest, spec, seen, report)
         end
 
         # Collapse same-name variants within one source gem (highest
@@ -82,23 +114,23 @@ module Rails
       # from its skills root, a guideline's filename. Keys are collected before
       # parsing, so a candidate later dropped (e.g. an ERB render failure)
       # still counts as known to the manifest.
-      def each_artifact_path(spec, warnings: [])
-        skill_paths(spec, warnings: warnings).each { |path, support_root, rel| yield path, :skill, support_root, rel }
+      def each_artifact_path(spec, report:)
+        skill_paths(spec, report: report).each { |path, support_root, rel| yield path, :skill, support_root, rel }
         guideline_paths(spec).each { |p| yield p, :guideline, nil, File.basename(p) }
       end
 
       # The staleness signal for gating detached from content: an entry
       # matching nothing means a renamed or removed skill dir/guideline.
-      def warn_unknown_manifest_keys(manifest, spec, seen, warnings)
+      def warn_unknown_manifest_keys(manifest, spec, seen, report)
         (manifest.skill_keys - seen[:skill]).each do |key|
-          warnings << "#{spec.name}: manifest skills entry '#{key}' names no shipped skill directory"
+          report.warn "#{spec.name}: manifest skills entry '#{key}' names no shipped skill directory"
         end
         (manifest.guideline_keys - seen[:guideline]).each do |key|
-          warnings << "#{spec.name}: manifest guidelines entry '#{key}' names no shipped guideline"
+          report.warn "#{spec.name}: manifest guidelines entry '#{key}' names no shipped guideline"
         end
       end
 
-      def skill_paths(spec, warnings: [])
+      def skill_paths(spec, report: Report.new)
         roots = [
           File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive", "skills"),
           File.join(spec.full_gem_path, "skills")
@@ -117,17 +149,17 @@ module Rails
             candidates << {
               dir: dir,
               rel: dir.delete_prefix(root).delete_prefix("/"),
-              path: resolve_same_dir_tie(dir, group, warnings)
+              path: resolve_same_dir_tie(dir, group, report)
             }
           end
         end
 
-        pair_with_templates(candidates, spec, warnings: warnings)
+        pair_with_templates(candidates, spec, report: report)
       end
 
-      def resolve_same_dir_tie(dir, group, warnings)
+      def resolve_same_dir_tie(dir, group, report)
         return group.first unless group.size > 1
-        warnings << "skip #{File.join(dir, "SKILL.md.erb")}: SKILL.md in the same directory takes precedence"
+        report.skip "skip #{File.join(dir, "SKILL.md.erb")}: SKILL.md in the same directory takes precedence"
         group.find { |p| File.basename(p) == "SKILL.md" }
       end
 
@@ -136,7 +168,7 @@ module Rails
       # the definition, the static dir the support root. The static SKILL.md is
       # never parsed — falling back to it when the template fails to render
       # would silently un-condition the skill.
-      def pair_with_templates(candidates, spec, warnings:)
+      def pair_with_templates(candidates, spec, report:)
         templates_root = File.join(spec.full_gem_path, skill_templates_dir(spec))
 
         pairs = {}
@@ -146,7 +178,7 @@ module Rails
           next if template_dir == File.expand_path(cand[:dir])
           template = File.join(template_dir, "SKILL.md.erb")
           next unless File.file?(template)
-          warn_template_extras(template_dir, warnings)
+          warn_template_extras(template_dir, report)
           pairs[cand[:dir]] = { template: template, template_dir: template_dir }
         end
 
@@ -164,12 +196,12 @@ module Rails
 
       # The template dir holds only templates; static content is the paired
       # content dir's to ship.
-      def warn_template_extras(template_dir, warnings)
+      def warn_template_extras(template_dir, report)
         extras = Dir.glob(File.join(template_dir, "**", "*"))
                     .select { |f| File.file?(f) && !erb_template?(f) }
         return if extras.empty?
-        warnings << "#{template_dir}: ignoring #{extras.size} file(s) besides SKILL.md.erb and " \
-                    "supporting *.md.erb templates; static supporting files ship in the paired content directory"
+        report.warn "#{template_dir}: ignoring #{extras.size} file(s) besides SKILL.md.erb and " \
+          "supporting *.md.erb templates; static supporting files ship in the paired content directory"
       end
 
       def guideline_paths(spec)
@@ -201,13 +233,13 @@ module Rails
       # Report-only, glob-only (no file reads): SKILL.md presence is the
       # signal, and SKILL.md.erb is excluded — raw ERB is not skills.sh
       # content. Parse problems surface as warnings once the gem is enabled.
-      def notice_skills_sh_content(spec, notices:)
+      def notice_skills_sh_content(spec, report:)
         found = Dir.glob(File.join(spec.full_gem_path, "skills", "**", "SKILL.md"))
         return if found.empty?
 
         count = found.map { |p| File.dirname(p) }.uniq.size
-        notices << "gem '#{spec.name}' ships #{count} skills.sh skill(s); add \"#{spec.name}\" to enabled: " \
-                   "in .hyperdrive/lock.yml and re-run bin/rails hyperdrive:sync to install them"
+        report.notices << "gem '#{spec.name}' ships #{count} skills.sh skill(s); add \"#{spec.name}\" to enabled: " \
+                          "in .hyperdrive/lock.yml and re-run bin/rails hyperdrive:sync to install them"
       end
 
       # ".." segments are rejected to prevent escaping the gem root.
@@ -230,20 +262,28 @@ module Rails
 
       # Frontmatter's schema is exactly name and description; any other key is
       # unknown to the parser and rides untouched in the installed body.
-      def parse(path, source_spec:, type:, resolved:, warnings:, gate:, fence_warnings: [], support_root: nil)
+      # Returns the Artifact, :gate_miss when a well-formed gate simply does
+      # not match the bundle, or nil for a hard skip.
+      def parse(path, source_spec:, type:, resolved:, report:, gate:, key:, support_root: nil)
         support_root ||= File.dirname(path)
         body = File.read(path)
         if erb_template?(path)
           begin
             body = SkillTemplate.render(body, resolved: resolved)
           rescue SyntaxError, StandardError => e
-            warnings << "skip #{path}: ERB render failed (#{e.message})"
+            # A template reaching for a helper this installer lacks raises
+            # here, and the fence is the only thing the user can act on.
+            if (required = unmet_fence(gate))
+              report.fence fence_message(type, key, source_spec, required)
+            else
+              report.skip "skip #{path}: ERB render failed (#{e.message})"
+            end
             return nil
           end
         end
         frontmatter, _rest = split_frontmatter(body)
         unless frontmatter
-          warnings << "skip #{path}: missing or malformed frontmatter"
+          report.skip "skip #{path}: missing or malformed frontmatter"
           return nil
         end
 
@@ -254,25 +294,22 @@ module Rails
         description = meta["description"]
 
         unless name && description
-          warnings << "skip #{path}: missing a required field (name, description)"
+          report.skip "skip #{path}: missing a required field (name, description)"
           return nil
         end
 
         # The fence is decided before the bundle gate so a fenced-out artifact
         # reports the one thing the user can act on.
         if (required = unmet_fence(gate))
-          message = "#{type} '#{name}' (from #{source_spec.name}) requires rails-hyperdrive #{required} " \
-                    "(this is #{Rails::Hyperdrive::VERSION}); upgrade rails-hyperdrive to install it"
-          warnings << message
-          fence_warnings << message
+          report.fence fence_message(type, name, source_spec, required)
           return nil
         end
 
         matched = match_targets(gate.targets, gate.versions, resolved, mode: gate.match_mode)
         if matched.empty?
           reason = no_match_reason(gate.targets, gate.versions, resolved, mode: gate.match_mode)
-          warnings << "skip #{name} (from #{source_spec.name}): #{reason}"
-          return nil
+          report.skip "skip #{name} (from #{source_spec.name}): #{reason}"
+          return :gate_miss
         end
 
         Artifact.new(
@@ -291,7 +328,7 @@ module Rails
             if type == :skill
               skill_support_files(
                 path, support_root, gate.conditional,
-                source_spec: source_spec, resolved: resolved, warnings: warnings,
+                source_spec: source_spec, resolved: resolved, report: report,
                 label: "#{name} (from #{source_spec.name})"
               )
             else
@@ -299,69 +336,81 @@ module Rails
             end
         )
       rescue Psych::Exception
-        warnings << "skip #{path}: malformed YAML frontmatter"
+        report.skip "skip #{path}: malformed YAML frontmatter"
         nil
       end
 
-      # Everything in a skill's directory besides SKILL.md(.erb) ships as raw
-      # bytes, with no frontmatter contract. ".." segments are rejected to keep
-      # the tree inside the skill directory.
-      def support_files_for(skill_dir)
-        Dir.glob(File.join(skill_dir, "**", "*")).filter_map do |file|
+      def fence_message(type, label, source_spec, required)
+        "#{type} '#{label}' (from #{source_spec.name}) requires rails-hyperdrive #{required} " \
+          "(this is #{Rails::Hyperdrive::VERSION}); upgrade rails-hyperdrive to install it"
+      end
+
+      # Dir-relative paths of everything under `root` besides SKILL.md(.erb).
+      # ".." segments are rejected to keep the tree inside that directory.
+      def support_relpaths(root, glob: "**/*")
+        return [] if root.nil?
+
+        Dir.glob(File.join(root, glob)).filter_map do |file|
           next unless File.file?(file)
-          rel = file.delete_prefix("#{skill_dir}/")
+          rel = file.delete_prefix("#{root}/")
           next if SKILL_FILE_NAMES.include?(File.basename(rel))
           next if rel.split(%r{[/\\]}).include?("..")
-          { path: rel, body: File.binread(file), root: skill_dir }
+          rel
+        end
+      end
+
+      # nil when the definition file sits in the support root, i.e. the skill
+      # is not template-paired.
+      def template_dir_for(path, support_root)
+        dir = File.dirname(path)
+        dir unless File.expand_path(dir) == File.expand_path(support_root)
+      end
+
+      # Supporting files ship as raw bytes, with no frontmatter contract.
+      def support_files_for(skill_dir)
+        support_relpaths(skill_dir).map do |rel|
+          { path: rel, body: File.binread(File.join(skill_dir, rel)), root: skill_dir }
         end
       end
 
       def template_support_files(template_dir)
-        return [] if template_dir.nil?
-        Dir.glob(File.join(template_dir, "**", "*.md.erb")).filter_map do |file|
-          next unless File.file?(file)
-          rel = file.delete_prefix("#{template_dir}/")
-          next if SKILL_FILE_NAMES.include?(File.basename(rel))
-          next if rel.split(%r{[/\\]}).include?("..")
-          { path: rel, body: File.binread(file), root: template_dir, template: true }
+        support_relpaths(template_dir, glob: "**/*.md.erb").map do |rel|
+          { path: rel, body: File.binread(File.join(template_dir, rel)), root: template_dir, template: true }
         end
       end
 
-      def skill_support_files(path, support_root, conditional, source_spec:, resolved:, warnings:, label:)
-        template_dir = File.dirname(path)
-        template_dir = nil if File.expand_path(template_dir) == File.expand_path(support_root)
-
+      def skill_support_files(path, support_root, conditional, source_spec:, resolved:, report:, label:)
         conditioned_support_files(
           support_root, conditional,
-          resolved: resolved, warnings: warnings, label: label,
-          template_dir: template_dir, source_root: source_spec.full_gem_path,
+          resolved: resolved, report: report, label: label,
+          template_dir: template_dir_for(path, support_root), source_root: source_spec.full_gem_path,
           public_root: public_support_root?(source_spec, support_root)
         )
       end
 
-      def conditioned_support_files(skill_dir, conditional, resolved:, warnings:, label:,
+      def conditioned_support_files(skill_dir, conditional, resolved:, report:, label:,
                                     template_dir:, source_root:, public_root:)
         content = support_files_for(skill_dir)
         templates = template_support_files(template_dir)
-        warn_public_support_templates(content, skill_dir, warnings) if public_root
+        warn_public_support_templates(content, skill_dir, report) if public_root
 
         # A template-side file owns its target path whatever its own outcome:
         # installing the content-side face when the template is gated out or
         # fails to render would silently un-condition the file.
         claimed = templates.map { |f| target_path(f[:path]) }
         files = apply_conditional_filter(content + templates, conditional,
-          resolved: resolved, warnings: warnings, label: label)
+          resolved: resolved, report: report, label: label)
         files = files.reject { |f| !f[:template] && claimed.include?(target_path(f[:path])) }
 
-        render_support_templates(files, resolved: resolved, warnings: warnings, source_root: source_root)
+        render_support_templates(files, resolved: resolved, report: report, source_root: source_root)
       end
 
       # Everything under a public skills root is copied verbatim by generic
       # skills.sh consumers, so a template there hands them raw ERB.
-      def warn_public_support_templates(files, skill_dir, warnings)
+      def warn_public_support_templates(files, skill_dir, report)
         return if files.none? { |f| erb_template?(f[:path]) }
-        warnings << "#{skill_dir}: supporting *.md.erb template(s) sit under a public skills root; " \
-                    "move them to the paired template directory and commit their rendered faces here"
+        report.warn "#{skill_dir}: supporting *.md.erb template(s) sit under a public skills root; " \
+          "move them to the paired template directory and commit their rendered faces here"
       end
 
       def public_support_root?(spec, support_root)
@@ -379,65 +428,82 @@ module Rails
       # Fail-open: a malformed condition warns and installs its file
       # unconditionally — a surplus supporting file is harmless, while a
       # missing one breaks links from SKILL.md.
-      def apply_conditional_filter(files, conditional, resolved:, warnings:, label:)
+      def apply_conditional_filter(files, conditional, resolved:, report:, label:)
         return files if conditional.nil?
         unless conditional.is_a?(Hash)
-          warnings << "#{label}: conditional: must be a map of supporting-file path to a gating map; installing all supporting files"
+          report.warn "#{label}: conditional: must be a map of supporting-file path to a gating map; installing all supporting files"
           return files
         end
 
         conditions = conditional.transform_keys(&:to_s)
-        shipped = files.map { |f| f[:path] }
+        shipped = files.flat_map { |f| [f[:path], target_path(f[:path])] }
         conditions.each_key do |key|
           if SKILL_FILE_NAMES.include?(key)
-            warnings << "#{label}: conditional key '#{key}' ignored; the entry's own gem: gates the whole skill"
+            report.warn "#{label}: conditional key '#{key}' ignored; the entry's own gem: gates the whole skill"
           elsif !shipped.include?(key)
-            warnings << "#{label}: conditional key '#{key}' names no shipped supporting file"
+            report.warn "#{label}: conditional key '#{key}' names no shipped supporting file"
           end
         end
 
         files.select do |file|
-          next true unless conditions.key?(file[:path])
-          conditional_satisfied?(file[:path], conditions[file[:path]], resolved, warnings: warnings, label: label)
+          key = condition_key_for(file[:path], conditions, report: report, label: label)
+          next true unless key
+          conditional_satisfied?(key, conditions[key], resolved, report: report, label: label)
         end
       end
 
-      def conditional_satisfied?(key, entry, resolved, warnings:, label:)
+      # A template-backed file may be keyed by its shipped *.md.erb name or by
+      # the rendered face it installs as; the exact spelling wins when a
+      # manifest carries both.
+      def condition_key_for(path, conditions, report:, label:)
+        face = target_path(path)
+        return conditions.key?(path) ? path : nil if face == path
+
+        if conditions.key?(path)
+          if conditions.key?(face)
+            report.warn "#{label}: conditional keys '#{path}' and '#{face}' both gate '#{face}'; using '#{path}'"
+          end
+          return path
+        end
+        face if conditions.key?(face)
+      end
+
+      def conditional_satisfied?(key, entry, resolved, report:, label:)
         unless entry.is_a?(Hash)
-          warnings << "#{label}: conditional entry for '#{key}' must be a map with gem:; installing the file"
+          report.warn "#{label}: conditional entry for '#{key}' must be a map with gem:; installing the file"
           return true
         end
 
         entry = entry.transform_keys(&:to_s)
         gem_key = GemManifest.gem_key(entry)
-        warnings << "#{label}: conditional entry for '#{key}': #{gem_key.warning}" if gem_key.warning
+        report.warn "#{label}: conditional entry for '#{key}': #{gem_key.warning}" if gem_key.warning
 
         parsed = gem_key.present ? GemManifest.parse_targets(gem_key.value) : nil
         if parsed.nil? || parsed.targets.empty?
-          warnings << "#{label}: conditional entry for '#{key}' needs gem: naming #{GemManifest::GEM_FORMS}; installing the file"
+          report.warn "#{label}: conditional entry for '#{key}' needs gem: naming #{GemManifest::GEM_FORMS}; installing the file"
           return true
         end
-        warnings << "#{label}: conditional entry for '#{key}': #{GemManifest::VERSIONS_REMOVED}" if entry.key?("versions")
-        warnings << "#{label}: conditional entry for '#{key}' gem: #{parsed.warning}" if parsed.warning
+        report.warn "#{label}: conditional entry for '#{key}': #{GemManifest::VERSIONS_REMOVED}" if entry.key?("versions")
+        report.warn "#{label}: conditional entry for '#{key}' gem: #{parsed.warning}" if parsed.warning
 
         match_targets(parsed.targets, parsed.versions, resolved, mode: parsed.match_mode).any?
       end
 
-      def render_support_templates(files, resolved:, warnings:, source_root: nil)
+      def render_support_templates(files, resolved:, report:, source_root: nil)
         plain_paths = files.map { |f| f[:path] }
         files.filter_map do |file|
           next { path: file[:path], body: file[:body] } unless erb_template?(file[:path])
 
           target = target_path(file[:path])
           if plain_paths.include?(target)
-            warnings << "skip #{File.join(file[:root], file[:path])}: #{target} in the same directory takes precedence"
+            report.skip "skip #{File.join(file[:root], file[:path])}: #{target} in the same directory takes precedence"
             next nil
           end
 
           begin
             rendered = { path: target, body: SkillTemplate.render(file[:body], resolved: resolved) }
           rescue SyntaxError, StandardError => e
-            warnings << "skip #{File.join(file[:root], file[:path])}: ERB render failed (#{e.message})"
+            report.skip "skip #{File.join(file[:root], file[:path])}: ERB render failed (#{e.message})"
             next nil
           end
           file[:template] ? rendered.merge(source_relpath: template_relpath(file, source_root)) : rendered
@@ -554,12 +620,13 @@ module Rails
       private_class_method :each_artifact_path, :warn_unknown_manifest_keys,
                            :resolve_same_dir_tie, :pair_with_templates, :warn_template_extras,
                            :opted_in?, :metadata_present?, :notice_skills_sh_content,
-                           :skills_dir_override, :skill_templates_dir, :parse, :support_files_for,
+                           :skills_dir_override, :skill_templates_dir, :parse, :fence_message,
+                           :erb_template?, :support_files_for,
                            :template_support_files, :skill_support_files,
                            :conditioned_support_files, :warn_public_support_templates,
                            :public_support_root?, :apply_conditional_filter,
-                           :conditional_satisfied?,
-                           :render_support_templates, :template_relpath, :erb_template?, :target_path,
+                           :condition_key_for, :conditional_satisfied?,
+                           :render_support_templates, :template_relpath,
                            :unmet_fence, :match_targets,
                            :version_satisfied?, :requirement_for, :no_match_reason,
                            :all_no_match_reason, :unsatisfied_reason, :safe_bundler_specs

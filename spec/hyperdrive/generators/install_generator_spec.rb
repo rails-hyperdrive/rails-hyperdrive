@@ -688,12 +688,12 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
 
   describe "discovery warnings surfaced in output" do
     it "prints a summary of skipped artifacts" do
-      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |warnings:, **_|
-        warnings << "skip /x/SKILL.md: missing a required field (name, description, gem, versions)"
+      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |report:, **_|
+        report.skip("skip /x/SKILL.md: missing a required field (name, description, gem, versions)")
         []
       end
       out = run_generator([])
-      expect(out).to include("discovery skipped 1 artifact(s)")
+      expect(out).to include("discovery skipped 1 item(s)")
     end
   end
 

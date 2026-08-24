@@ -10,7 +10,7 @@ module Rails
     class ArtifactStatus
       STATES = %i[installed missing outdated orphaned].freeze
 
-      Entry = Struct.new(:path, :state, :artifact, :locked_source, :bundle_source, :bundled_source_gem,
+      Entry = Struct.new(:path, :state, :artifact, :locked_source, :bundle_source, :source_gem, :source_bundled,
         keyword_init: true) do
         def to_s
           case state
@@ -24,8 +24,7 @@ module Rails
         private
 
         def orphan_reason
-          return "no longer shipped by #{locked_source}" unless bundled_source_gem
-          "#{bundled_source_gem} is still bundled but did not offer this file"
+          LockFile.orphan_reason(source_label: locked_source, source_gem: source_gem, bundled: source_bundled)
         end
       end
 
@@ -77,7 +76,7 @@ module Rails
           @entries << Entry.new(
             path: locked.path, state: :orphaned, artifact: locked.kind&.to_sym,
             locked_source: locked.source_label, bundle_source: nil,
-            bundled_source_gem: (locked.source_gem if @bundled_gems.include?(locked.source_gem.to_s))
+            source_gem: locked.source_gem, source_bundled: @bundled_gems.include?(locked.source_gem.to_s)
           )
         end
 

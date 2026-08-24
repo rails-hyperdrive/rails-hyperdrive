@@ -16,8 +16,9 @@ namespace :hyperdrive do
 
     desc "Fail when a canonical skill file is stale, or raw ERB sits under a public skills root"
     task :check, [:gemspec] do |_t, args|
-      stale = Rails::Hyperdrive::CanonicalSkillRender.stale(gemspec: args[:gemspec])
-      raw = Rails::Hyperdrive::CanonicalSkillRender.public_erb_templates(gemspec: args[:gemspec])
+      roots = Rails::Hyperdrive::CanonicalSkillRender.resolve_roots(gemspec: args[:gemspec])
+      stale = Rails::Hyperdrive::CanonicalSkillRender.stale(roots: roots)
+      raw = Rails::Hyperdrive::CanonicalSkillRender.public_erb_templates(roots: roots)
       stale.each { |r| warn "stale: #{r.dest}" }
       raw.each { |p| warn "raw ERB: #{p}" }
       abort "#{stale.size} canonical skill file(s) stale; run `rake hyperdrive:skills:render`" unless stale.empty?

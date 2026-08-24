@@ -89,9 +89,20 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
       expect(File.file?(File.join(@dir, "skills/paired/SKILL.md"))).to be true
     end
 
-    it "errors when a template's content dir equals its template dir" do
+    it "renders lib-convention templates into top-level skills/ with no metadata declared" do
       write_gemspec(skills_dir: nil)
       write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
+
+      described_class.write(dir: @dir)
+
+      expect(File.file?(File.join(@dir, "skills/paired/SKILL.md"))).to be true
+      expect(described_class.stale(dir: @dir)).to be_empty
+      expect(described_class.public_erb_templates(dir: @dir)).to be_empty
+    end
+
+    it "errors when a template's content dir equals its template dir" do
+      write_gemspec(skills_dir: "tpl", templates_dir: "tpl")
+      write("tpl/paired/SKILL.md.erb", template)
 
       expect { described_class.write(dir: @dir) }
         .to raise_error(described_class::Error, /content dir equals template dir/)

@@ -27,6 +27,13 @@ module Rails
         new(path).tap(&:read)
       end
 
+      # Every surface reporting an orphan must name the same two cases, or a
+      # sync and a bundle install would disagree about why a file is stranded.
+      def self.orphan_reason(source_label:, source_gem:, bundled:)
+        return "no longer shipped by #{source_label}" unless bundled
+        "#{source_gem} is still bundled but did not offer this file"
+      end
+
       def initialize(path)
         @path = path.to_s
         @claude_md_state = nil # nil = no lock has been written yet

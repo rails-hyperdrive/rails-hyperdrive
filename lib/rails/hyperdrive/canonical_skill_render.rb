@@ -12,32 +12,51 @@ module Rails
     module CanonicalSkillRender
       Error = GemspecLocator::Error
 
+      PUBLIC_SKILLS_DIR = "skills".freeze
+
       Rendered = Struct.new(:template, :dest, :body, keyword_init: true)
+
+      # `public_skills_root` is where generic skills.sh consumers read whether
+      # or not the gem declares a content root; `skills_root` is where this
+      # gem's rendered faces belong.
+      Roots = Struct.new(:skills_root, :templates_root, :public_skills_root, keyword_init: true)
 
       module_function
 
-      def write(gemspec: nil, dir: Dir.pwd)
-        render_all(gemspec: gemspec, dir: dir).each do |r|
+      # Resolved once per task so a check does not load the gemspec twice.
+      def resolve_roots(gemspec: nil, dir: Dir.pwd)
+        spec, gem_root = GemspecLocator.load_spec(gemspec, dir)
+        Roots.new(
+          skills_root: File.join(gem_root, GemspecLocator.metadata_dir(
+            spec, "hyperdrive_skills_dir", default: PUBLIC_SKILLS_DIR
+          )),
+          templates_root: File.join(gem_root, GemspecLocator.metadata_dir(
+            spec, "hyperdrive_skill_templates_dir", default: File.join("lib", spec.name, "hyperdrive", "skills")
+          )),
+          public_skills_root: File.join(gem_root, PUBLIC_SKILLS_DIR)
+        )
+      end
+
+      def write(gemspec: nil, dir: Dir.pwd, roots: nil)
+        render_all(gemspec: gemspec, dir: dir, roots: roots).each do |r|
           FileUtils.mkdir_p(File.dirname(r.dest))
           File.write(r.dest, r.body)
         end
       end
 
-      def stale(gemspec: nil, dir: Dir.pwd)
-        render_all(gemspec: gemspec, dir: dir).reject do |r|
+      def stale(gemspec: nil, dir: Dir.pwd, roots: nil)
+        render_all(gemspec: gemspec, dir: dir, roots: roots).reject do |r|
           File.file?(r.dest) && File.read(r.dest) == r.body
         end
       end
 
-      def render_all(gemspec: nil, dir: Dir.pwd)
-        spec, gem_root = GemspecLocator.load_spec(gemspec, dir)
-        skills_root = File.join(gem_root, GemspecLocator.metadata_dir(spec, "hyperdrive_skills_dir"))
-        templates_root =
-          File.join(gem_root, GemspecLocator.metadata_dir(spec, "hyperdrive_skill_templates_dir"))
+      def render_all(gemspec: nil, dir: Dir.pwd, roots: nil)
+        roots ||= resolve_roots(gemspec: gemspec, dir: dir)
+        templates_root = roots.templates_root
 
         Dir.glob(File.join(templates_root, "**", "SKILL.md.erb")).sort.flat_map do |template|
           rel = File.dirname(template).delete_prefix(templates_root).delete_prefix("/")
-          dest_dir = File.join(skills_root, rel)
+          dest_dir = File.join(roots.skills_root, rel)
           # A SKILL.md written beside the SKILL.md.erb would take precedence
           # over it at discovery time, silently demoting the skill to its
           # static face.
@@ -69,19 +88,15 @@ module Rails
 
       # A *.md.erb reachable through a public skills root is copied verbatim by
       # generic skills.sh consumers.
-      def public_erb_templates(gemspec: nil, dir: Dir.pwd)
-        spec, gem_root = GemspecLocator.load_spec(gemspec, dir)
-        templates_dir = GemspecLocator.metadata_dir(spec, "hyperdrive_skill_templates_dir")
-        templates_root = File.expand_path(File.join(gem_root, templates_dir))
-        roots = [File.join(gem_root, "skills")]
-        if (declared = GemspecLocator.declared_dir(spec, "hyperdrive_skills_dir"))
-          roots << File.join(gem_root, declared)
-        end
+      def public_erb_templates(gemspec: nil, dir: Dir.pwd, roots: nil)
+        roots ||= resolve_roots(gemspec: gemspec, dir: dir)
+        templates_root = File.expand_path(roots.templates_root)
 
-        roots.uniq { |r| File.expand_path(r) }
-             .flat_map { |root| Dir.glob(File.join(root, "**", "*.md.erb")) }
-             .reject { |path| File.expand_path(path).start_with?("#{templates_root}/") }
-             .uniq.sort
+        [roots.public_skills_root, roots.skills_root]
+          .uniq { |r| File.expand_path(r) }
+          .flat_map { |root| Dir.glob(File.join(root, "**", "*.md.erb")) }
+          .reject { |path| File.expand_path(path).start_with?("#{templates_root}/") }
+          .uniq.sort
       end
 
       def render_template(template)

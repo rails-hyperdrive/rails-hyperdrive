@@ -35,8 +35,10 @@ module Rails
         end
       end
 
-      def metadata_dir(spec, key)
-        declared_dir(spec, key) || File.join("lib", spec.name, "hyperdrive", "skills")
+      # The default differs per key — content and templates share a root only
+      # when a gem declares it — so every caller names its own.
+      def metadata_dir(spec, key, default:)
+        declared_dir(spec, key) || default
       end
 
       def declared_dir(spec, key)

@@ -27,7 +27,7 @@ module Rails
         source_root File.expand_path("templates", __dir__)
 
         class_option :mount_at,      type: :string,  default: DEFAULT_MOUNT_AT, desc: "Engine mount path."
-        class_option :skip_content,  type: :boolean, default: false, desc: "Skip all .claude content, CLAUDE.md, and the lockfile; write only .mcp.json and the mount."
+        class_option :skip_content,  type: :boolean, default: false, desc: "Skip all .claude content, CLAUDE.md, and the lockfile; leave the .mcp.json, .gitignore, Gemfile, and mount steps."
         class_option :skip_mcp,      type: :boolean, default: false, desc: "Skip MCP setup entirely; write no .mcp.json entry and no engine mount."
         class_option :dry_run,       type: :boolean, default: false, desc: "Show what would change; write nothing."
 

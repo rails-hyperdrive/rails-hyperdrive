@@ -7,6 +7,17 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
   let(:dummy_root)     { File.expand_path("../fixtures/dummy_gem", __dir__) }
   let(:companion_root) { File.expand_path("../fixtures/companion_gem", __dir__) }
 
+  def report
+    @report ||= described_class::Report.new
+  end
+
+  def warnings = report.warnings
+  def skips = report.skips
+  def notices = report.notices
+  def fence_warnings = report.fence_warnings
+  def bundled_gems = report.bundled_gems
+  def skipped_gems = report.skipped_gems
+
   def spec_double(name, version, path)
     instance_double(
       Gem::Specification,
@@ -84,8 +95,9 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
   end
 
   describe "conditional supporting files (broad conditioning)" do
-    def dummy_skill(*specs, warnings: [])
-      described_class.discover(specs: specs, warnings: warnings)
+    def dummy_skill(*specs)
+      @report = described_class::Report.new
+      described_class.discover(specs: specs, report: report)
                      .find { |a| a.name == "dummy-skill" && a.source_gem == "dummy_gem" }
     end
 
@@ -118,8 +130,9 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  cond:\n#{entry_yaml.chomp}\n")
       end
 
-      def discover(*extra_specs, warnings: [])
-        results = described_class.discover(specs: [spec, *extra_specs], warnings: warnings)
+      def discover(*extra_specs)
+        @report = described_class::Report.new
+        results = described_class.discover(specs: [spec, *extra_specs], report: report)
         [results.find { |a| a.name == "cond" }, warnings]
       end
 
@@ -355,8 +368,9 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         File.write(File.join(@dir, "hyperdrive.yml"), manifest) if manifest
       end
 
-      def discover(warnings: [])
-        results = described_class.discover(specs: [spec], warnings: warnings)
+      def discover
+        @report = described_class::Report.new
+        results = described_class.discover(specs: [spec], report: report)
         [results.find { |a| a.name == "erb" }, warnings]
       end
 
@@ -441,8 +455,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
     it "skips the whole skill when SKILL.md.erb fails to render" do
       write("broken/SKILL.md.erb", "<% raise 'boom' %>\n")
-      warnings = []
-      results = described_class.discover(specs: [spec], warnings: warnings)
+      results = described_class.discover(specs: [spec], report: report)
       expect(results).to be_empty
       expect(warnings.join).to include("SKILL.md.erb").and include("ERB render failed")
     end
@@ -450,8 +463,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     it "prefers a plain SKILL.md over SKILL.md.erb in the same directory, with a warning" do
       write("both/SKILL.md", "---\nname: plain\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# plain\n")
       write("both/SKILL.md.erb", template)
-      warnings = []
-      results = described_class.discover(specs: [spec], warnings: warnings)
+      results = described_class.discover(specs: [spec], report: report)
       expect(results.map(&:name)).to contain_exactly("plain")
       expect(warnings.join).to include("SKILL.md.erb").and include("takes precedence")
     end
@@ -509,8 +521,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         File.write(File.join(sdir, "SKILL.md"), shipped)
 
         spec = spec_double("dummy_gem", "1.0.0", dir)
-        warnings = []
-        skill = described_class.discover(specs: [spec], warnings: warnings).find { |a| a.name == "jobs" }
+        skill = described_class.discover(specs: [spec], report: report).find { |a| a.name == "jobs" }
         expect(warnings).to be_empty
         expect(skill.target_gem).to eq(["*"])
         expect(described_class.install_ready_body(skill)).to eq(shipped)
@@ -527,8 +538,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
 
     it "skips an artifact whose target gem is absent from the bundle" do
-      warnings = []
-      results = described_class.discover(specs: [companion_spec], warnings: warnings)
+      results = described_class.discover(specs: [companion_spec], report: report)
       expect(results.map(&:name)).not_to include("companion-skill")
       expect(warnings.join).to include("target gem 'dummy_gem' not in bundle")
     end
@@ -637,8 +647,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
     it "scans skills/ when the gem is named in enabled_gems" do
       spec = spec_double("skills_sh_gem", "1.0.0", skills_sh_root)
-      warnings = []
-      results = described_class.discover(specs: [spec], warnings: warnings, enabled_gems: ["skills_sh_gem"])
+      results = described_class.discover(specs: [spec], report: report, enabled_gems: ["skills_sh_gem"])
       expect(warnings).to be_empty
       expect(results.map(&:name)).to eq(["pure-skill"])
       expect(results.first.target_gem).to eq(["*"])
@@ -671,8 +680,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     it "scans skills/ when the gem ships a conventional hyperdrive.yml, even an empty one" do
       top_level_skill
       write("hyperdrive.yml", "")
-      warnings = []
-      results = described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)], warnings: warnings)
+      results = described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)], report: report)
       expect(warnings).to be_empty
       expect(results.map(&:name)).to eq(["top"])
     end
@@ -689,8 +697,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       write("hyperdrive.yml", "skills:\n  top:\n    gem: absent_gem\n")
       spec = spec_double("some_gem", "1.0.0", @dir)
       allow(spec).to receive(:metadata).and_return("hyperdrive_manifest" => "../outside.yml")
-      warnings = []
-      results = described_class.discover(specs: [spec], warnings: warnings)
+      results = described_class.discover(specs: [spec], report: report)
       expect(results).to be_empty
       expect(warnings.join).to include("target gem 'absent_gem' not in bundle")
     end
@@ -720,8 +727,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
     it "reports an un-opted gem shipping skills.sh content, without installing it" do
       spec = spec_double("skills_sh_gem", "1.0.0", skills_sh_root)
-      notices = []
-      results = described_class.discover(specs: [spec], notices: notices)
+      results = described_class.discover(specs: [spec], report: report)
       expect(results).to be_empty
       expect(notices.size).to eq(1)
       expect(notices.first).to include("skills_sh_gem").and include("1 skills.sh skill(s)").and include("enabled:")
@@ -730,29 +736,25 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     it "counts one skill per directory" do
       write("skills/a/SKILL.md", "x")
       write("skills/b/SKILL.md", "x")
-      notices = []
-      described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)], notices: notices)
+      described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)], report: report)
       expect(notices.first).to include("2 skills.sh skill(s)")
     end
 
     it "ignores SKILL.md.erb when detecting skills.sh content" do
       write("skills/t/SKILL.md.erb", "x")
-      notices = []
-      expect(described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)], notices: notices)).to be_empty
+      expect(described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)], report: report)).to be_empty
       expect(notices).to be_empty
     end
 
     it "emits no notice for an opted-in gem" do
       dummy = spec_double("dummy_gem", "1.4.2", File.expand_path("../fixtures/dummy_gem", __dir__))
-      notices = []
-      described_class.discover(specs: [dummy], notices: notices)
+      described_class.discover(specs: [dummy], report: report)
       expect(notices).to be_empty
     end
 
     it "emits no notice for a gem named in enabled_gems" do
       spec = spec_double("skills_sh_gem", "1.0.0", skills_sh_root)
-      notices = []
-      described_class.discover(specs: [spec], enabled_gems: ["skills_sh_gem"], notices: notices)
+      described_class.discover(specs: [spec], enabled_gems: ["skills_sh_gem"], report: report)
       expect(notices).to be_empty
     end
   end
@@ -769,37 +771,32 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
     it "skips a file with no frontmatter" do
       write_skill("a", "# just a heading, no frontmatter\n")
-      warnings = []
-      expect(described_class.discover(specs: [spec], warnings: warnings)).to be_empty
+      expect(described_class.discover(specs: [spec], report: report)).to be_empty
       expect(warnings.join).to include("missing or malformed frontmatter")
     end
 
     it "skips a file missing name or description" do
       write_skill("a", "---\nname: a\n---\n\n# a\n")
-      warnings = []
-      expect(described_class.discover(specs: [spec], warnings: warnings)).to be_empty
+      expect(described_class.discover(specs: [spec], report: report)).to be_empty
       expect(warnings.join).to include("missing a required field (name, description)")
     end
 
     it "skips a file with malformed YAML frontmatter" do
       write_skill("a", "---\nname: [unterminated\n---\n\n# a\n")
-      warnings = []
-      described_class.discover(specs: [spec], warnings: warnings)
+      described_class.discover(specs: [spec], report: report)
       expect(warnings.join).to include("malformed YAML frontmatter")
     end
 
     it "warns and skips, never raises, on a frontmatter value of a disallowed class" do
       write_skill("a", "---\nname: a\ndescription: d\nat: 2024-01-01 10:00:00\n---\n\n# a\n")
-      warnings = []
-      expect(described_class.discover(specs: [spec], warnings: warnings)).to be_empty
+      expect(described_class.discover(specs: [spec], report: report)).to be_empty
       expect(warnings.join).to include("malformed YAML frontmatter")
     end
 
     it "installs ungated when a manifest member requirement is invalid (no raise, no skip)" do
       write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
       File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  a:\n    gems:\n      - dummy_gem: garbage\n")
-      warnings = []
-      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
+      skill = described_class.discover(specs: [spec], report: report).find { |s| s.name == "a" }
       expect(warnings.join).to include("gem: must name a gem")
       expect(skill.target_gem).to eq(["*"])
     end
@@ -823,8 +820,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
     it "parses a name+description-only skill with zero warnings, universal and unconstrained" do
       write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
-      warnings = []
-      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
+      skill = described_class.discover(specs: [spec], report: report).find { |s| s.name == "a" }
       expect(warnings).to be_empty
       expect(skill.target_gem).to eq(["*"])
       expect(skill.versions).to be_nil
@@ -832,8 +828,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
     it "parses a name+description-only guideline with zero warnings" do
       write_guideline("g", "---\nname: g\ndescription: d\n---\n\n# g\n")
-      warnings = []
-      guideline = described_class.discover(specs: [spec], warnings: warnings).find { |a| a.name == "g" }
+      guideline = described_class.discover(specs: [spec], report: report).find { |a| a.name == "g" }
       expect(warnings).to be_empty
       expect(guideline).to be_guideline
       expect(guideline.target_gem).to eq(["*"])
@@ -842,8 +837,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     it "treats a manifest entry naming a bare gem: as unconstrained" do
       write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
       File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  a:\n    gem: dummy_gem\n")
-      warnings = []
-      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
+      skill = described_class.discover(specs: [spec], report: report).find { |s| s.name == "a" }
       expect(warnings).to be_empty
       expect(skill.target_gem).to eq(["dummy_gem"])
       expect(skill.versions).to be_nil
@@ -852,8 +846,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     it "warns and installs ungated on a manifest entry gem: with an unusable value" do
       write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
       File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  a:\n    gem:\n")
-      warnings = []
-      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
+      skill = described_class.discover(specs: [spec], report: report).find { |s| s.name == "a" }
       expect(warnings.join).to include("gem: must name a gem")
       expect(skill.target_gem).to eq(["*"])
     end
@@ -862,8 +855,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       body = "---\nname: a\ndescription: d\ngem: some-absent-gem\nversions: \">= 99\"\n" \
              "conditional:\n  references/x.md:\n    gem: some-absent-gem\n---\n\n# a\n"
       write_skill("a", body)
-      warnings = []
-      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
+      skill = described_class.discover(specs: [spec], report: report).find { |s| s.name == "a" }
       expect(warnings).to be_empty
       expect(skill.target_gem).to eq(["*"])
       expect(skill.versions).to be_nil
@@ -873,8 +865,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     it "parses a date-valued unknown key with zero warnings and installs it verbatim" do
       body = "---\nname: a\ndescription: d\ncreated: 2024-01-01\n---\n\n# a\n"
       write_skill("a", body)
-      warnings = []
-      skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
+      skill = described_class.discover(specs: [spec], report: report).find { |s| s.name == "a" }
       expect(warnings).to be_empty
       expect(described_class.install_ready_body(skill)).to eq(body)
     end
@@ -900,24 +891,21 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
     it "accepts the documented comma-separated single-string form" do
       write_skill("a", "gems:\n  - dummy_gem: \">= 1.0, < 2.0\"\n")
-      warnings = []
-      results = described_class.discover(specs: [spec], warnings: warnings)
+      results = described_class.discover(specs: [spec], report: report)
       expect(warnings).to be_empty
       expect(results.map(&:name)).to include("a")
     end
 
     it "also parses a list of requirement strings as one requirement" do
       write_skill("b", "gems:\n  - dummy_gem:\n      - \">= 1.0\"\n      - \"< 2.0\"\n")
-      warnings = []
-      results = described_class.discover(specs: [spec], warnings: warnings)
+      results = described_class.discover(specs: [spec], report: report)
       expect(warnings).to be_empty
       expect(results.map(&:name)).to include("b")
     end
 
     it "still rejects an out-of-range version with either form" do
       write_skill("c", "gems:\n  - dummy_gem: \">= 2.0, < 3.0\"\n")
-      warnings = []
-      expect(described_class.discover(specs: [spec], warnings: warnings)).to be_empty
+      expect(described_class.discover(specs: [spec], report: report)).to be_empty
       expect(warnings.join).to include("does not satisfy")
     end
   end
@@ -937,8 +925,9 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  #{name}:\n#{entry.chomp}\n")
     end
 
-    def discover(*specs, warnings: [])
-      [described_class.discover(specs: [spec, *specs], warnings: warnings), warnings]
+    def discover(*specs)
+      @report = described_class::Report.new
+      [described_class.discover(specs: [spec, *specs], report: report), warnings]
     end
 
     it "installs when any declared target is present (YAML list form)" do
@@ -1170,8 +1159,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       write("skills/paired/references/notes.md", "notes\n")
       write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
 
-      warnings = []
-      results = described_class.discover(specs: [paired_spec], warnings: warnings)
+      results = described_class.discover(specs: [paired_spec], report: report)
       expect(warnings).to be_empty
       expect(results.size).to eq(1)
 
@@ -1226,8 +1214,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
       write("lib/source_gem/hyperdrive/skills/paired/references/stray.md", "stray\n")
 
-      warnings = []
-      skill = described_class.discover(specs: [paired_spec], warnings: warnings).first
+      skill = described_class.discover(specs: [paired_spec], report: report).first
       expect(warnings.join).to include("besides SKILL.md.erb")
       expect(skill.support_files).to eq([])
     end
@@ -1236,8 +1223,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       write("skills/paired/SKILL.md", static_body)
       write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", "<% raise 'boom' %>\n")
 
-      warnings = []
-      results = described_class.discover(specs: [paired_spec], warnings: warnings)
+      results = described_class.discover(specs: [paired_spec], report: report)
       expect(results).to be_empty
       expect(warnings.join).to include("ERB render failed")
     end
@@ -1247,8 +1233,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       write("skills/paired/SKILL.md.erb", "<% raise 'never rendered' %>\n")
       write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
 
-      warnings = []
-      skill = described_class.discover(specs: [paired_spec], warnings: warnings).first
+      skill = described_class.discover(specs: [paired_spec], report: report).first
       expect(warnings.join).to include("SKILL.md in the same directory takes precedence")
       expect(skill.body).to include("(templated)")
       expect(skill.path).to eq(File.join(@dir, "lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb"))
@@ -1315,8 +1300,9 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         write("hyperdrive.yml", manifest) if manifest
       end
 
-      def discover(*extra_specs, warnings: [])
-        [described_class.discover(specs: [paired_spec, *extra_specs], warnings: warnings).first, warnings]
+      def discover(*extra_specs)
+        @report = described_class::Report.new
+        [described_class.discover(specs: [paired_spec, *extra_specs], report: report).first, warnings]
       end
 
       it "renders a template-side supporting template against the bundle, retargeted to x.md" do
@@ -1363,6 +1349,50 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         expect(skill.support_files).to eq([])
       end
 
+      it "gates a template-side file through its rendered face spelling" do
+        paired_skill(
+          template_files: { "references/notes.md.erb" => support_template },
+          manifest: "skills:\n  paired:\n    conditional:\n      references/notes.md:\n        gem: not_bundled\n"
+        )
+
+        skill, warnings = discover
+        expect(warnings).to be_empty
+        expect(skill.support_files).to eq([])
+      end
+
+      it "installs a face-gated template when its condition is met" do
+        paired_skill(
+          template_files: { "references/notes.md.erb" => support_template },
+          manifest: "skills:\n  paired:\n    conditional:\n      references/notes.md:\n        gem: sidekiq\n"
+        )
+
+        skill, warnings = discover(sidekiq)
+        expect(warnings).to be_empty
+        expect(skill.support_files.map { |f| f[:path] }).to eq(["references/notes.md"])
+      end
+
+      it "warns and prefers the shipped spelling when both key the same file" do
+        paired_skill(
+          template_files: { "references/notes.md.erb" => support_template },
+          manifest: "skills:\n  paired:\n    conditional:\n      references/notes.md.erb:\n        gem: \"*\"\n" \
+                    "      references/notes.md:\n        gem: not_bundled\n"
+        )
+
+        skill, warnings = discover
+        expect(warnings.join).to include("both gate 'references/notes.md'; using 'references/notes.md.erb'")
+        expect(skill.support_files.map { |f| f[:path] }).to eq(["references/notes.md"])
+      end
+
+      it "leaves a face-spelled key out of the staleness warning" do
+        paired_skill(
+          template_files: { "references/notes.md.erb" => support_template },
+          manifest: "skills:\n  paired:\n    conditional:\n      references/notes.md:\n        gem: \"*\"\n"
+        )
+
+        _skill, warnings = discover
+        expect(warnings.join).not_to include("names no shipped supporting file")
+      end
+
       it "counts a template-side file as shipped for the conditional staleness check" do
         paired_skill(
           template_files: { "references/notes.md.erb" => support_template },
@@ -1397,8 +1427,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         write("skills/solo/references/a.md.erb", "a\n")
         write("skills/solo/references/b.md.erb", "b\n")
 
-        warnings = []
-        skill = described_class.discover(specs: [paired_spec], warnings: warnings).first
+        skill = described_class.discover(specs: [paired_spec], report: report).first
         expect(warnings.grep(/public skills root/).size).to eq(1)
         expect(skill.support_files.map { |f| f[:path] })
           .to contain_exactly("references/a.md", "references/b.md")
@@ -1408,8 +1437,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         write("lib/source_gem/hyperdrive/skills/solo/SKILL.md", static_body("solo"))
         write("lib/source_gem/hyperdrive/skills/solo/references/a.md.erb", "a\n")
 
-        warnings = []
-        skill = described_class.discover(specs: [paired_spec], warnings: warnings).first
+        skill = described_class.discover(specs: [paired_spec], report: report).first
         expect(warnings).to be_empty
         expect(skill.support_files.map { |f| f[:path] }).to eq(["references/a.md"])
       end
@@ -1420,8 +1448,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
         write("lib/source_gem/hyperdrive/skills/paired/references/notes.md.erb", "templated\n")
 
-        warnings = []
-        skill = described_class.discover(specs: [paired_spec], warnings: warnings).first
+        skill = described_class.discover(specs: [paired_spec], report: report).first
         expect(warnings.grep(/public skills root/).size).to eq(1)
         expect(warnings.join).not_to include("ERB render failed")
         expect(skill.support_files.map { |f| f[:body] }).to eq(["templated\n"])
@@ -1451,8 +1478,9 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n")
     end
 
-    def discover(*extra_specs, warnings: [])
-      [described_class.discover(specs: [spec, *extra_specs], warnings: warnings), warnings]
+    def discover(*extra_specs)
+      @report = described_class::Report.new
+      [described_class.discover(specs: [spec, *extra_specs], report: report), warnings]
     end
 
     it "applies gem-wide defaults to skills and guidelines alike" do
@@ -1464,7 +1492,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(results).to be_empty
       expect(warnings.join).to include("skip a").and include("skip g")
 
-      results, warnings = discover(sidekiq, warnings: [])
+      results, warnings = discover(sidekiq)
       expect(warnings).to be_empty
       expect(results.map(&:target_gem)).to all(eq(["sidekiq"]))
     end
@@ -1518,7 +1546,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(results).to be_empty
       expect(warnings.join).to include("target gem 'sidekiq' not in bundle")
 
-      results, warnings = discover(sidekiq, warnings: [])
+      results, warnings = discover(sidekiq)
       expect(warnings).to be_empty
       expect(results.first.body).to include("(templated)")
       expect(results.first.target_gem).to eq(["sidekiq"])
@@ -1598,10 +1626,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
     describe "hyperdrive_version: fence" do
       def discover_fenced(*extra_specs)
-        warnings = []
-        fence_warnings = []
-        results = described_class.discover(specs: [spec, *extra_specs], warnings: warnings,
-          fence_warnings: fence_warnings)
+        results = described_class.discover(specs: [spec, *extra_specs], report: report)
         [results, warnings, fence_warnings]
       end
 
@@ -1629,6 +1654,29 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
            "upgrade rails-hyperdrive to install it"]
         )
         expect(fence_warnings).to eq(warnings)
+      end
+
+      # A template reaching for a helper a newer release added blows up during
+      # rendering; the fence is the only actionable part of that failure.
+      it "reports the fence, not the render error, when a fenced template will not render" do
+        write("lib/source_gem/hyperdrive/skills/a/SKILL.md.erb", "<%= helper_from_the_future %>\n")
+        write("hyperdrive.yml", "hyperdrive_version: \">= 99\"\n")
+
+        results, warnings, fence_warnings = discover_fenced
+        expect(results).to be_empty
+        expect(warnings.join).not_to include("ERB render failed")
+        expect(fence_warnings).to eq(
+          ["skill 'a' (from source_gem) requires rails-hyperdrive >= 99 (this is 0.6.0); " \
+           "upgrade rails-hyperdrive to install it"]
+        )
+      end
+
+      it "still reports a render failure when no fence explains it" do
+        write("lib/source_gem/hyperdrive/skills/a/SKILL.md.erb", "<%= helper_from_the_future %>\n")
+
+        _results, warnings, fence_warnings = discover_fenced
+        expect(warnings.join).to include("ERB render failed")
+        expect(fence_warnings).to be_empty
       end
 
       it "labels a fenced-out guideline by its own artifact type" do
@@ -1814,10 +1862,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
 
     def walk(*extra_specs)
-      bundled_gems = []
-      skipped_gems = []
-      described_class.discover(specs: [spec, *extra_specs], warnings: [],
-        bundled_gems: bundled_gems, skipped_gems: skipped_gems)
+      described_class.discover(specs: [spec, *extra_specs], report: report)
       [bundled_gems, skipped_gems]
     end
 
@@ -1841,11 +1886,22 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(walk.last).to eq(["source_gem"])
     end
 
-    it "reports a gate that matches nothing in the bundle" do
+    it "leaves the gem unmarked when a well-formed gate matches nothing in the bundle" do
       write_skill("a")
       write("hyperdrive.yml", "gem: absent_gem\n")
 
-      expect(walk.last).to eq(["source_gem"])
+      expect(walk.last).to be_empty
+      expect(warnings.join).to include("skip a")
+    end
+
+    it "leaves the gem unmarked when only some of its gates match" do
+      write_skill("a")
+      write_skill("b")
+      write("hyperdrive.yml", "skills:\n  a:\n    gem: sidekiq\n  b:\n    gem: absent_gem\n")
+
+      bundled, skipped = walk(sidekiq)
+      expect(bundled).to include("source_gem")
+      expect(skipped).to be_empty
     end
 
     it "reports a version fence the installer does not satisfy" do
@@ -1872,8 +1928,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
   describe "permissive parser" do
     it "warns and skips on a version mismatch rather than raising" do
       old_spec = spec_double("dummy_gem", "2.5.0", dummy_root)
-      warnings = []
-      results = described_class.discover(specs: [old_spec], warnings: warnings)
+      results = described_class.discover(specs: [old_spec], report: report)
       # dummy-skill v1 (~> 1.0) no longer matches 2.5.0; v2 (~> 2.0) does.
       dummy = results.find { |a| a.name == "dummy-skill" }
       expect(dummy.path).to include("dummy-v2")

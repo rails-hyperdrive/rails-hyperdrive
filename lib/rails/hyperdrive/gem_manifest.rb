@@ -26,7 +26,7 @@ module Rails
       # context — the parser has no idea which entry it is reading.
       TargetSpec = Struct.new(:targets, :match_mode, :versions, :warning, keyword_init: true)
 
-      GemKey = Struct.new(:value, :present, :warning, keyword_init: true)
+      GemKey = Struct.new(:value, :present, :conflict, :warning, keyword_init: true)
 
       class << self
         def load(spec, warnings: [])
@@ -41,6 +41,7 @@ module Rails
           GemKey.new(
             value: map.key?("gems") ? map["gems"] : map["gem"],
             present: map.key?("gem") || map.key?("gems"),
+            conflict: both,
             warning: ("gem: and gems: are aliases; reading gems: and ignoring gem:" if both)
           )
         end
@@ -93,6 +94,23 @@ module Rails
 
         def requirement_parts(req)
           Array(req).flat_map { |s| s.is_a?(String) ? s.split(",").map(&:strip) : s }
+        end
+
+        # Returns [root map or nil, failure reason or nil]. An absent or empty
+        # file is a valid empty manifest; the caller phrases the failure and
+        # decides whether to fall open on it.
+        def read_root(path)
+          return [{}, nil] unless File.file?(path)
+
+          data = YAML.safe_load(File.read(path), permitted_classes: [Symbol])
+          return [{}, nil] if data.nil?
+          return [data.transform_keys(&:to_s), nil] if data.is_a?(Hash)
+
+          [nil, "root must be a YAML map"]
+        rescue Psych::SyntaxError => e
+          [nil, "malformed YAML (#{e.message})"]
+        rescue StandardError => e
+          [nil, "unreadable (#{e.message})"]
         end
 
         private
@@ -218,24 +236,13 @@ module Rails
         self.class.manifest_relpath(@spec)
       end
 
-      # An empty file is a valid manifest (nothing gated); only content that
-      # cannot be read as a YAML map warns.
+      # Gating that cannot be read must never keep content out, so a failure
+      # here resolves to an absent manifest.
       def load_root
-        path = File.join(@spec.full_gem_path, manifest_relpath)
-        return {} unless File.file?(path)
+        root, failure = self.class.read_root(File.join(@spec.full_gem_path, manifest_relpath))
+        return root if root
 
-        data = YAML.safe_load(File.read(path), permitted_classes: [Symbol])
-        return {} if data.nil?
-        unless data.is_a?(Hash)
-          report("ignoring manifest #{manifest_relpath}: root must be a YAML map")
-          return {}
-        end
-        data.transform_keys(&:to_s)
-      rescue Psych::SyntaxError
-        report("ignoring manifest #{manifest_relpath}: malformed YAML")
-        {}
-      rescue StandardError => e
-        report("ignoring manifest #{manifest_relpath}: unreadable (#{e.message})")
+        report("ignoring manifest #{manifest_relpath}: #{failure}")
         {}
       end
 
@@ -302,13 +309,14 @@ module Rails
       # a constraint this entry never asked for.
       def entry_gate(entry, key, with_conditional:)
         unless entry.is_a?(Hash)
-          report("manifest entry for '#{key}' must be a map with gem:; installing ungated")
+          report("manifest entry for '#{key}' must be a map with gem:; installing ungated unless fenced out")
           return ungated(hyperdrive_version: @default_fence)
         end
 
         entry = entry.transform_keys(&:to_s)
         if self.class.malformed_fence?(entry["hyperdrive_version"])
-          report("manifest entry for '#{key}' has an unparsable hyperdrive_version: requirement; installing ungated")
+          report("manifest entry for '#{key}' has an unparsable hyperdrive_version: requirement; " \
+                 "installing ungated and unfenced")
           return ungated
         end
         fence = entry.key?("hyperdrive_version") ? entry["hyperdrive_version"] : @default_fence
@@ -317,7 +325,7 @@ module Rails
         report("manifest entry for '#{key}': #{gem_key.warning}") if gem_key.warning
         parsed = gem_key.present ? self.class.parse_targets(gem_key.value) : nil
         if gem_key.present && (parsed.nil? || parsed.targets.empty?)
-          report("manifest entry for '#{key}': gem: must name #{GEM_FORMS}; installing ungated")
+          report("manifest entry for '#{key}': gem: must name #{GEM_FORMS}; installing ungated unless fenced out")
           return ungated(hyperdrive_version: fence)
         end
         report("manifest entry for '#{key}': #{VERSIONS_REMOVED}") if entry.key?("versions")

@@ -1,3 +1,4 @@
+require "set"
 require "time"
 require "rails/hyperdrive/ancestor_locator"
 require "rails/hyperdrive/bundler_artifact_discovery"
@@ -26,18 +27,16 @@ module Rails
       Result = Struct.new(:installed, :updated, :unchanged, :skipped, :orphaned, :removed, :merged, :sidecars,
         keyword_init: true)
 
-      def initialize(root:, shell:, artifacts:, mode: :preserve, warnings: [], notices: [],
-                     bundled_gems: [], skipped_gems: [])
+      def initialize(root:, shell:, artifacts:, mode: :preserve, report: BundlerArtifactDiscovery::Report.new)
         raise ArgumentError, "unknown mode #{mode.inspect}" unless MODES.include?(mode)
 
         @root = File.expand_path(root.to_s)
         @shell = shell
         @artifacts = artifacts
         @mode = mode
-        @warnings = warnings
-        @notices = notices
-        @bundled_gems = Array(bundled_gems).map(&:to_s)
-        @skipped_gems = Array(skipped_gems).map(&:to_s)
+        @report = report
+        @bundled_gems = Array(report.bundled_gems).map(&:to_s)
+        @skipped_gems = Array(report.skipped_gems).map(&:to_s)
         @result = Result.new(
           installed: [], updated: [], unchanged: [], skipped: [], orphaned: [], removed: [], merged: [], sidecars: []
         )
@@ -254,7 +253,7 @@ module Rails
 
         # An edited sidecar is user work: leave it, and leave the lock at the
         # old upstream so this delivery is re-offered once the user clears it.
-        if File.exist?(abs(sidecar)) && !sidecar_pristine?(sidecar, write, old)
+        if File.exist?(abs(sidecar)) && !delivered_sidecar?(sidecar, delivered_shas(write, old))
           @result.skipped << dest
           @shell.say_status :warn, "#{sidecar} (sidecar locally modified; resolve or delete it)", :yellow
           @new_lock.carry(old) if old
@@ -332,18 +331,25 @@ module Rails
 
       # Only a machine-pristine sidecar — one still hashing to a delivered
       # upstream — may be refreshed or removed; anything else is user work.
-      def sidecar_pristine?(sidecar, write, old)
-        sha = DriftVerdict.disk_sha(abs(sidecar))
-        [old&.source_sha, write[:gem_sha]].compact.include?(sha)
+      def delivered_sidecar?(sidecar, shas)
+        Array(shas).compact.include?(DriftVerdict.disk_sha(abs(sidecar)))
       rescue StandardError
         false
       end
 
+      def delivered_shas(write, old)
+        [old&.source_sha, write[:gem_sha]]
+      end
+
       def sweep_sidecar(write, old)
-        sidecar = InstallLayout.sidecar_path(write[:dest])
+        sweep_sidecar_at(write[:dest], delivered_shas(write, old))
+      end
+
+      def sweep_sidecar_at(dest, shas)
+        sidecar = InstallLayout.sidecar_path(dest)
         return unless File.exist?(abs(sidecar))
 
-        if sidecar_pristine?(sidecar, write, old)
+        if delivered_sidecar?(sidecar, shas)
           @shell.remove_file sidecar
           @result.removed << sidecar
         else
@@ -393,8 +399,25 @@ module Rails
 
       # The pipeline's only delete path, so it is gated on the file still
       # matching the content the lock recorded: hand-edited work is reported and
-      # left for its owner to remove. Runs before orphans are carried, or a
-      # removed file would read as one.
+      # left for its owner to remove. The dest's sidecar goes with it, since
+      # nothing would reference or clean it afterwards.
+      def remove_or_carry(entry)
+        file = abs(entry.path)
+        return unless File.exist?(file)
+
+        if DriftVerdict.unedited?(file, lock_entry: entry)
+          @shell.remove_file entry.path
+          @result.removed << entry.path
+          sweep_sidecar_at(entry.path, [entry.source_sha])
+          prune_empty_dirs(entry.path)
+        else
+          @result.skipped << entry.path
+          @shell.say_status :skip, "#{entry.path} (#{yield entry})", :yellow
+          @new_lock.carry(entry)
+        end
+      end
+
+      # Runs before orphans are carried, or a removed file would read as one.
       def remove_disabled
         return if additive?
 
@@ -402,63 +425,37 @@ module Rails
           type = InstallLayout::ARTIFACT_TYPES[entry.kind]
           next unless type
           next if @new_lock.entry(entry.path)
-
           next unless InstallPlan.disabled_dest?(old_lock, type, entry.path, source_gem: entry.source_gem)
 
-          file = abs(entry.path)
-          next unless File.exist?(file)
-
-          if DriftVerdict.unedited?(file, lock_entry: entry)
-            @shell.remove_file entry.path
-            @result.removed << entry.path
-            prune_empty_dirs(entry.path)
-          else
-            @result.skipped << entry.path
-            @shell.say_status :skip,
-              "#{entry.path} (disabled but locally modified; delete it by hand)", :yellow
-            @new_lock.carry(entry)
-          end
+          remove_or_carry(entry) { "disabled but locally modified; delete it by hand" }
         end
       end
 
-      # Deletion is gated on the recorded sha, so a user-edited copy is never
-      # removed.
       def remove_stale_support_files
         return if additive?
 
-        planned_skill_dirs = @plan.select { |e| e.type == :skill }.map { |e| File.dirname(e.dest) }
+        planned_skill_dirs = @plan.select { |e| e.type == :skill }.map { |e| File.dirname(e.dest) }.to_set
 
         old_lock.each_entry do |entry|
           next unless entry.kind == "skill_support"
           next if @new_lock.entry(entry.path)
           next unless planned_skill_dirs.include?(InstallLayout.skill_dir_of(entry.path))
 
-          file = abs(entry.path)
-          next unless File.exist?(file)
-
-          if DriftVerdict.unedited?(file, lock_entry: entry)
-            @shell.remove_file entry.path
-            @result.removed << entry.path
-            prune_empty_dirs(entry.path)
-          else
-            @result.skipped << entry.path
-            @shell.say_status :skip,
-              "#{entry.path} (no longer shipped by #{entry.source_label} but locally modified; delete it by hand)",
-              :yellow
-            @new_lock.carry(entry)
+          remove_or_carry(entry) do |e|
+            "no longer shipped by #{e.source_label} but locally modified; delete it by hand"
           end
         end
       end
 
       # An artifact that moved — renamed, or flipped between its canonical and
       # postfixed destination — leaves a byte-duplicate copy at the old
-      # destination. Deletion is gated on the recorded sha and on the source gem
-      # being bundled and having lost nothing to a discovery skip, so a broken
-      # companion release or a version fence never removes a good install.
+      # destination. Removal also requires the source gem to be bundled and to
+      # have lost nothing to a discovery skip, so a broken companion release or
+      # a version fence never removes a good install.
       def remove_stale_dests
         return if additive?
 
-        planned = @plan.flat_map { |e| [e.dest, *e.support_files.map { |f| f[:dest] }] }
+        planned = @plan.flat_map { |e| [e.dest, *e.support_files.map { |f| f[:dest] }] }.to_set
 
         old_lock.each_entry do |entry|
           next unless InstallLayout::ARTIFACT_TYPES[entry.kind]
@@ -467,19 +464,8 @@ module Rails
           next if already_removed?(entry.path)
           next unless source_gem_converged?(entry)
 
-          file = abs(entry.path)
-          next unless File.exist?(file)
-
-          if DriftVerdict.unedited?(file, lock_entry: entry)
-            @shell.remove_file entry.path
-            @result.removed << entry.path
-            prune_empty_dirs(entry.path)
-          else
-            @result.skipped << entry.path
-            @shell.say_status :skip,
-              "#{entry.path} (#{entry.source_gem} no longer installs this path but it is locally modified; " \
-              "delete it by hand)", :yellow
-            @new_lock.carry(entry)
+          remove_or_carry(entry) do |e|
+            "#{e.source_gem} no longer installs this path but it is locally modified; delete it by hand"
           end
         end
       end
@@ -513,7 +499,7 @@ module Rails
       end
 
       def carry_orphans
-        planned = @plan.map(&:dest)
+        planned = @plan.map(&:dest).to_set
         old_lock.each_entry do |entry|
           next if planned.include?(entry.path)
           next if @new_lock.entry(entry.path)
@@ -527,8 +513,11 @@ module Rails
       end
 
       def orphan_reason(entry)
-        return "no longer shipped by #{entry.source_label}" unless @bundled_gems.include?(entry.source_gem.to_s)
-        "#{entry.source_gem} is still bundled but did not offer this file"
+        LockFile.orphan_reason(
+          source_label: entry.source_label,
+          source_gem: entry.source_gem,
+          bundled: @bundled_gems.include?(entry.source_gem.to_s)
+        )
       end
 
       # Returns the eager set: the guidelines index.md ends up including.
@@ -599,17 +588,28 @@ module Rails
         @shell.create_file InstallLayout::LOCK_PATH, @new_lock.to_yaml
       end
 
+      # A skip dropped shipped content — a whole artifact, or one supporting
+      # file of one; an advisory names a manifest problem that changed nothing
+      # about what installed.
       def print_warnings
-        return if Array(@warnings).empty?
+        skips = Array(@report.skips)
+        advisories = @report.advisories
+        print_warning_group skips, "discovery skipped #{skips.size} item(s):"
+        print_warning_group advisories, "discovery reported #{advisories.size} advisory warning(s):"
+      end
+
+      def print_warning_group(lines, header)
+        return if lines.empty?
         @shell.say ""
-        @shell.say_status :warn, "discovery skipped #{@warnings.size} artifact(s):", :yellow
-        @warnings.each { |w| @shell.say "    - #{w}" }
+        @shell.say_status :warn, header, :yellow
+        lines.each { |line| @shell.say "    - #{line}" }
       end
 
       def print_notices
-        return if additive? || Array(@notices).empty?
+        notices = Array(@report.notices)
+        return if additive? || notices.empty?
         @shell.say ""
-        @notices.each { |n| @shell.say_status :info, n, :blue }
+        notices.each { |n| @shell.say_status :info, n, :blue }
       end
 
       def print_footprint(guidelines:)

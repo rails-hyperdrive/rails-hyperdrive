@@ -29,28 +29,33 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     )
   end
 
+  def discovery_report(notices: [], warnings: [], skips: [], bundled_gems: [], skipped_gems: [])
+    Rails::Hyperdrive::BundlerArtifactDiscovery::Report.new(
+      notices: notices, warnings: warnings + skips, skips: skips,
+      bundled_gems: bundled_gems, skipped_gems: skipped_gems
+    )
+  end
+
   def run(mode: :preserve, artifacts: [], bundled_gems: [], skipped_gems: [])
     described_class.new(
       root: root,
       shell: Rails::Hyperdrive::InstallShell.new(root: root),
       artifacts: artifacts,
       mode: mode,
-      bundled_gems: bundled_gems,
-      skipped_gems: skipped_gems
+      report: discovery_report(bundled_gems: bundled_gems, skipped_gems: skipped_gems)
     ).call
   end
 
-  def run_reporting(mode: :preserve, artifacts: [], notices: [], warnings: [], bundled_gems: [], skipped_gems: [])
+  def run_reporting(mode: :preserve, artifacts: [], notices: [], warnings: [], skips: [],
+                    bundled_gems: [], skipped_gems: [])
     io = StringIO.new
     described_class.new(
       root: root,
       shell: Rails::Hyperdrive::InstallShell.new(root: root, io: io),
       artifacts: artifacts,
       mode: mode,
-      notices: notices,
-      warnings: warnings,
-      bundled_gems: bundled_gems,
-      skipped_gems: skipped_gems
+      report: discovery_report(notices: notices, warnings: warnings, skips: skips,
+        bundled_gems: bundled_gems, skipped_gems: skipped_gems)
     ).call
     io.string
   end
@@ -355,6 +360,31 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
     it "stays quiet when nothing is listed" do
       expect(run_reporting(artifacts: [skill(name: "jobs")])).not_to include("disabled")
+    end
+
+    describe "one listed after it was already installed" do
+      before { run(artifacts: [skill(name: "jobs")]) }
+
+      it "removes the pristine file and the sidecar that belonged to it" do
+        File.write(File.join(root, ".claude/skills/jobs/SKILL.md.new"), read(".claude/skills/jobs/SKILL.md"))
+        disable("skills", "jobs")
+
+        result = run(artifacts: [skill(name: "jobs")])
+
+        expect(exist?(".claude/skills/jobs")).to be false
+        expect(result.removed).to include(".claude/skills/jobs/SKILL.md", ".claude/skills/jobs/SKILL.md.new")
+      end
+
+      it "warns about an edited copy, leaves it, and carries its lock entry" do
+        File.write(File.join(root, ".claude/skills/jobs/SKILL.md"), "mine\n")
+        disable("skills", "jobs")
+
+        out = run_reporting(artifacts: [skill(name: "jobs")])
+
+        expect(read(".claude/skills/jobs/SKILL.md")).to eq("mine\n")
+        expect(out).to include(".claude/skills/jobs/SKILL.md (disabled but locally modified; delete it by hand)")
+        expect(read(".hyperdrive/lock.yml")).to include(".claude/skills/jobs/SKILL.md")
+      end
     end
   end
 
@@ -782,17 +812,17 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     it "leaves the installed file alone and prints the reason alongside the orphan line" do
       before_body = read(".claude/hyperdrive/guidelines/auth-pundit.md")
 
-      out = run_reporting(artifacts: [], warnings: [fence_warning])
+      out = run_reporting(artifacts: [], skips: [fence_warning])
 
       expect(read(".claude/hyperdrive/guidelines/auth-pundit.md")).to eq(before_body)
       expect(out).to include("no longer shipped by rails-hyperdrive-x")
-      expect(out).to include("discovery skipped 1 artifact(s):").and include(fence_warning)
+      expect(out).to include("discovery skipped 1 item(s):").and include(fence_warning)
     end
 
     it "still prints the reason in additive mode" do
       before_body = read(".claude/hyperdrive/guidelines/auth-pundit.md")
 
-      out = run_reporting(mode: :additive, artifacts: [], warnings: [fence_warning])
+      out = run_reporting(mode: :additive, artifacts: [], skips: [fence_warning])
 
       expect(read(".claude/hyperdrive/guidelines/auth-pundit.md")).to eq(before_body)
       expect(out).to include(fence_warning)
@@ -877,6 +907,28 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
         expect(exist?(".claude/skills/jobs/SKILL.md")).to be true
         expect(result.removed).to be_empty
       end
+
+      it "sweeps the pristine sidecar of a removed dest, so the directory can empty" do
+        installed = read(".claude/skills/jobs/SKILL.md")
+        File.write(File.join(root, ".claude/skills/jobs/SKILL.md.new"), installed)
+        File.write(File.join(root, ".claude/skills/jobs/references/deep.md.new"),
+          read(".claude/skills/jobs/references/deep.md"))
+
+        result = converged([skill(name: "tasks", source: source, support_files: support)])
+
+        expect(exist?(".claude/skills/jobs")).to be false
+        expect(result.removed).to include(".claude/skills/jobs/SKILL.md.new")
+      end
+
+      it "warns about an edited sidecar of a removed dest and leaves it" do
+        File.write(File.join(root, ".claude/skills/jobs/SKILL.md.new"), "my draft\n")
+
+        out = run_reporting(artifacts: [skill(name: "tasks", source: source, support_files: support)],
+          bundled_gems: [source])
+
+        expect(read(".claude/skills/jobs/SKILL.md.new")).to eq("my draft\n")
+        expect(out).to include(".claude/skills/jobs/SKILL.md.new (sidecar locally modified")
+      end
     end
 
     it "removes the canonical copy when a second source makes the name collide" do
@@ -943,6 +995,32 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
         expect(exist?(".claude/skills/jobs/SKILL.md")).to be true
         expect(result.removed).to be_empty
       end
+    end
+  end
+
+  describe "discovery warnings" do
+    let(:skip_line) { "skip /x/SKILL.md: missing or malformed frontmatter" }
+    let(:advisory)  { "source_gem: manifest entry for 'a': gem: and gems: are aliases; reading gems:" }
+
+    it "counts only real skips under the skipped header" do
+      out = run_reporting(skips: [skip_line], warnings: [advisory])
+
+      expect(out).to include("discovery skipped 1 item(s):").and include("    - #{skip_line}")
+      expect(out).to include("discovery reported 1 advisory warning(s):").and include("    - #{advisory}")
+    end
+
+    it "prints no skipped header when nothing was dropped" do
+      out = run_reporting(warnings: [advisory])
+
+      expect(out).not_to include("discovery skipped")
+      expect(out).to include("discovery reported 1 advisory warning(s):")
+    end
+
+    it "prints no advisory header when every warning is a skip" do
+      out = run_reporting(skips: [skip_line])
+
+      expect(out).to include("discovery skipped 1 item(s):")
+      expect(out).not_to include("advisory warning")
     end
   end
 
