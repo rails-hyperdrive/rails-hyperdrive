@@ -1,2 +1,2 @@
-gem: dummy_gem
-versions: "~> 1.0"
+gems:
+  - dummy_gem: "~> 1.0"

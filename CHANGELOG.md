@@ -28,16 +28,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in place of the mount/server lines. Like `--skip-content`, it only suppresses
   writes — existing MCP configuration is left untouched — and the two flags
   combine.
+- `gems:` is an exact alias of `gem:` at every position the key is read —
+  gem-wide defaults, `skills:`/`guidelines:` entries, and per-file
+  `conditional:` entries — for every value shape. A map carrying both keys is a
+  stylistic slip rather than an error: `gems:` wins, with a warning.
 - Companion-manifest `gem:` gating accepts a map with exactly one of `any:` or
   `all:`, so an artifact can require *every* listed target rather than any one
-  of them: `gem: {all: [devise, pundit]}`. `any:` is an explicit spelling of the
+  of them: `gems: {all: [devise, pundit]}`. `any:` is an explicit spelling of the
   existing any-match, which every bare form (single name, comma-separated
   string, YAML list, `"*"`) keeps by default. The map values take those same
-  flat forms, `versions:` applies per member under `all:`, and the form is
-  accepted everywhere `gem:` is — gem-wide defaults, `skills:`/`guidelines:`
-  entries, and per-file `conditional:` entries. A `"*"` inside `all:` is
-  always satisfied, so it is dropped with a warning; a malformed map takes the
-  usual fail-open path (warn, install ungated).
+  flat forms, and the form is accepted everywhere `gem:` is — gem-wide defaults,
+  `skills:`/`guidelines:` entries, and per-file `conditional:` entries. A `"*"`
+  inside `all:` is always satisfied, so it is dropped with a warning; a
+  malformed map takes the usual fail-open path (warn, install ungated).
 - Companion manifests can version-fence artifacts against the running
   rails-hyperdrive with a `hyperdrive_version:` requirement, valid gem-wide at
   the manifest top level and per `skills:`/`guidelines:` entry. It is matched
@@ -49,6 +52,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking (companion manifests).** Version constraints move onto the gate
+  members and the sibling `versions:` key is gone. Wherever `gem:` takes a YAML
+  list — the bare list and the `any:`/`all:` values alike — a member is now
+  either a bare gem name or a single-pair map carrying that member's own
+  requirement: `gems: [railties: ">= 7.0"]`. The requirement is a
+  `Gem::Requirement` (comma-separated string or YAML list); a pair value of
+  `"*"` or nothing means unconstrained. Scalar and comma-separated string forms
+  stay name-only, and a pair value is never target-split, so a compound
+  requirement like `">= 4.9, < 6"` is passed whole. A `"*"` used as a pair key
+  is meaningless, so it is dropped with a warning in every list context; when it
+  was the sole member the gate resolves universal.
+
+  A `versions:` key remaining anywhere it used to be valid (top level,
+  `skills:`/`guidelines:` entries, `conditional:` entries) is warned about and
+  ignored: the named targets keep gating, unconstrained. Because requirements
+  now travel with the targets, an entry's gate replaces the gem-wide default
+  **wholesale** — the per-axis inheritance that let a top-level `versions:`
+  apply to an entry naming a different `gem:` is gone. `hyperdrive_version:`
+  inheritance is unchanged.
+
+  No compatibility shim: older rails-hyperdrive releases read a pair member as a
+  malformed `gem:` and install the artifact ungated.
 - `hyperdrive:init`, `hyperdrive:sync`, and `hyperdrive:discover` are Rails
   commands rather than rake tasks, so their flags now work bare —
   `bin/rails hyperdrive:sync --merge` instead of

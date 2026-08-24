@@ -24,7 +24,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     it "discovers the version-matching skill (1.x in, not 2.x)" do
       skills = described_class.discover(specs: [dummy_spec]).select(&:skill?)
       dummy = skills.find { |s| s.name == "dummy-skill" }
-      expect(dummy.versions).to eq("~> 1.0")
+      expect(dummy.versions).to eq("dummy_gem" => "~> 1.0")
       expect(dummy.path).to include("dummy-v1")
       expect(dummy.source_gem).to eq("dummy_gem")
       expect(dummy.target_gem).to eq(["dummy_gem"])
@@ -138,14 +138,13 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         expect(paths(skill)).to include("references/extra.md")
       end
 
-      it "constrains each target independently with a map versions:" do
+      it "constrains each member independently with member-level requirements" do
         write_skill(<<~YAML)
           conditional:
             references/extra.md:
-              gem: "sidekiq, solid_queue"
-              versions:
-                sidekiq: ">= 8.0"
-                solid_queue: ">= 2.0"
+              gems:
+                - sidekiq: ">= 8.0"
+                - solid_queue: ">= 2.0"
         YAML
         skill, = discover(sidekiq, solid)
         expect(paths(skill)).to be_empty
@@ -153,21 +152,20 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         write_skill(<<~YAML)
           conditional:
             references/extra.md:
-              gem: "sidekiq, solid_queue"
-              versions:
-                sidekiq: ">= 8.0"
-                solid_queue: ">= 1.0"
+              gems:
+                - sidekiq: ">= 8.0"
+                - solid_queue: ">= 1.0"
         YAML
         skill, = discover(sidekiq, solid)
         expect(paths(skill)).to include("references/extra.md")
       end
 
-      it "applies a scalar versions: requirement" do
+      it "gates a file out on an unsatisfied member requirement" do
         write_skill(<<~YAML)
           conditional:
             references/extra.md:
-              gem: sidekiq
-              versions: ">= 8.0"
+              gems:
+                - sidekiq: ">= 8.0"
         YAML
         skill, warnings = discover(sidekiq)
         expect(warnings).to be_empty
@@ -209,22 +207,46 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         write_skill(<<~YAML)
           conditional:
             references/extra.md:
-              versions: ">= 1.0"
+              hyperdrive_version: ">= 1.0"
         YAML
         skill, warnings = discover
         expect(warnings.join).to include("needs gem:")
         expect(paths(skill)).to include("references/extra.md")
       end
 
-      it "fails open when versions: is unparsable" do
+      it "fails open when a member requirement is unparsable" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              gems:
+                - sidekiq: garbage
+        YAML
+        skill, warnings = discover(sidekiq)
+        expect(warnings.join).to include("needs gem:")
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "warns about a retired versions: key and gates on the members alone" do
         write_skill(<<~YAML)
           conditional:
             references/extra.md:
               gem: sidekiq
-              versions: garbage
+              versions: ">= 99"
         YAML
         skill, warnings = discover(sidekiq)
-        expect(warnings.join).to include("unparsable versions:")
+        expect(warnings.join).to include("versions: is no longer supported")
+        expect(paths(skill)).to include("references/extra.md")
+      end
+
+      it "reads gems: as an alias inside a conditional entry" do
+        write_skill(<<~YAML)
+          conditional:
+            references/extra.md:
+              gem: absent_gem
+              gems: sidekiq
+        YAML
+        skill, warnings = discover(sidekiq)
+        expect(warnings.join).to include("reading gems: and ignoring gem:")
         expect(paths(skill)).to include("references/extra.md")
       end
 
@@ -293,7 +315,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
               gem: sidekiq
         YAML
         skill, warnings = discover
-        expect(warnings.join).to include("gate the whole skill")
+        expect(warnings.join).to include("gates the whole skill")
         expect(skill).not_to be_nil
       end
     end
@@ -558,7 +580,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         FileUtils.mkdir_p(odir)
         File.write(
           File.join(odir, "SKILL.md"),
-          "---\nname: extra\ndescription: d\ngem: \"*\"\nversions: \">= 0\"\n---\n\n# extra\n"
+          "---\nname: extra\ndescription: d\ngem: \"*\"\n---\n\n# extra\n"
         )
         spec = spec_double("dummy_gem", "1.0.0", dir)
         allow(spec).to receive(:metadata).and_return("rails_hyperdrive_skills_dir" => "custom_skills")
@@ -762,12 +784,12 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(warnings.join).to include("malformed YAML frontmatter")
     end
 
-    it "installs ungated when a manifest versions: requirement is invalid (no raise, no skip)" do
+    it "installs ungated when a manifest member requirement is invalid (no raise, no skip)" do
       write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
-      File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  a:\n    gem: dummy_gem\n    versions: garbage\n")
+      File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  a:\n    gems:\n      - dummy_gem: garbage\n")
       warnings = []
       skill = described_class.discover(specs: [spec], warnings: warnings).find { |s| s.name == "a" }
-      expect(warnings.join).to include("unparsable versions:")
+      expect(warnings.join).to include("gem: must name a gem")
       expect(skill.target_gem).to eq(["*"])
     end
   end
@@ -806,7 +828,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(guideline.target_gem).to eq(["*"])
     end
 
-    it "treats a manifest entry gem: with absent versions: as unconstrained" do
+    it "treats a manifest entry naming a bare gem: as unconstrained" do
       write_skill("a", "---\nname: a\ndescription: d\n---\n\n# a\n")
       File.write(File.join(@dir, "hyperdrive.yml"), "skills:\n  a:\n    gem: dummy_gem\n")
       warnings = []
@@ -853,7 +875,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
   end
 
-  describe "manifest versions: multi-constraint parsing" do
+  describe "manifest member-requirement multi-constraint parsing" do
     around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
     let(:spec) { spec_double("dummy_gem", "1.4.2", @dir) }
 
@@ -866,15 +888,15 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
 
     it "accepts the documented comma-separated single-string form" do
-      write_skill("a", "gem: dummy_gem\nversions: \">= 1.0, < 2.0\"\n")
+      write_skill("a", "gems:\n  - dummy_gem: \">= 1.0, < 2.0\"\n")
       warnings = []
       results = described_class.discover(specs: [spec], warnings: warnings)
       expect(warnings).to be_empty
       expect(results.map(&:name)).to include("a")
     end
 
-    it "accepts the YAML-list form" do
-      write_skill("b", "gem: dummy_gem\nversions:\n  - \">= 1.0\"\n  - \"< 2.0\"\n")
+    it "also parses a list of requirement strings as one requirement" do
+      write_skill("b", "gems:\n  - dummy_gem:\n      - \">= 1.0\"\n      - \"< 2.0\"\n")
       warnings = []
       results = described_class.discover(specs: [spec], warnings: warnings)
       expect(warnings).to be_empty
@@ -882,7 +904,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
 
     it "still rejects an out-of-range version with either form" do
-      write_skill("c", "gem: dummy_gem\nversions: \">= 2.0, < 3.0\"\n")
+      write_skill("c", "gems:\n  - dummy_gem: \">= 2.0, < 3.0\"\n")
       warnings = []
       expect(described_class.discover(specs: [spec], warnings: warnings)).to be_empty
       expect(warnings.join).to include("does not satisfy")
@@ -909,58 +931,66 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
 
     it "installs when any declared target is present (YAML list form)" do
-      write_skill("jobs", "gem:\n  - sidekiq\n  - solid_queue\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem:\n  - sidekiq\n  - solid_queue\n")
       results, warnings = discover(solid)
       expect(warnings).to be_empty
       expect(results.first.target_gem).to eq(["solid_queue"])
     end
 
     it "accepts the comma-separated string form" do
-      write_skill("jobs", "gem: \"sidekiq, solid_queue\"\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem: \"sidekiq, solid_queue\"\n")
       results, = discover(sidekiq)
       expect(results.first.target_gem).to eq(["sidekiq"])
     end
 
     it "reports every matching target when several are bundled" do
-      write_skill("jobs", "gem: \"sidekiq, solid_queue\"\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem: \"sidekiq, solid_queue\"\n")
       results, = discover(sidekiq, solid)
       expect(results.first.target_gem).to eq(%w[sidekiq solid_queue])
     end
 
-    it "applies a scalar versions: to every declared target" do
-      write_skill("jobs", "gem: \"sidekiq, solid_queue\"\nversions: \">= 2.0\"\n")
-      results, = discover(sidekiq, solid)
-      expect(results.first.target_gem).to eq(["sidekiq"]) # solid_queue 1.1.0 is out of range
-    end
-
-    it "constrains each target independently with a map versions:" do
-      write_skill("jobs", "gem: \"sidekiq, solid_queue\"\nversions:\n  sidekiq: \">= 8.0\"\n  solid_queue: \">= 1.0\"\n")
+    it "constrains each member independently with member-level requirements" do
+      write_skill("jobs", "gems:\n  - sidekiq: \">= 8.0\"\n  - solid_queue: \">= 1.0\"\n")
       results, = discover(sidekiq, solid)
       expect(results.first.target_gem).to eq(["solid_queue"])
     end
 
-    it "leaves targets absent from the versions: map unconstrained" do
-      write_skill("jobs", "gem: \"sidekiq, solid_queue\"\nversions:\n  sidekiq: \">= 8.0\"\n")
+    it "leaves a bare member unconstrained alongside a constrained one" do
+      write_skill("jobs", "gems:\n  - sidekiq: \">= 8.0\"\n  - solid_queue\n")
       results, = discover(sidekiq, solid)
       expect(results.first.target_gem).to eq(["solid_queue"])
+    end
+
+    it "installs on a constrained member alone once its version satisfies" do
+      write_skill("jobs", "gems:\n  - sidekiq: \">= 7.0\"\n")
+      results, warnings = discover(sidekiq)
+      expect(warnings).to be_empty
+      expect(results.first.target_gem).to eq(["sidekiq"])
+    end
+
+    it "skips a constrained member whose bundled version falls short" do
+      write_skill("jobs", "gems:\n  - sidekiq: \">= 8.0\"\n")
+      results, warnings = discover(sidekiq)
+      expect(results).to be_empty
+      expect(warnings.join).to include("sidekiq 7.3.0 does not satisfy '>= 8.0'")
     end
 
     it "is universal when \"*\" appears anywhere in the list" do
-      write_skill("jobs", "gem: \"sidekiq, *\"\nversions: \">= 99\"\n")
+      write_skill("jobs", "gem: \"sidekiq, *\"\n")
       results, warnings = discover
       expect(warnings).to be_empty
       expect(results.first.target_gem).to eq(["*"])
     end
 
     it "skips when no declared target is in the bundle" do
-      write_skill("jobs", "gem: \"sidekiq, solid_queue\"\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem: \"sidekiq, solid_queue\"\n")
       results, warnings = discover
       expect(results).to be_empty
       expect(warnings.join).to include("target gems 'sidekiq, solid_queue' not in bundle")
     end
 
     it "reports each present-but-unsatisfying target when none matches" do
-      write_skill("jobs", "gem: \"sidekiq, solid_queue\"\nversions: \">= 99\"\n")
+      write_skill("jobs", "gems:\n  - sidekiq: \">= 99\"\n  - solid_queue: \">= 99\"\n")
       results, warnings = discover(sidekiq, solid)
       expect(results).to be_empty
       expect(warnings.join).to include("sidekiq 7.3.0 does not satisfy")
@@ -968,77 +998,77 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
 
     it "installs ungated when the list holds an entry that is not a gem name" do
-      write_skill("jobs", "gem:\n  - sidekiq\n  - [nested]\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem:\n  - sidekiq\n  - [nested]\n")
       results, warnings = discover(sidekiq)
       expect(warnings.join).to include("gem: must name a gem")
       expect(results.first.target_gem).to eq(["*"])
     end
 
     it "treats an any: map as the equivalent bare list" do
-      write_skill("jobs", "gem:\n  any: [sidekiq, solid_queue]\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem:\n  any: [sidekiq, solid_queue]\n")
       results, warnings = discover(solid)
       expect(warnings).to be_empty
       expect(results.first.target_gem).to eq(["solid_queue"])
     end
 
     it "is universal when \"*\" appears in an any: map" do
-      write_skill("jobs", "gem:\n  any: [sidekiq, \"*\"]\nversions: \">= 99\"\n")
+      write_skill("jobs", "gem:\n  any: [sidekiq, \"*\"]\n")
       results, warnings = discover
       expect(warnings).to be_empty
       expect(results.first.target_gem).to eq(["*"])
     end
 
     it "installs under all: only when every target is bundled, reporting them all" do
-      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\n")
       results, warnings = discover(sidekiq, solid)
       expect(warnings).to be_empty
       expect(results.first.target_gem).to eq(%w[sidekiq solid_queue])
     end
 
     it "accepts the comma-separated string form inside all:" do
-      write_skill("jobs", "gem:\n  all: \"sidekiq, solid_queue\"\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem:\n  all: \"sidekiq, solid_queue\"\n")
       results, = discover(sidekiq, solid)
       expect(results.first.target_gem).to eq(%w[sidekiq solid_queue])
     end
 
     it "skips under all: when a required target is missing from the bundle" do
-      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\n")
       results, warnings = discover(sidekiq)
       expect(results).to be_empty
       expect(warnings.join).to include("required target gem 'solid_queue' not in bundle")
     end
 
     it "names every missing target when several are absent" do
-      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\n")
       results, warnings = discover
       expect(results).to be_empty
       expect(warnings.join).to include("required target gems 'sidekiq, solid_queue' not in bundle")
     end
 
     it "skips under all: when a bundled target fails its version constraint" do
-      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions: \">= 2.0\"\n")
+      write_skill("jobs", "gems:\n  all:\n    - sidekiq\n    - solid_queue: \">= 2.0\"\n")
       results, warnings = discover(sidekiq, solid)
       expect(results).to be_empty
       expect(warnings.join).to include("solid_queue 1.1.0 does not satisfy '>= 2.0'")
     end
 
     it "reports missing and version-failing targets together" do
-      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions:\n  sidekiq: \">= 99\"\n")
+      write_skill("jobs", "gems:\n  all:\n    - sidekiq: \">= 99\"\n    - solid_queue\n")
       results, warnings = discover(sidekiq)
       expect(results).to be_empty
       expect(warnings.join).to include("required target gem 'solid_queue' not in bundle")
       expect(warnings.join).to include("sidekiq 7.3.0 does not satisfy '>= 99'")
     end
 
-    it "constrains each all: member independently, leaving omitted ones unconstrained" do
-      write_skill("jobs", "gem:\n  all: [sidekiq, solid_queue]\nversions:\n  sidekiq: \">= 7.0\"\n")
+    it "constrains each all: member independently, leaving bare ones unconstrained" do
+      write_skill("jobs", "gems:\n  all:\n    - sidekiq: \">= 7.0\"\n    - solid_queue\n")
       results, warnings = discover(sidekiq, solid)
       expect(warnings).to be_empty
       expect(results.first.target_gem).to eq(%w[sidekiq solid_queue])
     end
 
     it "warns about a \"*\" member of all: without un-gating the rest" do
-      write_skill("jobs", "gem:\n  all: [sidekiq, \"*\"]\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem:\n  all: [sidekiq, \"*\"]\n")
       results, warnings = discover
       expect(warnings.join).to include("'*' in all: is always satisfied")
       expect(results).to be_empty
@@ -1048,17 +1078,41 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
 
     it "installs universally when all: names nothing but \"*\"" do
-      write_skill("jobs", "gem:\n  all: [\"*\"]\nversions: \">= 99\"\n")
+      write_skill("jobs", "gem:\n  all: [\"*\"]\n")
       results, warnings = discover
       expect(warnings.join).to include("'*' in all: is always satisfied")
       expect(results.first.target_gem).to eq(["*"])
     end
 
     it "installs ungated on a malformed gem: map" do
-      write_skill("jobs", "gem:\n  neither: [sidekiq]\nversions: \">= 0\"\n")
+      write_skill("jobs", "gem:\n  neither: [sidekiq]\n")
       results, warnings = discover
-      expect(warnings.join).to include("a YAML list, or an any:/all: map")
+      expect(warnings.join).to include("an any:/all: map")
       expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "installs ungated on a name: requirement map used as the whole gem: value" do
+      write_skill("jobs", "gem:\n  sidekiq: \">= 7.0\"\n")
+      results, warnings = discover(sidekiq)
+      expect(warnings.join).to include("gem: must name a gem")
+      expect(results.first.target_gem).to eq(["*"])
+    end
+
+    it "warns about and drops a \"*\" pair key without un-gating the rest" do
+      write_skill("jobs", "gems:\n  - sidekiq\n  - \"*\": \">= 1\"\n")
+      results, warnings = discover
+      expect(warnings.join).to include("a version requirement on '*' is meaningless")
+      expect(results).to be_empty
+
+      results, = discover(sidekiq)
+      expect(results.first.target_gem).to eq(["sidekiq"])
+    end
+
+    it "warns about a retired versions: key and gates on the members alone" do
+      write_skill("jobs", "gems:\n  - sidekiq\nversions: \">= 99\"\n")
+      results, warnings = discover(sidekiq)
+      expect(warnings.join).to include("versions: is no longer supported")
+      expect(results.first.target_gem).to eq(["sidekiq"])
     end
   end
 
@@ -1393,7 +1447,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     it "applies gem-wide defaults to skills and guidelines alike" do
       write_skill("a")
       write_guideline("g")
-      write("hyperdrive.yml", "gem: sidekiq\nversions: \">= 7.0\"\n")
+      write("hyperdrive.yml", "gems:\n  - sidekiq: \">= 7.0\"\n")
 
       results, warnings = discover
       expect(results).to be_empty
@@ -1404,19 +1458,19 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(results.map(&:target_gem)).to all(eq(["sidekiq"]))
     end
 
-    it "lets a per-entry key override the default per key, inheriting the rest" do
+    it "lets an entry replace the default gate wholesale" do
       write_skill("a")
-      write("hyperdrive.yml", "gem: sidekiq\nversions: \">= 99\"\nskills:\n  a:\n    versions: \">= 7.0\"\n")
+      write("hyperdrive.yml", "gems:\n  - sidekiq: \">= 99\"\nskills:\n  a:\n    gems:\n      - sidekiq: \">= 7.0\"\n")
 
       results, warnings = discover(sidekiq)
       expect(warnings).to be_empty
       expect(results.first.target_gem).to eq(["sidekiq"])
-      expect(results.first.versions).to eq(">= 7.0")
+      expect(results.first.versions).to eq("sidekiq" => ">= 7.0")
     end
 
-    it "inherits a top-level versions: into an entry that only names a gem:" do
+    it "inherits a top-level pair default into an entry that omits gem:" do
       write_skill("a")
-      write("hyperdrive.yml", "versions: \">= 99\"\nskills:\n  a:\n    gem: sidekiq\n")
+      write("hyperdrive.yml", "gems:\n  - sidekiq: \">= 99\"\nskills:\n  a: {}\n")
 
       results, warnings = discover(sidekiq)
       expect(results).to be_empty
@@ -1524,10 +1578,10 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
     it "warns once and ignores unusable gem-wide defaults" do
       write_skill("a")
-      write("hyperdrive.yml", "gem: [nested_list_entry, [oops]]\nversions: \">= 1.0\"\n")
+      write("hyperdrive.yml", "gem: [nested_list_entry, [oops]]\n")
 
       results, warnings = discover
-      expect(warnings.grep(%r{top-level gem:/versions:/hyperdrive_version: defaults are unusable}).size).to eq(1)
+      expect(warnings.grep(%r{top-level gem:/hyperdrive_version: defaults are unusable}).size).to eq(1)
       expect(results.first.target_gem).to eq(["*"])
     end
 
@@ -1638,7 +1692,7 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
         results, warnings, fence_warnings = discover_fenced
         expect(results.first.target_gem).to eq(["*"])
-        expect(warnings.grep(%r{top-level gem:/versions:/hyperdrive_version: defaults are unusable}).size).to eq(1)
+        expect(warnings.grep(%r{top-level gem:/hyperdrive_version: defaults are unusable}).size).to eq(1)
         expect(fence_warnings).to be_empty
       end
 
@@ -1657,8 +1711,8 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         write("lib/source_gem/hyperdrive/skills/a/x.md", "x")
         write_guideline("g")
         write("hyperdrive.yml", <<~YAML)
-          gem: sidekiq
-          versions: ">= 7.0"
+          gems:
+            - sidekiq: ">= 7.0"
           skills:
             a:
               conditional:

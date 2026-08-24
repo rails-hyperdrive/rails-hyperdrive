@@ -62,14 +62,13 @@ A plain skills.sh SKILL.md installs with zero warnings, and an adopted skill rep
 Gating (which bundles an artifact installs into) is declared in a `hyperdrive.yml` at the gem root, or at the path named by a `rails_hyperdrive_manifest` gemspec metadata key (relative to the gem root; a value containing `..` segments, or a blank value, falls back to the conventional path). Every key is optional, and no manifest (or an empty one) means every artifact installs universally:
 
 ```yaml
-gem: railties            # gem-wide default TARGET gem(s): string, comma-separated string, YAML list, or an
-                         # any:/all: map (see Multiple targets); "*" universal
-versions: ">= 7.2"       # gem-wide default Gem::Requirement: one string, a list, or a map keyed by gem name
+gems:                    # gem-wide default TARGET gem(s); "gem:" is an exact alias
+  - railties: ">= 7.2"   # a list member is a bare name, or a name: requirement pair
 hyperdrive_version: ">= 0.7"   # gem-wide default fence against the INSTALLER's own version — see below
 skills:                  # per-skill entries, keyed by the skill dir's path relative to its skills root
   layered-rails:
-    gem: railties
-    versions: ">= 8.0"
+    gems:
+      - railties: ">= 8.0"
     hyperdrive_version: ">= 0.8"
     conditional:         # per-file supporting-file gating — see below
       references/gems/alba.md: { gem: alba }
@@ -78,44 +77,63 @@ guidelines:              # per-guideline entries, keyed by filename (extension i
     gem: sidekiq
 ```
 
+`gem:` and `gems:` are exact aliases at every position they are read — top-level, `skills:`/`guidelines:` entries, and `conditional:` entries — for every value shape. Use whichever reads naturally; this document writes `gem:` for a single scalar and `gems:` for lists and `any:`/`all:` maps. A map carrying both keys is a stylistic slip rather than an error: `gems:` wins, with a warning.
+
 Entries are keyed by path, never by the skill's `name:`: a skill entry's key is the skill directory's path relative to its skills root (for a template/content-paired skill, the content dir's path), and a guideline entry's key is its filename. Resolution is per artifact:
 
-- **`gem`**: the entry's own value when its key is present, else the top-level default, else `"*"` (ungated). A per-entry `gem: "*"` therefore un-gates an artifact against a gem-wide default.
-- **`versions`**: same lookup (entry, then top-level, else unconstrained), so a top-level `versions:` also applies to an entry that names a different `gem:` and omits `versions:`.
-- **`hyperdrive_version`**: same lookup (entry, then top-level, else no fence). A per-entry `hyperdrive_version: ">= 0"` therefore un-fences an artifact against a gem-wide fence.
+- **`gem`/`gems`**: the entry's own value when either key is present, else the top-level default, else `"*"` (ungated). An entry's value replaces the default gate **wholesale** — targets and their requirements travel together. A per-entry `gem: "*"` therefore un-gates an artifact against a gem-wide default.
+- **`hyperdrive_version`**: the entry's own value when the key is present, else the top-level default, else no fence. A per-entry `hyperdrive_version: ">= 0"` therefore un-fences an artifact against a gem-wide fence.
 
-`gem:` names the **targets**: each must be present in the bundle, its resolved version matched against `versions:`. Use `railties` for "every Rails app" or `"*"` for "always applicable". A well-formed gate matching nothing in the bundle skips the artifact with a warning; that is gating working. Malformed gating, by contrast, never skips an artifact:
+`gem:` names the **targets**: each must be present in the bundle, and a target carrying a requirement must also resolve to a satisfying version. Use `railties` for "every Rails app" or `"*"` for "always applicable". A well-formed gate matching nothing in the bundle skips the artifact with a warning; that is gating working. Malformed gating, by contrast, never skips an artifact:
 
 - an unreadable or non-map manifest is warned about and treated as absent;
 - a non-map `skills:`/`guidelines:` section is warned about and ignored;
-- a malformed entry (non-map value, unusable `gem:`, unparsable `versions:` or `hyperdrive_version:`) is warned about and the artifact installs **ungated** (the gem-wide defaults are not applied either);
+- a malformed entry (non-map value, unusable `gem:`, unparsable `hyperdrive_version:`) is warned about and the artifact installs **ungated** (the gem-wide defaults are not applied either);
 - an entry whose key matches no shipped skill directory or guideline is warned about and ignored; this is the staleness signal when a skill dir is renamed out from under its gating.
+
+### Version requirements
+
+A version constraint rides on the target it constrains. Wherever `gem:` takes a YAML list, a member is either a bare gem name (unconstrained) or a single-pair map `name: "requirement"`:
+
+```yaml
+skills:
+  layered-rails:
+    gems:
+      - railties: ">= 7.2"
+```
+
+The requirement is a `Gem::Requirement` string; commas separate its parts, so `">= 4.9, < 6"` is a single two-part requirement. A pair value of `"*"` or nothing at all means unconstrained, exactly like the bare member.
+
+Scalar and comma-separated string forms stay name-only — `gem: railties` and `gem: "pg, mysql2"` name targets and never carry requirements. Commas split a bare string into target names; inside a pair value they belong to the requirement.
+
+There is no separate `versions:` key. A manifest still carrying one is warned about and the constraint is ignored — the named targets keep gating, unconstrained — so migrate the requirement onto the member.
 
 ### Multiple targets
 
-One artifact can cover several libraries. Write `gem:` as a map with exactly one of `any:` or `all:` — the recommended spelling once more than one target is involved, because it states the intent in the manifest:
+One artifact can cover several libraries. Write `gems:` as a map with exactly one of `any:` or `all:` — the recommended spelling once more than one target is involved, because it states the intent in the manifest:
 
 ```yaml
 skills:
   jobs-conventions:
-    gem:
-      any: [sidekiq, solid_queue, good_job]   # installs when ANY listed target is bundled
-    versions:
-      sidekiq: ">= 7.0"
-      solid_queue: ">= 1.0"
+    gems:
+      any:                                    # installs when ANY listed target is bundled
+        - sidekiq: ">= 7.0"
+        - solid_queue: ">= 1.0"
+        - good_job
   authorized-devise:
-    gem:
-      all: [devise, pundit]                   # installs only when EVERY listed target is bundled
-    versions: ">= 2.0"
+    gems:
+      all:                                    # installs only when EVERY listed target is bundled
+        - devise: ">= 4.9"
+        - pundit
 ```
 
-A bare `gem:` — single name, comma-separated string, or YAML list — is shorthand for `any:`, and keeps working unchanged. The `any:`/`all:` values take those same flat forms, so `gem: {all: "devise, pundit"}` is the `gem: {all: [devise, pundit]}` spelling.
+A bare `gems:` — single name, comma-separated string, or YAML list — is shorthand for `any:`, and pair members are valid there too: `gems: [railties: ">= 7.0"]` needs no mode key. The `any:`/`all:` values take those same flat forms, so `gems: {all: "devise, pundit"}` is the `gems: {all: [devise, pundit]}` spelling. The list is the only container under a mode key.
 
-`versions:` behaves identically under both modes: one requirement string covers every listed target, and a map keyed by gem name constrains each independently (targets the map omits are unconstrained). Under `all:` that applies per member — the gate fails when any member is absent from the bundle *or* present at a non-satisfying version, and the skip warning names every failing member.
+Under `any:`, a requirement is a relevance floor: the member counts only from that version, and an unconstrained sibling can still carry the match. Under `all:` every member must be bundled at a satisfying version, and the skip warning names every failing member.
 
-`"*"` anywhere in an `any:` list (or a bare list) makes the artifact universal. Under `all:` a `"*"` member is satisfied by definition and only obscures the real targets, so it is dropped with a warning: `all: [devise, "*"]` gates on `devise` alone, and `all: ["*"]` is simply universal.
+`"*"` anywhere in an `any:` list (or a bare list) makes the artifact universal. Under `all:` a `"*"` member is satisfied by definition and only obscures the real targets, so it is dropped with a warning: `all: [devise, "*"]` gates on `devise` alone, and `all: ["*"]` is simply universal. A requirement on `"*"` is meaningless in any list, so `- "*": ">= 1"` is dropped with a warning too; if it was the only member, the gate resolves universal.
 
-Malformed maps take the usual fail-open path — a map with both keys, with neither, with an unknown key, or with a value that is not a list of gem names is warned about and the artifact installs ungated.
+Malformed input takes the usual fail-open path — a map with both mode keys, with neither, or with an unknown key; a member that is a nested list, a multi-pair map, or a pair whose value is not a parsable requirement — is warned about and the artifact installs ungated. A map is read as a mode map or not at all: `gem: {railties: ">= 7.0"}` is malformed, never a name-to-requirement table.
 
 Draw the listed targets from the gem's own `hyperdrive_targets` (below): the gem-level declaration decides whether a companion is suggested at all, and an artifact naming a target the gemspec omits is unreachable for apps that have only that target.
 
@@ -148,23 +166,23 @@ A multi-file skill can condition parts of itself on the app's bundle, so one ski
 
 ### Per-file gating
 
-A `conditional:` map inside a manifest `skills:` entry gates individual supporting files. Keys are dir-relative shipped paths; values take the same `gem:`/`versions:` forms as the whole-artifact gate (single target, comma-separated string, YAML list, an `any:`/`all:` map, per-target `versions:` map, `"*"`), with the same any-match default. `versions:` is optional (omitted means unconstrained), though `gem:` is required in each entry. Files the map doesn't mention install unconditionally, and the supporting files themselves stay byte-identical to upstream; the condition lives entirely out of band.
+A `conditional:` map inside a manifest `skills:` entry gates individual supporting files. Keys are dir-relative shipped paths; values take the same `gem:`/`gems:` forms as the whole-artifact gate (single target, comma-separated string, YAML list with bare or pair members, an `any:`/`all:` map, `"*"`), with the same any-match default. `gem:` is required in each entry. Files the map doesn't mention install unconditionally, and the supporting files themselves stay byte-identical to upstream; the condition lives entirely out of band.
 
 ```yaml
 skills:
   layered-rails:
-    gem: railties
-    versions: ">= 7.2"
+    gems:
+      - railties: ">= 7.2"
     conditional:
       references/gems/alba.md:
         gem: alba
       references/gems/jobs.md:
-        gem: [sidekiq, solid_queue]
-        versions:
-          sidekiq: ">= 7.0"
+        gems:
+          - sidekiq: ">= 7.0"
+          - solid_queue
 ```
 
-A malformed condition **fails open**: the file installs unconditionally and the problem is reported with the other discovery warnings. The bias is deliberate: a surplus reference file is harmless, while a missing one breaks links from `SKILL.md`. A key naming no shipped file is warned about and ignored, as is one naming `SKILL.md` itself (the entry's own `gem:`/`versions:` already gate the whole skill). And because the `conditional:` map lives only in the manifest, gating adds nothing to the installed content: gate as extensively as you like.
+A malformed condition **fails open**: the file installs unconditionally and the problem is reported with the other discovery warnings. The bias is deliberate: a surplus reference file is harmless, while a missing one breaks links from `SKILL.md`. A key naming no shipped file is warned about and ignored, as is one naming `SKILL.md` itself (the entry's own `gem:` already gates the whole skill). And because the `conditional:` map lives only in the manifest, gating adds nothing to the installed content: gate as extensively as you like.
 
 ### ERB-templated markdown
 
@@ -223,7 +241,7 @@ Both read the single `*.gemspec` in the working directory (pass an explicit path
 
 ## Discovery never raises
 
-An artifact with missing or malformed frontmatter, a missing `name:` or `description:`, no manifest-declared target in the bundle, or every bundled target resolving outside `versions:` is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there. Read that section first when a gem you expected to contribute produces no files.
+An artifact with missing or malformed frontmatter, a missing `name:` or `description:`, no manifest-declared target in the bundle, or every bundled target resolving outside its member requirement is skipped, and the reason is collected. `hyperdrive:init` and `hyperdrive:sync` print the collected reasons at the end of the run, under a yellow `warn` line reading `discovery skipped N artifact(s):`. A companion whose artifacts all fail therefore installs nothing and reports it only there. Read that section first when a gem you expected to contribute produces no files.
 
 ## Being found by `hyperdrive:discover`
 
@@ -236,4 +254,4 @@ spec.metadata["rails_hyperdrive_artifacts"] = "guideline,skill"  # optional; pre
 
 `rails_hyperdrive_targets` is what makes a gem discoverable: `hyperdrive:discover` searches rubygems for gems declaring it, so a companion is found by what it declares rather than by what it is named. Naming plays no part in discovery: every name is found on the same terms. Still, prefer `rails-hyperdrive-<name>`: the prefix tells a Gemfile reader the gem is agent guidance consumed by rails-hyperdrive, not runtime code.
 
-`rails_hyperdrive_targets` is a coarse pre-install hint, never reconciled against the manifest's `gem:`. It is matched against the app's `Gemfile.lock` by presence alone, ignoring versions; `versions:` constraints exist only in the manifest. It is also a flat any-match list with no way to express `all:`, so a companion whose artifacts are all AND-gated is still suggested to an app holding any one of its declared targets. Once the gem is bundled, the manifest alone governs what installs.
+`rails_hyperdrive_targets` is a coarse pre-install hint, never reconciled against the manifest's `gem:`. It is matched against the app's `Gemfile.lock` by presence alone, ignoring versions; version requirements exist only on the manifest's gate members. It is also a flat any-match list with no way to express `all:`, so a companion whose artifacts are all AND-gated is still suggested to an app holding any one of its declared targets. Once the gem is bundled, the manifest alone governs what installs.
