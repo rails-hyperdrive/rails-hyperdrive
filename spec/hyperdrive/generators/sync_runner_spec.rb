@@ -60,7 +60,9 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
   describe "#discover_artifacts" do
     it "collects warnings for the pipeline to print" do
       expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
-        .to receive(:discover).with(warnings: [], enabled_gems: [], notices: []).and_return([guideline(name: "g1")])
+        .to receive(:discover)
+        .with(warnings: [], enabled_gems: [], notices: [], bundled_gems: [], skipped_gems: [])
+        .and_return([guideline(name: "g1")])
 
       expect(runner.discover_artifacts.map(&:name)).to eq(["g1"])
     end
@@ -74,7 +76,9 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
         files: []
       YAML
       expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
-        .to receive(:discover).with(warnings: [], enabled_gems: ["some_gem"], notices: []).and_return([])
+        .to receive(:discover)
+        .with(warnings: [], enabled_gems: ["some_gem"], notices: [], bundled_gems: [], skipped_gems: [])
+        .and_return([])
 
       runner.discover_artifacts
     end
@@ -109,6 +113,21 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
       expect(exist?(".hyperdrive/lock.yml")).to be true
       expect(result).to be_a(Rails::Hyperdrive::InstallPipeline::Result)
       expect(result.installed).to include(".claude/hyperdrive/guidelines/auth-pundit.md")
+    end
+
+    it "forwards discovery's bundle report, so a destination the plan dropped is removed" do
+      shipped = [guideline(name: "auth-pundit")]
+      allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |bundled_gems:, **_|
+        bundled_gems << "rails-hyperdrive-x"
+        shipped
+      end
+      runner.install(mode: :preserve)
+      shipped = [guideline(name: "authorization")]
+
+      described_class.new(shell: shell, root: root).install(mode: :preserve)
+
+      expect(exist?(".claude/hyperdrive/guidelines/auth-pundit.md")).to be false
+      expect(exist?(".claude/hyperdrive/guidelines/authorization.md")).to be true
     end
 
     it "forwards the mode, so --overwrite restores a hand-edited file" do

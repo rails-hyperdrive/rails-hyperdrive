@@ -32,18 +32,22 @@ module Rails
 
         def discover_artifacts(skip: false)
           @artifacts ||= skip ? [] : ::Rails::Hyperdrive::BundlerArtifactDiscovery.discover(
-            warnings: warnings, enabled_gems: enabled_gems, notices: notices
+            warnings: warnings, enabled_gems: enabled_gems, notices: notices,
+            bundled_gems: bundled_gems, skipped_gems: skipped_gems
           )
         end
 
         def install(mode:)
+          verify_lock_schema!
           @pipeline = ::Rails::Hyperdrive::InstallPipeline.new(
             root: root,
             shell: @shell,
             artifacts: discover_artifacts,
             mode: mode,
             warnings: warnings,
-            notices: notices
+            notices: notices,
+            bundled_gems: bundled_gems,
+            skipped_gems: skipped_gems
           )
           @pipeline.call
         end
@@ -53,6 +57,16 @@ module Rails
         end
 
         private
+
+        # Raised from install, so it stops the run before any content write —
+        # a dry run included.
+        def verify_lock_schema!
+          return unless lock.schema_ahead?
+
+          message = lock.schema_ahead_message(::Rails::Hyperdrive::InstallLayout::LOCK_PATH)
+          @shell.say_status :error, message, :red
+          raise Thor::Error, "hyperdrive: #{message}"
+        end
 
         # Resolved lazily so verify_environment! can report a missing Rails app
         # before anything dereferences ::Rails.root.
@@ -68,10 +82,22 @@ module Rails
           @notices ||= []
         end
 
-        def enabled_gems
-          @enabled_gems ||= ::Rails::Hyperdrive::LockFile.load(
+        def bundled_gems
+          @bundled_gems ||= []
+        end
+
+        def skipped_gems
+          @skipped_gems ||= []
+        end
+
+        def lock
+          @lock ||= ::Rails::Hyperdrive::LockFile.load(
             File.join(root, ::Rails::Hyperdrive::InstallLayout::LOCK_PATH)
-          ).enabled_gems
+          )
+        end
+
+        def enabled_gems
+          lock.enabled_gems
         end
 
         def lock_entries

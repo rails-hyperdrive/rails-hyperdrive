@@ -29,16 +29,18 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     )
   end
 
-  def run(mode: :preserve, artifacts: [])
+  def run(mode: :preserve, artifacts: [], bundled_gems: [], skipped_gems: [])
     described_class.new(
       root: root,
       shell: Rails::Hyperdrive::InstallShell.new(root: root),
       artifacts: artifacts,
-      mode: mode
+      mode: mode,
+      bundled_gems: bundled_gems,
+      skipped_gems: skipped_gems
     ).call
   end
 
-  def run_reporting(mode: :preserve, artifacts: [], notices: [], warnings: [])
+  def run_reporting(mode: :preserve, artifacts: [], notices: [], warnings: [], bundled_gems: [], skipped_gems: [])
     io = StringIO.new
     described_class.new(
       root: root,
@@ -46,7 +48,9 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       artifacts: artifacts,
       mode: mode,
       notices: notices,
-      warnings: warnings
+      warnings: warnings,
+      bundled_gems: bundled_gems,
+      skipped_gems: skipped_gems
     ).call
     io.string
   end
@@ -792,6 +796,153 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
       expect(read(".claude/hyperdrive/guidelines/auth-pundit.md")).to eq(before_body)
       expect(out).to include(fence_warning)
+    end
+  end
+
+  describe "a lock written by a newer installer" do
+    let(:source) { "rails-hyperdrive-x" }
+
+    before do
+      run(artifacts: [guideline(name: "auth-pundit")], bundled_gems: [source])
+      lock = File.join(root, ".hyperdrive/lock.yml")
+      data = YAML.safe_load(File.read(lock))
+      data["version"] = 2
+      File.write(lock, data.to_yaml)
+    end
+
+    %i[preserve overwrite additive].each do |mode|
+      it "writes nothing and rewrites no lock in #{mode} mode" do
+        before_lock = read(".hyperdrive/lock.yml")
+
+        result = run(mode: mode, artifacts: [guideline(name: "jobs-sidekiq", source: source)], bundled_gems: [source])
+
+        expect(exist?(".claude/hyperdrive/guidelines/jobs-sidekiq.md")).to be false
+        expect(read(".hyperdrive/lock.yml")).to eq(before_lock)
+        expect(result.installed).to be_empty
+      end
+    end
+
+    it "says why once" do
+      out = run_reporting(artifacts: [guideline(name: "auth-pundit")], bundled_gems: [source])
+
+      expect(out.scan("was written by a newer rails-hyperdrive").size).to eq(1)
+      expect(out).to include("lock schema 2, this installer supports 1")
+    end
+  end
+
+  describe "a destination the plan no longer claims" do
+    let(:source) { "rails-hyperdrive-x" }
+    let(:support) { [{ path: "references/deep.md", body: "deep\n" }] }
+
+    def converged(artifacts, mode: :preserve)
+      run(mode: mode, artifacts: artifacts, bundled_gems: [source, "other-gem"])
+    end
+
+    describe "left behind by a renamed skill" do
+      before { converged([skill(name: "jobs", source: source, support_files: support)]) }
+
+      it "removes the pristine directory whole and installs the new one" do
+        result = converged([skill(name: "tasks", source: source, support_files: support)])
+
+        expect(exist?(".claude/skills/jobs")).to be false
+        expect(exist?(".claude/skills/tasks/references/deep.md")).to be true
+        expect(result.removed).to include(".claude/skills/jobs/SKILL.md", ".claude/skills/jobs/references/deep.md")
+        expect(read(".hyperdrive/lock.yml")).not_to include("skills/jobs/")
+      end
+
+      it "warns about an edited copy, leaves it, and carries its lock entry" do
+        File.write(File.join(root, ".claude/skills/jobs/SKILL.md"), "mine\n")
+
+        out = run_reporting(artifacts: [skill(name: "tasks", source: source, support_files: support)],
+          bundled_gems: [source])
+
+        expect(read(".claude/skills/jobs/SKILL.md")).to eq("mine\n")
+        expect(out).to include("#{source} no longer installs this path but it is locally modified")
+        expect(read(".hyperdrive/lock.yml")).to include(".claude/skills/jobs/SKILL.md")
+      end
+
+      it "removes a pristine file while an edited sibling keeps the directory alive" do
+        File.write(File.join(root, ".claude/skills/jobs/references/deep.md"), "mine\n")
+
+        result = converged([skill(name: "tasks", source: source, support_files: support)])
+
+        expect(exist?(".claude/skills/jobs/SKILL.md")).to be false
+        expect(read(".claude/skills/jobs/references/deep.md")).to eq("mine\n")
+        expect(result.removed).to eq([".claude/skills/jobs/SKILL.md"])
+      end
+
+      it "removes nothing in additive mode" do
+        result = converged([skill(name: "tasks", source: source)], mode: :additive)
+
+        expect(exist?(".claude/skills/jobs/SKILL.md")).to be true
+        expect(result.removed).to be_empty
+      end
+    end
+
+    it "removes the canonical copy when a second source makes the name collide" do
+      converged([skill(name: "jobs", source: source)])
+
+      converged([skill(name: "jobs", source: source), skill(name: "jobs", source: "other-gem")])
+
+      expect(exist?(".claude/skills/jobs")).to be false
+      expect(exist?(".claude/skills/jobs--#{source}/SKILL.md")).to be true
+      expect(exist?(".claude/skills/jobs--other-gem/SKILL.md")).to be true
+    end
+
+    it "removes the postfixed copies when the collision resolves" do
+      converged([skill(name: "jobs", source: source), skill(name: "jobs", source: "other-gem")])
+
+      converged([skill(name: "jobs", source: source)])
+
+      expect(exist?(".claude/skills/jobs--#{source}")).to be false
+      expect(exist?(".claude/skills/jobs--other-gem")).to be false
+      expect(exist?(".claude/skills/jobs/SKILL.md")).to be true
+    end
+
+    it "drops a renamed guideline's @-line along with the file" do
+      converged([guideline(name: "auth-pundit", source: source)])
+
+      converged([guideline(name: "authorization", source: source)])
+
+      expect(exist?(".claude/hyperdrive/guidelines/auth-pundit.md")).to be false
+      expect(read(".claude/hyperdrive/index.md")).not_to include("@guidelines/auth-pundit.md")
+      expect(read(".claude/hyperdrive/index.md")).to include("@guidelines/authorization.md")
+    end
+
+    it "converges silently when the file is already gone" do
+      converged([skill(name: "jobs", source: source)])
+      FileUtils.rm_rf(File.join(root, ".claude/skills/jobs"))
+
+      result = converged([skill(name: "tasks", source: source)])
+
+      expect(result.orphaned).to be_empty
+      expect(read(".hyperdrive/lock.yml")).not_to include("skills/jobs/")
+    end
+
+    describe "held because the source gem lost an artifact to a discovery skip" do
+      before { converged([skill(name: "jobs", source: source)]) }
+
+      it "deletes nothing and says the gem is still bundled" do
+        out = run_reporting(artifacts: [], bundled_gems: [source], skipped_gems: [source])
+
+        expect(exist?(".claude/skills/jobs/SKILL.md")).to be true
+        expect(out).to include("#{source} is still bundled but did not offer this file")
+        expect(out).not_to include("no longer shipped")
+      end
+
+      it "keeps the gem-gone wording when the source left the bundle" do
+        out = run_reporting(artifacts: [], bundled_gems: ["other-gem"])
+
+        expect(exist?(".claude/skills/jobs/SKILL.md")).to be true
+        expect(out).to include("no longer shipped by #{source}@1.0.0")
+      end
+
+      it "deletes nothing when no caller reports the bundle" do
+        result = run(artifacts: [])
+
+        expect(exist?(".claude/skills/jobs/SKILL.md")).to be true
+        expect(result.removed).to be_empty
+      end
     end
   end
 

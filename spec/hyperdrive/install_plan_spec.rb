@@ -148,6 +148,20 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
       expect(result.disabled.map(&:final_name)).to eq(["jobs--gem_a"])
     end
 
+    it "drops the named source's artifact when the postfixed name outlives the collision" do
+      result = described_class.build([skill(name: "jobs", source: "gem_a")], lock: lock(skills: ["jobs--gem_a"]))
+
+      expect(result.entries).to be_empty
+      expect(result.disabled.map(&:dest)).to eq([".claude/skills/jobs/SKILL.md"])
+    end
+
+    it "leaves another source's artifact of the same name alone" do
+      result = described_class.build([skill(name: "jobs", source: "gem_b")], lock: lock(skills: ["jobs--gem_a"]))
+
+      expect(result.entries.map(&:dest)).to eq([".claude/skills/jobs/SKILL.md"])
+      expect(result.disabled).to be_empty
+    end
+
     it "reports no casualties when no lock is given" do
       result = described_class.build([skill(name: "jobs", source: "gem_a")])
 
@@ -161,6 +175,18 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
       expect(described_class.disabled_dest?(disabled, :skill, ".claude/skills/jobs--gem_a/SKILL.md")).to be true
       expect(described_class.disabled_dest?(disabled, :guideline, ".claude/hyperdrive/guidelines/auth.md")).to be true
       expect(described_class.disabled_dest?(disabled, :skill, ".claude/skills/other/SKILL.md")).to be false
+    end
+
+    it "matches a canonical dest against the postfixed name once the installing gem is known" do
+      disabled = lock(skills: ["jobs--gem_a"])
+      dest = ".claude/skills/jobs/SKILL.md"
+
+      expect(described_class.disabled_dest?(disabled, :skill, dest)).to be false
+      expect(described_class.disabled_dest?(disabled, :skill, dest, source_gem: "gem_a")).to be true
+      expect(described_class.disabled_dest?(disabled, :skill, dest, source_gem: "gem_b")).to be false
+      expect(
+        described_class.disabled_dest?(disabled, :skill_support, ".claude/skills/jobs/references/deep.md", source_gem: "gem_a")
+      ).to be true
     end
 
     it "disables a supporting file through its owning skill's name" do

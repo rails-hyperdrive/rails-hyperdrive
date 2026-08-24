@@ -46,7 +46,9 @@ module Rails
       module_function
 
       # A collision installs under a postfixed name, so the shipped name
-      # disables every variant and a postfixed name disables just one.
+      # disables every variant and a postfixed name disables just one. The
+      # postfixed form is honored whether or not a collision exists today, so
+      # the opt-out survives a collision appearing or resolving.
       def build(artifacts, lock: nil)
         result = Result.new(entries: [], disabled: [])
         artifacts.group_by { |a| [a.artifact_type, a.name] }.each do |(type, name), group|
@@ -60,19 +62,24 @@ module Rails
               dest: InstallLayout.dest_for(type, final_name),
               collision: collision
             )
-            dropped = lock && (lock.disabled?(type, name) || (collision && lock.disabled?(type, final_name)))
+            dropped = lock && (lock.disabled?(type, name) ||
+                               lock.disabled?(type, InstallLayout.postfixed_name(name, artifact.source_gem)))
             (dropped ? result.disabled : result.entries) << entry
           end
         end
         result
       end
 
-      # A supporting file is disabled through its owning skill's name.
-      def disabled_dest?(lock, type, dest)
+      # A supporting file is disabled through its owning skill's name. Given the
+      # installing gem, a canonically-installed file also answers to the
+      # postfixed name that disabled it while it was one of several variants.
+      def disabled_dest?(lock, type, dest, source_gem: nil)
         name = InstallLayout.installed_name(type, dest)
         return false unless name
         lookup = type == :skill_support ? :skill : type
-        lock.disabled?(lookup, name) || lock.disabled?(lookup, InstallLayout.base_name(name))
+        base = InstallLayout.base_name(name)
+        return true if lock.disabled?(lookup, name) || lock.disabled?(lookup, base)
+        !source_gem.nil? && lock.disabled?(lookup, InstallLayout.postfixed_name(base, source_gem))
       end
     end
   end

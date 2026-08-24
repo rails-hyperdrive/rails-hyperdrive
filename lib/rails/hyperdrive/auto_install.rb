@@ -13,7 +13,7 @@ module Rails
     module AutoInstall
       DEVELOPMENT = "development".freeze
 
-      Result = Struct.new(:installed, :outdated, :orphaned, :unwired, :fence_warnings, :skipped, :error,
+      Result = Struct.new(:installed, :outdated, :orphaned, :unwired, :fence_warnings, :halted, :skipped, :error,
         keyword_init: true) do
         def ran?
           skipped.nil?
@@ -25,6 +25,8 @@ module Rails
 
         def messages
           return [] unless ran?
+          return [halted] if halted
+
           lines = []
           unless Array(installed).empty?
             lines << "installed #{installed.size} artifact(s):"
@@ -49,10 +51,15 @@ module Rails
         return skip(:not_development) unless development?(env)
         return skip(:not_initialized) unless File.exist?(File.join(root, InstallLayout::LOCK_PATH))
 
-        enabled = LockFile.load(File.join(root, InstallLayout::LOCK_PATH)).enabled_gems
+        lock = LockFile.load(File.join(root, InstallLayout::LOCK_PATH))
+        return halted(lock.schema_ahead_message(InstallLayout::LOCK_PATH)) if lock.schema_ahead?
+
         fence_warnings = []
-        artifacts = BundlerArtifactDiscovery.discover(enabled_gems: enabled, fence_warnings: fence_warnings)
-        status = ArtifactStatus.compare(root: root, artifacts: artifacts)
+        bundled_gems = []
+        artifacts = BundlerArtifactDiscovery.discover(
+          enabled_gems: lock.enabled_gems, fence_warnings: fence_warnings, bundled_gems: bundled_gems
+        )
+        status = ArtifactStatus.compare(root: root, artifacts: artifacts, bundled_gems: bundled_gems)
 
         installed = []
         unwired = false
@@ -98,6 +105,11 @@ module Rails
 
       def skip(reason, error = nil)
         Result.new(installed: [], outdated: [], orphaned: [], fence_warnings: [], skipped: reason, error: error)
+      end
+
+      # A completed run that installed nothing and has a reason to print.
+      def halted(reason)
+        Result.new(installed: [], outdated: [], orphaned: [], fence_warnings: [], halted: reason)
       end
     end
   end

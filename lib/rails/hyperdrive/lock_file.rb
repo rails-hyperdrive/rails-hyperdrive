@@ -19,7 +19,7 @@ module Rails
         end
       end
 
-      attr_reader :path
+      attr_reader :path, :schema_version
       attr_accessor :claude_md_state
 
       # Load existing lock state from disk (absent file → empty lock).
@@ -34,6 +34,7 @@ module Rails
         @document = {}         # raw parsed YAML, kept so unknown keys survive
         @disabled = empty_disabled
         @enabled = []
+        @schema_version = nil
       end
 
       def read
@@ -43,6 +44,7 @@ module Rails
         return self unless data.is_a?(Hash)
 
         @document = data
+        @schema_version = data["version"]
         claude_md = data["claude_md"]
         @claude_md_state = claude_md["state"] if claude_md.is_a?(Hash)
         @disabled = parse_disabled(data["disabled"])
@@ -55,6 +57,19 @@ module Rails
         self
       rescue Psych::SyntaxError
         self
+      end
+
+      # A lock written by a newer installer holds state this one cannot read,
+      # so rewriting it would silently drop the user's settings. A missing or
+      # non-numeric version reads as not ahead: every lock ever written carries
+      # an integer version, and a hand-broken one must not block a sync.
+      def schema_ahead?
+        @schema_version.is_a?(Numeric) && @schema_version > SCHEMA_VERSION
+      end
+
+      def schema_ahead_message(display_path)
+        "#{display_path} was written by a newer rails-hyperdrive (lock schema #{@schema_version}, " \
+          "this installer supports #{SCHEMA_VERSION}); upgrade rails-hyperdrive"
       end
 
       def entry(file_path)

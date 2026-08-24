@@ -532,6 +532,22 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
+  describe "a lock written by a newer installer" do
+    it "still bootstraps, but refuses the content sync and leaves the lock byte-identical" do
+      FileUtils.mkdir_p(path(".hyperdrive"))
+      File.write(path(".hyperdrive/lock.yml"), "version: 2\nfiles: []\n")
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
+
+      err = capture(:stderr) { run_generator([]) }
+
+      expect(err).to include("was written by a newer rails-hyperdrive")
+      expect(File.read(path(".hyperdrive/lock.yml"))).to eq("version: 2\nfiles: []\n")
+      expect(File).not_to exist(path(".claude/hyperdrive/guidelines/auth-pundit.md"))
+      expect(File).to exist(path(".mcp.json"))
+      expect(File.read(path("config/routes.rb"))).to include("Rails::Hyperdrive::Engine")
+    end
+  end
+
   describe "per-artifact opt-out (disabled: in lock.yml)" do
     def lock_path = path(".hyperdrive/lock.yml")
 
