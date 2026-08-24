@@ -22,17 +22,17 @@ Discovery walks the entire bundle, and many gemspecs package files via `git ls-f
 
 - artifacts under the `lib/<gem_name>/hyperdrive/` convention path — skills or guidelines;
 - a `hyperdrive.yml` manifest at the gem root (below);
-- one of the gemspec metadata keys `rails_hyperdrive_skills_dir`, `rails_hyperdrive_skill_templates_dir`, `rails_hyperdrive_targets`, or `rails_hyperdrive_manifest` — any non-empty value counts, even one discovery later rejects (a `..` segment, say), since declaring the key at all signals intent;
+- one of the gemspec metadata keys `hyperdrive_skills_dir`, `hyperdrive_skill_templates_dir`, `hyperdrive_targets`, or `hyperdrive_manifest` — any non-empty value counts, even one discovery later rejects (a `..` segment, say), since declaring the key at all signals intent;
 - the app naming the gem in the `enabled:` list of `.hyperdrive/lock.yml`.
 
-`rails_hyperdrive_artifacts` is deliberately not in that set: it is a presentational hint read by `hyperdrive:discover` (below) and never an opt-in signal.
+`hyperdrive_artifacts` is deliberately not in that set: it is a presentational hint read by `hyperdrive:discover` (below) and never an opt-in signal.
 
 An un-opted gem shipping `skills/*/SKILL.md` never auto-installs: `hyperdrive:init`/`hyperdrive:sync` surface it with a pointer to the `enabled:` list instead.
 
 Skills may also ship under an additional root declared in gemspec metadata:
 
 ```ruby
-spec.metadata["rails_hyperdrive_skills_dir"] = "extra/skills"   # optional; relative to the gem root
+spec.metadata["hyperdrive_skills_dir"] = "extra/skills"   # optional; relative to the gem root
 ```
 
 That root is searched **in addition to** the default roots, never instead of them, so an override never hides skills already shipped elsewhere. Roots are deduplicated by expanded path (declaring `"skills"` explicitly changes nothing), and a value containing a `..` segment is ignored. Guidelines have no override: they are found only at the convention path.
@@ -69,7 +69,7 @@ Renaming a skill directory or its `name:` is a breaking change for apps that alr
 
 ## The gem-root manifest
 
-Gating (which bundles an artifact installs into) is declared in a `hyperdrive.yml` at the gem root, or at the path named by a `rails_hyperdrive_manifest` gemspec metadata key (relative to the gem root; a value containing `..` segments, or a blank value, falls back to the conventional path). Every key is optional, and no manifest (or an empty one) means every artifact installs universally:
+Gating (which bundles an artifact installs into) is declared in a `hyperdrive.yml` at the gem root, or at the path named by a `hyperdrive_manifest` gemspec metadata key (relative to the gem root; a value containing `..` segments, or a blank value, falls back to the conventional path). Every key is optional, and no manifest (or an empty one) means every artifact installs universally:
 
 ```yaml
 gems:                    # gem-wide default TARGET gem(s); "gem:" is an exact alias
@@ -235,12 +235,12 @@ with gemspec metadata pointing the two roots apart:
 
 ```ruby
 spec.files = Dir["lib/**/*", "skills/**/*"]
-spec.metadata["rails_hyperdrive_skills_dir"] = "skills"
+spec.metadata["hyperdrive_skills_dir"] = "skills"
 # optional; defaults to the convention path lib/<gem_name>/hyperdrive/skills
-spec.metadata["rails_hyperdrive_skill_templates_dir"] = "lib/<gem_name>/hyperdrive/skills"
+spec.metadata["hyperdrive_skill_templates_dir"] = "lib/<gem_name>/hyperdrive/skills"
 ```
 
-A skill dir holding a static `SKILL.md` pairs with the template dir at the **same relative path** under the templates root (nested layouts like `skills/<category>/<name>/` pair too). The pair is one skill: hyperdrive renders the **template** against the app's bundle and takes the supporting files from the **content dir**. It never reads the static `SKILL.md`, which exists for consumers that can't inspect a bundle. Pairing is strictly opt-in: a content dir with no matching template is an ordinary standalone skill, and so is a template dir with no matching content dir — but only when that template dir sits under a root discovery actually enumerates, namely the convention path (which is also the default templates root), top-level `skills/`, or the `rails_hyperdrive_skills_dir` override. A custom `rails_hyperdrive_skill_templates_dir` is consulted for pairing alone and never enumerated, so a template-only skill placed there is silently dropped; keep standalone template skills under a scanned skills root. A template that fails to render skips the skill (the static file is deliberately not a fallback, because falling back would silently un-condition the skill).
+A skill dir holding a static `SKILL.md` pairs with the template dir at the **same relative path** under the templates root (nested layouts like `skills/<category>/<name>/` pair too). The pair is one skill: hyperdrive renders the **template** against the app's bundle and takes the supporting files from the **content dir**. It never reads the static `SKILL.md`, which exists for consumers that can't inspect a bundle. Pairing is strictly opt-in: a content dir with no matching template is an ordinary standalone skill, and so is a template dir with no matching content dir — but only when that template dir sits under a root discovery actually enumerates, namely the convention path (which is also the default templates root), top-level `skills/`, or the `hyperdrive_skills_dir` override. A custom `hyperdrive_skill_templates_dir` is consulted for pairing alone and never enumerated, so a template-only skill placed there is silently dropped; keep standalone template skills under a scanned skills root. A template that fails to render skips the skill (the static file is deliberately not a fallback, because falling back would silently un-condition the skill).
 
 The template dir holds templates and nothing else: `SKILL.md.erb` plus any supporting `*.md.erb`, which render against the app's bundle and install as plain `.md` alongside the rest of the skill. Any other file in it is ignored with a warning — static supporting files are the content dir's to ship. A template-side file **owns** its rendered target path: a same-named file in the content dir never installs, whether the template renders, is gated out by `conditional:`, or fails to render, since falling back to the static face would silently un-condition the file. A supporting `*.md.erb` under a public skills root still renders, but warns and points you at the template dir: generic consumers copy it verbatim and get raw ERB.
 
@@ -260,7 +260,7 @@ Because every predicate reads true in the canonical binding, the render takes th
 
 Run both `check` tasks in CI: one keeps the generated face in step with its templates, the other keeps the manifest inside the schema.
 
-All three tasks read the single `*.gemspec` in the working directory (pass an explicit path as a task argument otherwise: `rake "hyperdrive:skills:render[path/to/name.gemspec]"`) and require rails-hyperdrive only as a development dependency, with no Rails app involved. The generated file is the rendered template verbatim; with gating in the manifest, the static face is already the pristine skills.sh view. The two `skills:` tasks are stricter than discovery about their roots: where discovery quietly ignores a `..` segment in `rails_hyperdrive_skills_dir` or `rails_hyperdrive_skill_templates_dir`, they fail on one (`gemspec metadata <key> must not contain '..' segments`).
+All three tasks read the single `*.gemspec` in the working directory (pass an explicit path as a task argument otherwise: `rake "hyperdrive:skills:render[path/to/name.gemspec]"`) and require rails-hyperdrive only as a development dependency, with no Rails app involved. The generated file is the rendered template verbatim; with gating in the manifest, the static face is already the pristine skills.sh view. The two `skills:` tasks are stricter than discovery about their roots: where discovery quietly ignores a `..` segment in `hyperdrive_skills_dir` or `hyperdrive_skill_templates_dir`, they fail on one (`gemspec metadata <key> must not contain '..' segments`).
 
 ## Discovery never raises
 
@@ -271,10 +271,10 @@ An artifact with missing or malformed frontmatter, a missing `name:` or `descrip
 To be discoverable by `hyperdrive:discover` **before** it is installed, a companion also declares gemspec metadata (read remotely from rubygems, so the frontmatter inside the gem isn't visible yet):
 
 ```ruby
-spec.metadata["rails_hyperdrive_targets"]   = "sidekiq"          # required; comma-sep, or "*" for always-applicable
-spec.metadata["rails_hyperdrive_artifacts"] = "guideline,skill"  # optional; presentational hint
+spec.metadata["hyperdrive_targets"]   = "sidekiq"          # required; comma-sep, or "*" for always-applicable
+spec.metadata["hyperdrive_artifacts"] = "guideline,skill"  # optional; presentational hint
 ```
 
-`rails_hyperdrive_targets` is what makes a gem discoverable: `hyperdrive:discover` searches rubygems for gems declaring it, so a companion is found by what it declares rather than by what it is named. Naming plays no part in discovery: every name is found on the same terms. Still, prefer `rails-hyperdrive-<name>`: the prefix tells a Gemfile reader the gem is agent guidance consumed by rails-hyperdrive, not runtime code.
+`hyperdrive_targets` is what makes a gem discoverable: `hyperdrive:discover` searches rubygems for gems declaring it, so a companion is found by what it declares rather than by what it is named. Naming plays no part in discovery: every name is found on the same terms. Still, prefer `rails-hyperdrive-<name>`: the prefix tells a Gemfile reader the gem is agent guidance consumed by rails-hyperdrive, not runtime code.
 
-`rails_hyperdrive_targets` is a coarse pre-install hint, never reconciled against the manifest's `gem:`. It is matched against the app's `Gemfile.lock` by presence alone, ignoring versions; version requirements exist only on the manifest's gate members. It is also a flat any-match list with no way to express `all:`, so a companion whose artifacts are all AND-gated is still suggested to an app holding any one of its declared targets. Once the gem is bundled, the manifest alone governs what installs.
+`hyperdrive_targets` is a coarse pre-install hint, never reconciled against the manifest's `gem:`. It is matched against the app's `Gemfile.lock` by presence alone, ignoring versions; version requirements exist only on the manifest's gate members. It is also a flat any-match list with no way to express `all:`, so a companion whose artifacts are all AND-gated is still suggested to an app holding any one of its declared targets. Once the gem is bundled, the manifest alone governs what installs.

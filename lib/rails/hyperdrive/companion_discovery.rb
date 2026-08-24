@@ -10,8 +10,8 @@ require "bundler"
 module Rails
   module Hyperdrive
     class CompanionDiscovery
-      TARGETS_KEY         = "rails_hyperdrive_targets".freeze
-      ARTIFACTS_KEY       = "rails_hyperdrive_artifacts".freeze
+      TARGETS_KEY         = "hyperdrive_targets".freeze
+      ARTIFACTS_KEY       = "hyperdrive_artifacts".freeze
       # Field-scoped metadata search is an undocumented passthrough to the
       # rubygems search backend, so it fails open: if it ever stops matching, the
       # query returns an empty 200 page and discovery reports no suggestions.

@@ -10,7 +10,7 @@ module Rails
     # never skipped because its gating could not be read, and nothing raises.
     class GemManifest
       FILE_NAME = "hyperdrive.yml"
-      METADATA_KEY = "rails_hyperdrive_manifest"
+      METADATA_KEY = "hyperdrive_manifest"
 
       UNGATED = ["*"].freeze
       MATCH_MODES = %w[any all].freeze

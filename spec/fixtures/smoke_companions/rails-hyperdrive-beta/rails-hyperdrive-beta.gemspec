@@ -13,6 +13,6 @@ Gem::Specification.new do |spec|
   spec.files       = Dir["lib/**/*", "hyperdrive.yml"]
   spec.require_paths = ["lib"]
 
-  spec.metadata["rails_hyperdrive_targets"]   = "railties"
-  spec.metadata["rails_hyperdrive_artifacts"] = "skill,guideline"
+  spec.metadata["hyperdrive_targets"]   = "railties"
+  spec.metadata["hyperdrive_artifacts"] = "skill,guideline"
 end

@@ -77,8 +77,8 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
       expect(result.manifest).to be_nil
     end
 
-    it "reads the manifest from the rails_hyperdrive_manifest path" do
-      write_gemspec("rails_hyperdrive_manifest" => "config/gating.yml")
+    it "reads the manifest from the hyperdrive_manifest path" do
+      write_gemspec("hyperdrive_manifest" => "config/gating.yml")
       write("config/gating.yml", "skills:\n  nope: {}\n")
 
       result = described_class.check(dir: @dir)
@@ -194,7 +194,7 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
     end
 
     it "matches a paired skill by its content-directory relpath" do
-      write_gemspec("rails_hyperdrive_skill_templates_dir" => "templates")
+      write_gemspec("hyperdrive_skill_templates_dir" => "templates")
       write("templates/alpha/SKILL.md.erb", "---\nname: alpha\ndescription: d\n---\n")
 
       expect(problems("skills:\n  alpha:\n    gem: sidekiq\n")).to be_empty
@@ -218,7 +218,7 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
     end
 
     it "matches a template-side supporting file by its shipped *.md.erb path" do
-      write_gemspec("rails_hyperdrive_skill_templates_dir" => "templates")
+      write_gemspec("hyperdrive_skill_templates_dir" => "templates")
       write("templates/alpha/SKILL.md.erb", "---\nname: alpha\ndescription: d\n---\n")
       write("templates/alpha/references/tips.md.erb", "tips\n")
 

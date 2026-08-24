@@ -70,6 +70,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directive only; an app carrying the old one gets the new line appended and
   should drop the old. Nothing else changes: the `Bundler::Hyperdrive`
   namespace, the hook, and its behavior are untouched.
+- **Breaking (companion gemspecs).** The five companion-gem gemspec metadata
+  keys drop their `rails_` prefix: `rails_hyperdrive_targets` →
+  `hyperdrive_targets`, `rails_hyperdrive_artifacts` → `hyperdrive_artifacts`,
+  `rails_hyperdrive_skills_dir` → `hyperdrive_skills_dir`,
+  `rails_hyperdrive_skill_templates_dir` → `hyperdrive_skill_templates_dir`,
+  and `rails_hyperdrive_manifest` → `hyperdrive_manifest`. The contract is not
+  Rails-specific, and the keys now read that way. The old spellings are no
+  longer read, with no deprecated alias: a gem still declaring them is not
+  opted in as a companion, its skills-dir/templates-dir/manifest overrides are
+  ignored, and `hyperdrive:discover` — which now queries rubygems for
+  `metadata.hyperdrive_targets:*` — no longer surfaces it. Companion gems must
+  update their gemspecs.
 - **Breaking (companion manifests).** Version constraints move onto the gate
   members and the sibling `versions:` key is gone. Wherever `gem:` takes a YAML
   list — the bare list and the `any:`/`all:` values alike — a member is now

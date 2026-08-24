@@ -14,8 +14,8 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
 
   def write_gemspec(name: "paired_gem", skills_dir: "skills", templates_dir: nil, filename: nil)
     metadata = []
-    metadata << %(  s.metadata["rails_hyperdrive_skills_dir"] = #{skills_dir.inspect}\n) if skills_dir
-    metadata << %(  s.metadata["rails_hyperdrive_skill_templates_dir"] = #{templates_dir.inspect}\n) if templates_dir
+    metadata << %(  s.metadata["hyperdrive_skills_dir"] = #{skills_dir.inspect}\n) if skills_dir
+    metadata << %(  s.metadata["hyperdrive_skill_templates_dir"] = #{templates_dir.inspect}\n) if templates_dir
     write(filename || "#{name}.gemspec", <<~RUBY)
       Gem::Specification.new do |s|
         s.name    = #{name.inspect}
@@ -81,7 +81,7 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
       expect(File.file?(File.join(@dir, "skills/cat/nested/SKILL.md"))).to be true
     end
 
-    it "honors rails_hyperdrive_skill_templates_dir" do
+    it "honors hyperdrive_skill_templates_dir" do
       write_gemspec(templates_dir: "tpl")
       write("tpl/paired/SKILL.md.erb", template)
 

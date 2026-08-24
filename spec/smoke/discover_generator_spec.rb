@@ -77,7 +77,7 @@ RSpec.describe "hyperdrive:discover smoke", :smoke do
     end
 
     it "matches nothing for a metadata key no gem declares" do
-      expect(search_count("metadata.zzz_rails_hyperdrive_canary_absent:*")).to eq(0)
+      expect(search_count("metadata.zzz_hyperdrive_canary_absent:*")).to eq(0)
     end
   end
 end

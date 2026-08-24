@@ -34,7 +34,7 @@ RSpec.describe "hyperdrive rake tasks" do
         s.version = "0.1.0"
         s.summary = "fixture"
         s.authors = ["fixture"]
-        s.metadata["rails_hyperdrive_skills_dir"] = "skills"
+        s.metadata["hyperdrive_skills_dir"] = "skills"
       end
     RUBY
     write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)

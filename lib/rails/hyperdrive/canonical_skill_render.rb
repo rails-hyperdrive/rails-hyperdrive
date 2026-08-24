@@ -31,9 +31,9 @@ module Rails
 
       def render_all(gemspec: nil, dir: Dir.pwd)
         spec, gem_root = GemspecLocator.load_spec(gemspec, dir)
-        skills_root = File.join(gem_root, GemspecLocator.metadata_dir(spec, "rails_hyperdrive_skills_dir"))
+        skills_root = File.join(gem_root, GemspecLocator.metadata_dir(spec, "hyperdrive_skills_dir"))
         templates_root =
-          File.join(gem_root, GemspecLocator.metadata_dir(spec, "rails_hyperdrive_skill_templates_dir"))
+          File.join(gem_root, GemspecLocator.metadata_dir(spec, "hyperdrive_skill_templates_dir"))
 
         Dir.glob(File.join(templates_root, "**", "SKILL.md.erb")).sort.flat_map do |template|
           rel = File.dirname(template).delete_prefix(templates_root).delete_prefix("/")
@@ -43,7 +43,7 @@ module Rails
           # static face.
           if File.expand_path(dest_dir) == File.expand_path(File.dirname(template))
             raise Error, "#{template}: content dir equals template dir; set " \
-                         "spec.metadata[\"rails_hyperdrive_skills_dir\"] to a separate root"
+                         "spec.metadata[\"hyperdrive_skills_dir\"] to a separate root"
           end
 
           body = render_template(template)
@@ -71,10 +71,10 @@ module Rails
       # generic skills.sh consumers.
       def public_erb_templates(gemspec: nil, dir: Dir.pwd)
         spec, gem_root = GemspecLocator.load_spec(gemspec, dir)
-        templates_dir = GemspecLocator.metadata_dir(spec, "rails_hyperdrive_skill_templates_dir")
+        templates_dir = GemspecLocator.metadata_dir(spec, "hyperdrive_skill_templates_dir")
         templates_root = File.expand_path(File.join(gem_root, templates_dir))
         roots = [File.join(gem_root, "skills")]
-        if (declared = GemspecLocator.declared_dir(spec, "rails_hyperdrive_skills_dir"))
+        if (declared = GemspecLocator.declared_dir(spec, "hyperdrive_skills_dir"))
           roots << File.join(gem_root, declared)
         end
 

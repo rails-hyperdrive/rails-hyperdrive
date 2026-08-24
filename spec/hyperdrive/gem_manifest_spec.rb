@@ -565,23 +565,23 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
     end
   end
 
-  describe "path resolution (rails_hyperdrive_manifest)" do
+  describe "path resolution (hyperdrive_manifest)" do
     it "reads the manifest from the metadata path" do
       write("config/gating.yml", "gem: railties\n")
-      manifest, warnings = load_manifest(metadata: { "rails_hyperdrive_manifest" => "config/gating.yml" })
+      manifest, warnings = load_manifest(metadata: { "hyperdrive_manifest" => "config/gating.yml" })
       expect(warnings).to be_empty
       expect(manifest.skill_gate("a").targets).to eq(["railties"])
     end
 
     it "falls back to the conventional path on a ..-containing value" do
       write("hyperdrive.yml", "gem: railties\n")
-      manifest, = load_manifest(metadata: { "rails_hyperdrive_manifest" => "../outside.yml" })
+      manifest, = load_manifest(metadata: { "hyperdrive_manifest" => "../outside.yml" })
       expect(manifest.skill_gate("a").targets).to eq(["railties"])
     end
 
     it "falls back to the conventional path on a blank value" do
       write("hyperdrive.yml", "gem: railties\n")
-      manifest, = load_manifest(metadata: { "rails_hyperdrive_manifest" => "  " })
+      manifest, = load_manifest(metadata: { "hyperdrive_manifest" => "  " })
       expect(manifest.skill_gate("a").targets).to eq(["railties"])
     end
   end
@@ -593,7 +593,7 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
     end
 
     it "is true when the metadata key is present, even without the file" do
-      expect(described_class.opt_in?(spec_double("rails_hyperdrive_manifest" => "config/gating.yml"))).to be true
+      expect(described_class.opt_in?(spec_double("hyperdrive_manifest" => "config/gating.yml"))).to be true
     end
 
     it "is false with neither signal" do

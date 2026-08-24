@@ -182,9 +182,9 @@ module Rails
       # intent. Only an explicit signal makes a gem's content installable.
       def opted_in?(spec, enabled_gems:)
         return true if enabled_gems.include?(spec.name.to_s)
-        return true if metadata_present?(spec, "rails_hyperdrive_skills_dir")
-        return true if metadata_present?(spec, "rails_hyperdrive_skill_templates_dir")
-        return true if metadata_present?(spec, "rails_hyperdrive_targets")
+        return true if metadata_present?(spec, "hyperdrive_skills_dir")
+        return true if metadata_present?(spec, "hyperdrive_skill_templates_dir")
+        return true if metadata_present?(spec, "hyperdrive_targets")
         return true if GemManifest.opt_in?(spec)
 
         convention_root = File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive")
@@ -213,7 +213,7 @@ module Rails
       # ".." segments are rejected to prevent escaping the gem root.
       def skills_dir_override(spec)
         return nil unless spec.respond_to?(:metadata)
-        raw = spec.metadata && spec.metadata["rails_hyperdrive_skills_dir"]
+        raw = spec.metadata && spec.metadata["hyperdrive_skills_dir"]
         return nil if raw.nil? || raw.to_s.strip.empty?
         return nil if raw.to_s.split(%r{[/\\]}).include?("..")
         raw.to_s
@@ -222,7 +222,7 @@ module Rails
       def skill_templates_dir(spec)
         default = File.join("lib", spec.name, "hyperdrive", "skills")
         return default unless spec.respond_to?(:metadata)
-        raw = spec.metadata && spec.metadata["rails_hyperdrive_skill_templates_dir"]
+        raw = spec.metadata && spec.metadata["hyperdrive_skill_templates_dir"]
         return default if raw.nil? || raw.to_s.strip.empty?
         return default if raw.to_s.split(%r{[/\\]}).include?("..")
         raw.to_s

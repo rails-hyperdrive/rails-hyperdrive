@@ -199,7 +199,7 @@ description: Background job conventions for Sidekiq.
 ---
 ```
 
-Gating (which bundles an artifact installs into) lives in a `hyperdrive.yml` manifest at the gem root (or at the path named by a `rails_hyperdrive_manifest` gemspec metadata key), never in the content. Every key is optional; no manifest (or an empty one) means everything installs universally:
+Gating (which bundles an artifact installs into) lives in a `hyperdrive.yml` manifest at the gem root (or at the path named by a `hyperdrive_manifest` gemspec metadata key), never in the content. Every key is optional; no manifest (or an empty one) means everything installs universally:
 
 ```yaml
 gems:                       # gem-wide default: TARGET gem(s), resolved in the bundle ("gem:" is an alias)
@@ -218,10 +218,10 @@ A gate naming several targets can be written as a map with one of `any:`/`all:` 
 
 `hyperdrive_version:` is valid at the top level too, and is matched against the running rails-hyperdrive rather than the bundle — the sanctioned way to fence content that needs a newer installer.
 
-Shipping a `hyperdrive.yml` (or declaring `rails_hyperdrive_manifest`) opts your gem in as a companion. Also declare your targets in gemspec metadata. That opts your gem in too, and it is the pre-install targeting signal (how `hyperdrive:discover` suggests you before anyone installs you):
+Shipping a `hyperdrive.yml` (or declaring `hyperdrive_manifest`) opts your gem in as a companion. Also declare your targets in gemspec metadata. That opts your gem in too, and it is the pre-install targeting signal (how `hyperdrive:discover` suggests you before anyone installs you):
 
 ```ruby
-spec.metadata["rails_hyperdrive_targets"] = "sidekiq"
+spec.metadata["hyperdrive_targets"] = "sidekiq"
 ```
 
 Companion repos get author-side CI checks by adding `require "rails/hyperdrive/skill_tasks"` to the `Rakefile`: `rake hyperdrive:skills:check` keeps generated skill content in step with its templates, and `rake hyperdrive:manifest:check` lints `hyperdrive.yml` strictly.
