@@ -3,8 +3,9 @@ require "erb"
 module Rails
   module Hyperdrive
     # Renders a skill's *.md.erb sources against the app's resolved bundle.
-    # The template binding is sealed: exactly three helpers over the resolved
-    # {gem name => Gem::Version} map, no app context, no arbitrary lookup.
+    # The three helpers are the only supported template API, but the binding is
+    # an ordinary object rather than a sandbox: a template runs arbitrary Ruby
+    # with the privileges of whoever triggered discovery.
     module SkillTemplate
       class Context
         def initialize(resolved)
@@ -31,9 +32,10 @@ module Rails
         end
       end
 
-      # Fail-open binding for the canonical render: every gem reads as present
-      # at any requested version, so the output includes every conditional
-      # branch. There is no bundle to resolve against, so gem_version is nil.
+      # Canonical render binding: every gem reads as present at any requested
+      # version, so an if/elsif/else contributes only its first branch and
+      # templates meant for this render must use additive if blocks. There is
+      # no bundle to resolve against, so gem_version is nil.
       class CanonicalContext
         def gem?(_name, _requirement = nil)
           true
