@@ -63,6 +63,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking (bundler plugin).** The `bundler-rails-hyperdrive` plugin gem is
+  renamed `bundler-hyperdrive` — its directory, gem name, Gemfile directive
+  (`plugin "bundler-hyperdrive"`), and release tag namespace
+  (`bundler-hyperdrive/vX.Y.Z`). `hyperdrive:init` writes and matches the new
+  directive only; an app carrying the old one gets the new line appended and
+  should drop the old. Nothing else changes: the `Bundler::Hyperdrive`
+  namespace, the hook, and its behavior are untouched.
 - **Breaking (companion manifests).** Version constraints move onto the gate
   members and the sibling `versions:` key is gone. Wherever `gem:` takes a YAML
   list — the bare list and the `any:`/`all:` values alike — a member is now

@@ -1,13 +1,13 @@
 name: Release plugin
 
 # Requires a Trusted Publisher entry on rubygems.org for the
-# bundler-rails-hyperdrive gem (repo, workflow release-plugin.yml, environment
+# bundler-hyperdrive gem (repo, workflow release-plugin.yml, environment
 # release); without it the publish step fails with an auth error.
 
 on:
   push:
     tags:
-      - "bundler-rails-hyperdrive/v*"
+      - "bundler-hyperdrive/v*"
 
 jobs:
   release:
@@ -31,4 +31,4 @@ jobs:
       - name: Publish to RubyGems
         uses: rubygems/release-gem@v1
         with:
-          working-directory: bundler-rails-hyperdrive
+          working-directory: bundler-hyperdrive

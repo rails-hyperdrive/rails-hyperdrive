@@ -1,4 +1,4 @@
 require "bundler/gem_tasks"
 
 # The root gem owns the bare v* tag namespace.
-Bundler::GemHelper.tag_prefix = "bundler-rails-hyperdrive/"
+Bundler::GemHelper.tag_prefix = "bundler-hyperdrive/"

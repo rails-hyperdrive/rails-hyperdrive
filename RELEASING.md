@@ -38,22 +38,22 @@ git push origin main --follow-tags
 
 `rake release` (from `bundler/gem_tasks`) tags and pushes from your machine instead of via CI. Do **not** combine it with `bin/bump --tag` — both create the `vX.Y.Z` tag, so use one path or the other, not both.
 
-## Releasing `bundler-rails-hyperdrive`
+## Releasing `bundler-hyperdrive`
 
-The Bundler plugin gem in [`bundler-rails-hyperdrive/`](bundler-rails-hyperdrive/) versions and releases independently. Its tags are namespaced `bundler-rails-hyperdrive/vX.Y.Z` (the bare `v*` namespace belongs to the root gem); pushing one runs [`.github/workflows/release-plugin.yml`](.github/workflows/release-plugin.yml), which runs the specs and publishes the plugin gem via Trusted Publishing.
+The Bundler plugin gem in [`bundler-hyperdrive/`](bundler-hyperdrive/) versions and releases independently. Its tags are namespaced `bundler-hyperdrive/vX.Y.Z` (the bare `v*` namespace belongs to the root gem); pushing one runs [`.github/workflows/release-plugin.yml`](.github/workflows/release-plugin.yml), which runs the specs and publishes the plugin gem via Trusted Publishing.
 
-One-time setup, same as the root gem but with **workflow filename `release-plugin.yml`** and gem name `bundler-rails-hyperdrive`.
+One-time setup, same as the root gem but with **workflow filename `release-plugin.yml`** and gem name `bundler-hyperdrive`.
 
 There is no bump script — cutting a release is manual:
 
 ```bash
-# 1. edit bundler-rails-hyperdrive/lib/bundler/hyperdrive/version.rb, and roll the
-#    ## [Unreleased] section of bundler-rails-hyperdrive/CHANGELOG.md into a dated
+# 1. edit bundler-hyperdrive/lib/bundler/hyperdrive/version.rb, and roll the
+#    ## [Unreleased] section of bundler-hyperdrive/CHANGELOG.md into a dated
 #    ## [X.Y.Z] section (refreshing the link-reference footer)
 
 # 2. commit, then tag the commit with the namespaced tag
-git tag -a bundler-rails-hyperdrive/vX.Y.Z -m "bundler-rails-hyperdrive X.Y.Z"
+git tag -a bundler-hyperdrive/vX.Y.Z -m "bundler-hyperdrive X.Y.Z"
 
 # 3. push the tag — this is what triggers publishing
-git push origin bundler-rails-hyperdrive/vX.Y.Z
+git push origin bundler-hyperdrive/vX.Y.Z
 ```

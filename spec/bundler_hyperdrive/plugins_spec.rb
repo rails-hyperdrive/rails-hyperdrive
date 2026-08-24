@@ -1,13 +1,13 @@
 require "spec_helper"
 require "bundler/plugin"
-require_relative "../../bundler-rails-hyperdrive/lib/bundler/hyperdrive"
+require_relative "../../bundler-hyperdrive/lib/bundler/hyperdrive"
 
-RSpec.describe "bundler-rails-hyperdrive/plugins.rb" do
+RSpec.describe "bundler-hyperdrive/plugins.rb" do
   # `load`, not `require_relative`: the file may already be in $LOADED_FEATURES.
   def registered_hook
     captured = nil
     allow(Bundler::Plugin).to receive(:add_hook) { |name, &block| captured = [name, block] }
-    load File.expand_path("../../bundler-rails-hyperdrive/plugins.rb", __dir__)
+    load File.expand_path("../../bundler-hyperdrive/plugins.rb", __dir__)
     captured
   end
 

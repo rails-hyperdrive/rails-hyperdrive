@@ -20,7 +20,7 @@ module Rails
         MCP_SERVER_KEY = "rails-hyperdrive".freeze
 
         GEMFILE = "Gemfile".freeze
-        BUNDLER_PLUGIN = "bundler-rails-hyperdrive".freeze
+        BUNDLER_PLUGIN = "bundler-hyperdrive".freeze
 
         # No templates are rendered; source_root exists so Rails resolves the
         # sibling USAGE file for `--help`.

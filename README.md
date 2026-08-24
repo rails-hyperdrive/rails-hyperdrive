@@ -99,7 +99,7 @@ With no companion gems, `hyperdrive:init` sets up just the server plumbing (`.mc
 
 ## Staying in sync
 
-**After `bundle install`: automatic.** `hyperdrive:init` registers the [`bundler-rails-hyperdrive`](bundler-rails-hyperdrive/) Bundler plugin in your Gemfile. From then on, adding a companion gem lands its artifacts on that very `bundle install`, with no extra command to run. The plugin is additive only (it never touches an existing file); version bumps and orphaned artifacts are only reported, with a pointer to `hyperdrive:sync`.
+**After `bundle install`: automatic.** `hyperdrive:init` registers the [`bundler-hyperdrive`](bundler-hyperdrive/) Bundler plugin in your Gemfile. From then on, adding a companion gem lands its artifacts on that very `bundle install`, with no extra command to run. The plugin is additive only (it never touches an existing file); version bumps and orphaned artifacts are only reported, with a pointer to `hyperdrive:sync`.
 
 **`bin/rails hyperdrive:sync`: on demand.** Run it any time (e.g. after `bundle update`) to refresh installed content to the current bundle. It touches no bootstrap artifact and leaves locally modified files untouched (skip + warn). When you *have* edited an installed file and its gem ships a new version, three mutually exclusive flags reconcile the two:
 

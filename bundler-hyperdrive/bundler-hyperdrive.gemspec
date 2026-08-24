@@ -1,7 +1,7 @@
 require_relative "lib/bundler/hyperdrive/version"
 
 Gem::Specification.new do |spec|
-  spec.name        = "bundler-rails-hyperdrive"
+  spec.name        = "bundler-hyperdrive"
   spec.version     = Bundler::Hyperdrive::VERSION
   spec.authors     = ["Bakaface"]
   spec.email       = ["afaceisnomore@gmail.com"]
@@ -20,7 +20,7 @@ Gem::Specification.new do |spec|
 
   spec.metadata["homepage_uri"]          = spec.homepage
   spec.metadata["source_code_uri"]       = spec.homepage
-  spec.metadata["changelog_uri"]         = "#{spec.homepage}/blob/main/bundler-rails-hyperdrive/CHANGELOG.md"
+  spec.metadata["changelog_uri"]         = "#{spec.homepage}/blob/main/bundler-hyperdrive/CHANGELOG.md"
   spec.metadata["allowed_push_host"]     = "https://rubygems.org"
   spec.metadata["rubygems_mfa_required"] = "true"
 
