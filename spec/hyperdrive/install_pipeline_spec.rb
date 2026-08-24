@@ -253,13 +253,16 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
   describe "skill ancestry relpaths" do
     let(:locator) { Rails::Hyperdrive::AncestorLocator }
 
-    def skill_at(path:, source_root: "/gem", support_root: nil, version: "1.0.0", edition: "")
+    def skill_at(path:, source_root: "/gem", support_root: nil, version: "1.0.0", edition: "",
+                 support_relpath: nil)
       Artifact.new(
         name: "jobs", description: "d", target_gem: "*", versions: "*",
         artifact_type: :skill, source_gem: "rails-hyperdrive-x", path: path,
         body: "---\nname: jobs\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# jobs\n#{edition}",
         spec_version: version, source_root: source_root, support_root: support_root,
-        support_files: [{ path: "references/deep.md", body: "deep #{edition}\n" }]
+        support_files: [
+          { path: "references/deep.md", body: "deep #{edition}\n", source_relpath: support_relpath }
+        ]
       )
     end
 
@@ -282,6 +285,19 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
         .with(hash_including(kind: "skill", relpath: "lib/x/hyperdrive/skills/jobs/SKILL.md"))
       expect(locator).to have_received(:locate)
         .with(hash_including(kind: "skill_support", relpath: "skills/jobs/references/deep.md"))
+    end
+
+    it "locates a template-origin supporting file at the relpath discovery recorded" do
+      relpath = "lib/x/hyperdrive/skills/jobs/references/deep.md"
+      v1 = skill_at(path: "/gem/lib/x/hyperdrive/skills/jobs/SKILL.md.erb", support_root: "/gem/skills/jobs",
+        support_relpath: relpath)
+      v2 = skill_at(path: "/gem/lib/x/hyperdrive/skills/jobs/SKILL.md.erb", support_root: "/gem/skills/jobs",
+        version: "2.0.0", edition: "v2", support_relpath: relpath)
+
+      edit_installed_and_merge(v1, v2)
+
+      expect(locator).to have_received(:locate)
+        .with(hash_including(kind: "skill_support", relpath: relpath))
     end
 
     it "keeps today's relpaths for an unpaired artifact" do

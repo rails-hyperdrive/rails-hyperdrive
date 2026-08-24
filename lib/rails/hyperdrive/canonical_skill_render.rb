@@ -37,7 +37,7 @@ module Rails
         skills_root = File.join(gem_root, metadata_dir(spec, "rails_hyperdrive_skills_dir"))
         templates_root = File.join(gem_root, metadata_dir(spec, "rails_hyperdrive_skill_templates_dir"))
 
-        Dir.glob(File.join(templates_root, "**", "SKILL.md.erb")).sort.map do |template|
+        Dir.glob(File.join(templates_root, "**", "SKILL.md.erb")).sort.flat_map do |template|
           rel = File.dirname(template).delete_prefix(templates_root).delete_prefix("/")
           dest_dir = File.join(skills_root, rel)
           # A SKILL.md written beside the SKILL.md.erb would take precedence
@@ -50,8 +50,44 @@ module Rails
 
           body = render_template(template)
           validate_output!(body, template)
-          Rendered.new(template: template, dest: File.join(dest_dir, "SKILL.md"), body: body)
+          [Rendered.new(template: template, dest: File.join(dest_dir, "SKILL.md"), body: body)] +
+            support_renders(File.dirname(template), dest_dir)
         end
+      end
+
+      # Supporting files carry no frontmatter contract, so their faces are
+      # written unvalidated.
+      def support_renders(template_dir, dest_dir)
+        Dir.glob(File.join(template_dir, "**", "*.md.erb")).sort.filter_map do |template|
+          rel = template.delete_prefix("#{template_dir}/")
+          next if File.basename(rel) == "SKILL.md.erb"
+          Rendered.new(
+            template: template,
+            dest: File.join(dest_dir, rel.delete_suffix(".erb")),
+            body: render_template(template)
+          )
+        end
+      end
+
+      # A *.md.erb reachable through a public skills root is copied verbatim by
+      # generic skills.sh consumers.
+      def public_erb_templates(gemspec: nil, dir: Dir.pwd)
+        spec_path = resolve_gemspec_path(gemspec, dir)
+        spec = Gem::Specification.load(spec_path)
+        raise Error, "could not load gemspec #{spec_path}" unless spec
+
+        gem_root = File.dirname(File.expand_path(spec_path))
+        templates_dir = metadata_dir(spec, "rails_hyperdrive_skill_templates_dir")
+        templates_root = File.expand_path(File.join(gem_root, templates_dir))
+        roots = [File.join(gem_root, "skills")]
+        if (declared = declared_dir(spec, "rails_hyperdrive_skills_dir"))
+          roots << File.join(gem_root, declared)
+        end
+
+        roots.uniq { |r| File.expand_path(r) }
+             .flat_map { |root| Dir.glob(File.join(root, "**", "*.md.erb")) }
+             .reject { |path| File.expand_path(path).start_with?("#{templates_root}/") }
+             .uniq.sort
       end
 
       def resolve_gemspec_path(explicit, dir)
@@ -72,9 +108,12 @@ module Rails
       end
 
       def metadata_dir(spec, key)
-        default = File.join("lib", spec.name, "hyperdrive", "skills")
+        declared_dir(spec, key) || File.join("lib", spec.name, "hyperdrive", "skills")
+      end
+
+      def declared_dir(spec, key)
         raw = spec.metadata && spec.metadata[key]
-        return default if raw.nil? || raw.to_s.strip.empty?
+        return nil if raw.nil? || raw.to_s.strip.empty?
         raise Error, "gemspec metadata #{key} must not contain '..' segments" if
           raw.to_s.split(%r{[/\\]}).include?("..")
         raw.to_s
@@ -99,7 +138,8 @@ module Rails
         raise Error, "#{template}: rendered frontmatter is not parseable YAML"
       end
 
-      private_class_method :resolve_gemspec_path, :metadata_dir, :render_template, :validate_output!
+      private_class_method :support_renders, :resolve_gemspec_path, :metadata_dir, :declared_dir,
+                           :render_template, :validate_output!
     end
   end
 end

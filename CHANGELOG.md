@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A template/content-paired skill's supporting files can be templated too: a
+  `*.md.erb` in the template directory renders against the app's bundle and
+  installs as `x.md`, so generic skills.sh consumers never copy raw ERB. Within
+  a paired skill a template-side file owns its target path — the content
+  directory's same-named file never installs, whether the template renders, is
+  gated out by `conditional:`, or fails to render.
+  `rake hyperdrive:skills:render` now writes each supporting template's
+  fail-open canonical face into the paired content directory, and
+  `rake hyperdrive:skills:check` byte-gates those faces and fails on any
+  `*.md.erb` found under a public skills root. A supporting `*.md.erb` shipped
+  under a public skills root still renders, but draws a warning steering it to
+  the template directory.
 - `hyperdrive:init --skip-mcp` skips MCP setup entirely: no `rails-hyperdrive`
   entry in `.mcp.json` and no engine mount in `config/routes.rb`. Content
   install, the discover-cache `.gitignore` rule, and the bundler-plugin Gemfile
