@@ -216,7 +216,7 @@ guidelines:                 # per-guideline overrides, keyed by filename
 
 A gate naming several targets can be written as a map with one of `any:`/`all:` — `gems: {any: [sidekiq, solid_queue]}` installs when either is bundled, `gems: {all: [devise, pundit]}` only when both are. A bare list is shorthand for `any:`, and an entry's gate replaces the gem-wide default wholesale.
 
-`hyperdrive_version:` is valid at the top level too, and is matched against the running rails-hyperdrive rather than the bundle — the sanctioned way to fence content that needs a newer installer.
+`hyperdrive_version:` is valid at the top level too, and is matched against the running rails-hyperdrive rather than the bundle — the sanctioned way to fence content that needs a newer installer. It fences on whichever gem implements artifact discovery and install — today rails-hyperdrive — and that version numbering is guaranteed continuous across any future restructuring of the gem, so a fence like `">= 0.8"` keeps its meaning permanently.
 
 Shipping a `hyperdrive.yml` (or declaring `hyperdrive_manifest`) opts your gem in as a companion. Also declare your targets in gemspec metadata. That opts your gem in too, and it is the pre-install targeting signal (how `hyperdrive:discover` suggests you before anyone installs you):
 
@@ -224,7 +224,7 @@ Shipping a `hyperdrive.yml` (or declaring `hyperdrive_manifest`) opts your gem i
 spec.metadata["hyperdrive_targets"] = "sidekiq"
 ```
 
-Companion repos get author-side CI checks by adding `require "rails/hyperdrive/skill_tasks"` to the `Rakefile`: `rake hyperdrive:skills:check` keeps generated skill content in step with its templates, and `rake hyperdrive:manifest:check` lints `hyperdrive.yml` strictly.
+Companion repos get author-side CI checks by adding `require "hyperdrive/skill_tasks"` to the `Rakefile`: `rake hyperdrive:skills:check` keeps generated skill content in step with its templates, and `rake hyperdrive:manifest:check` lints `hyperdrive.yml` strictly.
 
 [docs/COMPANION_GEMS.md](docs/COMPANION_GEMS.md) has the full contract: multi-target artifacts, multi-file skills, per-file gem gating, ERB-templated content, the template/content paired layout that also serves `npx skills` and git-clone consumers, and the collision and dedup rules.
 

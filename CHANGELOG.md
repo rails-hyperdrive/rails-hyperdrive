@@ -9,9 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `require "hyperdrive/skill_tasks"` is the require path for the companion-repo
+  rake tasks (`hyperdrive:skills:render`, `hyperdrive:skills:check`,
+  `hyperdrive:manifest:check`) — framework-neutral, since the tasks run in a
+  plain gem repo with no Rails involved.
+- The `hyperdrive_version:` fence now carries a stated guarantee for companion
+  authors: it fences on whichever gem implements artifact discovery and install
+  — today rails-hyperdrive — and that version numbering is guaranteed
+  continuous across any future restructuring of the gem, so a fence like
+  `">= 0.8"` keeps its meaning permanently.
 - `rake hyperdrive:manifest:check`, a strict author-side lint of a companion
   gem's `hyperdrive.yml`, on the same companion-repo rake surface as
-  `hyperdrive:skills:*` (add `require "rails/hyperdrive/skill_tasks"` to the
+  `hyperdrive:skills:*` (add `require "hyperdrive/skill_tasks"` to the
   Rakefile; takes the same optional gemspec-path argument). Where the installer
   is permissive so a manifest written for a newer schema never blocks an
   install, the lint fails: unknown keys at every level — the top level,
@@ -137,6 +146,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   working, so existing scripts and docs need no change.
 
 ### Removed
+
+- **BREAKING:** `require "rails/hyperdrive/skill_tasks"`. The companion-repo
+  rake tasks are required as `hyperdrive/skill_tasks`; a Rakefile using the old
+  spelling raises `LoadError` and needs the one-line change. There is one path,
+  under no framework's namespace.
 
 - **BREAKING:** the `hyperdrive:*` rake tasks. `bundle exec rake hyperdrive:init`
   (and `:sync` / `:discover`) is no longer available, and the tasks no longer

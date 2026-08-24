@@ -8,7 +8,7 @@ RSpec.describe "hyperdrive rake tasks" do
 
   before do
     Rake.application = Rake::Application.new
-    load File.expand_path("../../lib/rails/hyperdrive/skill_tasks.rb", __dir__)
+    load File.expand_path("../../lib/hyperdrive/skill_tasks.rb", __dir__)
   end
 
   def write(rel, body)
@@ -102,5 +102,23 @@ RSpec.describe "hyperdrive rake tasks" do
       Dir.chdir(nested) { Rake::Task["hyperdrive:skills:render"].invoke(File.join(@dir, "paired_gem.gemspec")) }
     end.to output(/render /).to_stdout
     expect(File.file?(File.join(@dir, "skills/paired/SKILL.md"))).to be true
+  end
+
+  # Subprocess so the real require machinery runs without touching the suite's Rake application.
+  it "defines every task through `require \"hyperdrive/skill_tasks\"`" do
+    lib = File.expand_path("../../lib", __dir__)
+    script = <<~RUBY
+      require "hyperdrive/skill_tasks"
+      %w[hyperdrive:skills:render hyperdrive:skills:check hyperdrive:manifest:check].each do |t|
+        abort "missing \#{t}" unless Rake::Task.task_defined?(t)
+      end
+      puts "ok"
+    RUBY
+
+    out = IO.popen([RbConfig.ruby, "-I#{lib}", "-e", script], err: %i[child out], &:read)
+    status = $?
+
+    expect(status).to be_success, out
+    expect(out).to include("ok")
   end
 end

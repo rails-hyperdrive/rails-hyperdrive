@@ -1,4 +1,4 @@
-# Rake tasks for companion gem repos: add `require "rails/hyperdrive/skill_tasks"`
+# Rake tasks for companion gem repos: add `require "hyperdrive/skill_tasks"`
 # to the Rakefile. Every task takes an optional gemspec-path argument, e.g.
 # rake "hyperdrive:skills:render[path/to/name.gemspec]".
 require "rake"
