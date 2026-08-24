@@ -155,6 +155,80 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
     end
   end
 
+  describe "supporting templates" do
+    let(:support) { "Notes for <%= gem_version(\"sqlite3\") || \"any version\" %>.\n" }
+
+    before do
+      write_gemspec
+      write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
+    end
+
+    it "renders each support face into the content dir, preserving layout" do
+      write("lib/paired_gem/hyperdrive/skills/paired/references/notes.md.erb", support)
+
+      written = described_class.write(dir: @dir)
+      expect(written.map(&:dest)).to eq([
+        File.join(@dir, "skills/paired/SKILL.md"),
+        File.join(@dir, "skills/paired/references/notes.md")
+      ])
+      expect(File.read(File.join(@dir, "skills/paired/references/notes.md")))
+        .to eq("Notes for any version.\n")
+    end
+
+    it "writes a support face without frontmatter, unvalidated" do
+      write("lib/paired_gem/hyperdrive/skills/paired/references/notes.md.erb", "# just prose\n")
+
+      expect { described_class.write(dir: @dir) }.not_to raise_error
+      expect(File.read(File.join(@dir, "skills/paired/references/notes.md"))).to eq("# just prose\n")
+    end
+
+    it "reports a missing and an out-of-date support face" do
+      write("lib/paired_gem/hyperdrive/skills/paired/references/notes.md.erb", support)
+      expect(described_class.stale(dir: @dir).map(&:dest))
+        .to include(File.join(@dir, "skills/paired/references/notes.md"))
+
+      described_class.write(dir: @dir)
+      expect(described_class.stale(dir: @dir)).to be_empty
+
+      write("lib/paired_gem/hyperdrive/skills/paired/references/notes.md.erb", support + "More.\n")
+      expect(described_class.stale(dir: @dir).map(&:dest))
+        .to eq([File.join(@dir, "skills/paired/references/notes.md")])
+    end
+  end
+
+  describe ".public_erb_templates" do
+    before { write_gemspec }
+
+    it "lists every *.md.erb reachable through a public skills root" do
+      write("skills/paired/SKILL.md.erb", template)
+      write("skills/paired/references/notes.md.erb", "notes\n")
+      write("skills/paired/references/keep.md", "keep\n")
+
+      expect(described_class.public_erb_templates(dir: @dir)).to eq([
+        File.join(@dir, "skills/paired/SKILL.md.erb"),
+        File.join(@dir, "skills/paired/references/notes.md.erb")
+      ])
+    end
+
+    it "excludes templates-root paths" do
+      write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
+      write("lib/paired_gem/hyperdrive/skills/paired/references/notes.md.erb", "notes\n")
+
+      expect(described_class.public_erb_templates(dir: @dir)).to be_empty
+    end
+
+    it "scans the top-level skills dir even when it is not the declared root" do
+      write_gemspec(skills_dir: "public")
+      write("skills/loose/references/notes.md.erb", "notes\n")
+      write("public/paired/references/notes.md.erb", "notes\n")
+
+      expect(described_class.public_erb_templates(dir: @dir)).to eq([
+        File.join(@dir, "public/paired/references/notes.md.erb"),
+        File.join(@dir, "skills/loose/references/notes.md.erb")
+      ])
+    end
+  end
+
   describe "gemspec resolution" do
     it "errors when the working directory has no gemspec" do
       expect { described_class.write(dir: @dir) }

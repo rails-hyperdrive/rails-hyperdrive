@@ -59,6 +59,23 @@ RSpec.describe "hyperdrive:skills rake tasks" do
     end.to output(%r{stale: .*skills/paired/SKILL\.md}).to_stderr
   end
 
+  it "hyperdrive:skills:render writes a supporting template's static face too" do
+    write("lib/paired_gem/hyperdrive/skills/paired/references/notes.md.erb", "Notes.\n")
+
+    expect { invoke("hyperdrive:skills:render") }
+      .to output(%r{render .*skills/paired/references/notes\.md$}).to_stdout
+    expect(File.read(File.join(@dir, "skills/paired/references/notes.md"))).to eq("Notes.\n")
+  end
+
+  it "hyperdrive:skills:check fails listing raw ERB under a public skills root" do
+    quiet_render
+    write("skills/paired/references/notes.md.erb", "Notes.\n")
+
+    expect do
+      expect { invoke("hyperdrive:skills:check") }.to raise_error(SystemExit)
+    end.to output(%r{raw ERB: .*skills/paired/references/notes\.md\.erb}).to_stderr
+  end
+
   it "accepts an explicit gemspec path argument" do
     nested = File.join(@dir, "elsewhere")
     FileUtils.mkdir_p(nested)

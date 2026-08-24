@@ -128,7 +128,7 @@ module Rails
               source_gem: entry.source_gem,
               version: entry.version,
               artifact_kind: "skill_support",
-              source_relpath: support_base && File.join(support_base, file[:path])
+              source_relpath: file[:source_relpath] || (support_base && File.join(support_base, file[:path]))
             )
           end
         end

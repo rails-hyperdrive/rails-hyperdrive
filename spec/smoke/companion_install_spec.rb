@@ -44,6 +44,8 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       gated_out = File.join(app_dir, ".claude/skills/alpha-skill/references/alba-notes.md")
       expect(File.exist?(gated_out)).to be(false), "gated-out supporting file installed:\n#{out}"
 
+      # The committed canonical face carries every branch, so an Alba-free body
+      # proves the template-side render superseded it.
       rendered = File.join(app_dir, ".claude/skills/alpha-skill/references/stack-notes.md")
       expect(File.exist?(rendered)).to be(true), "rendered .md.erb not installed:\n#{out}"
       stack_notes = File.read(rendered)
@@ -51,6 +53,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(stack_notes).not_to include("Alba")
       expect(stack_notes).not_to include("<%")
       expect(File.exist?(rendered + ".erb")).to be(false)
+      expect(out).not_to include("ignoring")
 
       guide_path = File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-guide.md")
       expect(File.exist?(guide_path)).to be(true), "alpha-guide not installed:\n#{out}"

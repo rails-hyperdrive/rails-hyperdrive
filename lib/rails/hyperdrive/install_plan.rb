@@ -19,7 +19,8 @@ module Rails
           return [] unless type == :skill
           dir = File.dirname(dest)
           Array(artifact.support_files).map do |file|
-            { path: file[:path], body: file[:body], dest: "#{dir}/#{file[:path]}" }
+            { path: file[:path], body: file[:body], dest: "#{dir}/#{file[:path]}",
+              source_relpath: file[:source_relpath] }
           end
         end
 

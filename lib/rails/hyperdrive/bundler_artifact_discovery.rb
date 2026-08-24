@@ -154,13 +154,14 @@ module Rails
         end
       end
 
-      # The content dir is the single source of truth for supporting files.
+      # The template dir holds only templates; static content is the paired
+      # content dir's to ship.
       def warn_template_extras(template_dir, warnings)
         extras = Dir.glob(File.join(template_dir, "**", "*"))
-                    .select { |f| File.file?(f) && f != File.join(template_dir, "SKILL.md.erb") }
+                    .select { |f| File.file?(f) && !erb_template?(f) }
         return if extras.empty?
-        warnings << "#{template_dir}: ignoring #{extras.size} file(s) besides SKILL.md.erb; " \
-                    "supporting files ship in the paired content directory"
+        warnings << "#{template_dir}: ignoring #{extras.size} file(s) besides SKILL.md.erb and " \
+                    "supporting *.md.erb templates; static supporting files ship in the paired content directory"
       end
 
       def guideline_paths(spec)
@@ -280,9 +281,9 @@ module Rails
           support_root: support_root,
           support_files:
             if type == :skill
-              conditioned_support_files(
-                support_root, gate.conditional,
-                resolved: resolved, warnings: warnings,
+              skill_support_files(
+                path, support_root, gate.conditional,
+                source_spec: source_spec, resolved: resolved, warnings: warnings,
                 label: "#{name} (from #{source_spec.name})"
               )
             else
@@ -303,14 +304,68 @@ module Rails
           rel = file.delete_prefix("#{skill_dir}/")
           next if SKILL_FILE_NAMES.include?(File.basename(rel))
           next if rel.split(%r{[/\\]}).include?("..")
-          { path: rel, body: File.binread(file) }
+          { path: rel, body: File.binread(file), root: skill_dir }
         end
       end
 
-      def conditioned_support_files(skill_dir, conditional, resolved:, warnings:, label:)
-        files = support_files_for(skill_dir)
-        files = apply_conditional_filter(files, conditional, resolved: resolved, warnings: warnings, label: label)
-        render_support_templates(files, skill_dir, resolved: resolved, warnings: warnings)
+      def template_support_files(template_dir)
+        return [] if template_dir.nil?
+        Dir.glob(File.join(template_dir, "**", "*.md.erb")).filter_map do |file|
+          next unless File.file?(file)
+          rel = file.delete_prefix("#{template_dir}/")
+          next if SKILL_FILE_NAMES.include?(File.basename(rel))
+          next if rel.split(%r{[/\\]}).include?("..")
+          { path: rel, body: File.binread(file), root: template_dir, template: true }
+        end
+      end
+
+      def skill_support_files(path, support_root, conditional, source_spec:, resolved:, warnings:, label:)
+        template_dir = File.dirname(path)
+        template_dir = nil if File.expand_path(template_dir) == File.expand_path(support_root)
+
+        conditioned_support_files(
+          support_root, conditional,
+          resolved: resolved, warnings: warnings, label: label,
+          template_dir: template_dir, source_root: source_spec.full_gem_path,
+          public_root: public_support_root?(source_spec, support_root)
+        )
+      end
+
+      def conditioned_support_files(skill_dir, conditional, resolved:, warnings:, label:,
+                                    template_dir:, source_root:, public_root:)
+        content = support_files_for(skill_dir)
+        templates = template_support_files(template_dir)
+        warn_public_support_templates(content, skill_dir, warnings) if public_root
+
+        # A template-side file owns its target path whatever its own outcome:
+        # installing the content-side face when the template is gated out or
+        # fails to render would silently un-condition the file.
+        claimed = templates.map { |f| target_path(f[:path]) }
+        files = apply_conditional_filter(content + templates, conditional,
+          resolved: resolved, warnings: warnings, label: label)
+        files = files.reject { |f| !f[:template] && claimed.include?(target_path(f[:path])) }
+
+        render_support_templates(files, resolved: resolved, warnings: warnings, source_root: source_root)
+      end
+
+      # Everything under a public skills root is copied verbatim by generic
+      # skills.sh consumers, so a template there hands them raw ERB.
+      def warn_public_support_templates(files, skill_dir, warnings)
+        return if files.none? { |f| erb_template?(f[:path]) }
+        warnings << "#{skill_dir}: supporting *.md.erb template(s) sit under a public skills root; " \
+                    "move them to the paired template directory and commit their rendered faces here"
+      end
+
+      def public_support_root?(spec, support_root)
+        dir = "#{File.expand_path(support_root)}/"
+        templates_root = File.join(spec.full_gem_path, skill_templates_dir(spec))
+        return false if dir.start_with?("#{File.expand_path(templates_root)}/")
+
+        roots = [File.join(spec.full_gem_path, "skills")]
+        if (override = skills_dir_override(spec))
+          roots << File.join(spec.full_gem_path, override)
+        end
+        roots.any? { |root| dir.start_with?("#{File.expand_path(root)}/") }
       end
 
       # Fail-open: a malformed condition warns and installs its file
@@ -361,28 +416,44 @@ module Rails
         match_targets(parsed.targets, versions, resolved, mode: parsed.match_mode).any?
       end
 
-      def render_support_templates(files, skill_dir, resolved:, warnings:)
+      def render_support_templates(files, resolved:, warnings:, source_root: nil)
         plain_paths = files.map { |f| f[:path] }
         files.filter_map do |file|
-          next file unless erb_template?(file[:path])
+          next { path: file[:path], body: file[:body] } unless erb_template?(file[:path])
 
-          target = file[:path].delete_suffix(".erb")
+          target = target_path(file[:path])
           if plain_paths.include?(target)
-            warnings << "skip #{File.join(skill_dir, file[:path])}: #{target} in the same directory takes precedence"
+            warnings << "skip #{File.join(file[:root], file[:path])}: #{target} in the same directory takes precedence"
             next nil
           end
 
           begin
-            { path: target, body: SkillTemplate.render(file[:body], resolved: resolved) }
+            rendered = { path: target, body: SkillTemplate.render(file[:body], resolved: resolved) }
           rescue SyntaxError, StandardError => e
-            warnings << "skip #{File.join(skill_dir, file[:path])}: ERB render failed (#{e.message})"
-            nil
+            warnings << "skip #{File.join(file[:root], file[:path])}: ERB render failed (#{e.message})"
+            next nil
           end
+          file[:template] ? rendered.merge(source_relpath: template_relpath(file, source_root)) : rendered
         end
+      end
+
+      # The relpath a later merge reconstructs the ancestor from: template-side,
+      # and .erb-stripped so AncestorLocator's twin fallback resolves it.
+      def template_relpath(file, source_root)
+        return nil if source_root.nil? || source_root.to_s.empty?
+
+        prefix = "#{File.expand_path(source_root.to_s)}/"
+        dir = File.expand_path(file[:root].to_s)
+        return nil unless dir.start_with?(prefix)
+        target_path(File.join(dir.delete_prefix(prefix), file[:path]))
       end
 
       def erb_template?(path)
         path.end_with?(".md.erb")
+      end
+
+      def target_path(path)
+        erb_template?(path) ? path.delete_suffix(".erb") : path
       end
 
       # Guideline frontmatter is stripped because the installed file is
@@ -478,9 +549,11 @@ module Rails
                            :resolve_same_dir_tie, :pair_with_templates, :warn_template_extras,
                            :opted_in?, :metadata_present?, :notice_skills_sh_content,
                            :skills_dir_override, :skill_templates_dir, :parse, :support_files_for,
-                           :conditioned_support_files, :apply_conditional_filter,
+                           :template_support_files, :skill_support_files,
+                           :conditioned_support_files, :warn_public_support_templates,
+                           :public_support_root?, :apply_conditional_filter,
                            :conditional_satisfied?,
-                           :render_support_templates, :erb_template?,
+                           :render_support_templates, :template_relpath, :erb_template?, :target_path,
                            :unmet_fence, :match_targets,
                            :version_satisfied?, :requirement_for, :no_match_reason,
                            :all_no_match_reason, :unsatisfied_reason, :safe_bundler_specs

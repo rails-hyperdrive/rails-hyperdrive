@@ -1,7 +1,7 @@
 # Stack Notes
 
 <%- if gem?("sqlite3") -%>
-This app persists to SQLite (sqlite3 <%= gem_version("sqlite3") %>).
+This app persists to SQLite (sqlite3 <%= gem_version("sqlite3") || "any version" %>).
 <%- end -%>
 <%- if gem?("alba") -%>
 This app serializes with Alba.

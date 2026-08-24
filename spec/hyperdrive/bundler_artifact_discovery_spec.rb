@@ -1238,6 +1238,130 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(survivors.size).to eq(1)
       expect(survivors.first.path).to eq(File.join(@dir, "skills/dup/SKILL.md"))
     end
+
+    describe "template-side supporting templates" do
+      let(:support_template) { "notes: <%= gem?(\"sidekiq\") ? \"sidekiq\" : \"none\" %>\n" }
+
+      def paired_skill(template_files: {}, content_files: {}, manifest: nil)
+        write("skills/paired/SKILL.md", static_body)
+        write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
+        template_files.each { |rel, body| write("lib/source_gem/hyperdrive/skills/paired/#{rel}", body) }
+        content_files.each { |rel, body| write("skills/paired/#{rel}", body) }
+        write("hyperdrive.yml", manifest) if manifest
+      end
+
+      def discover(*extra_specs, warnings: [])
+        [described_class.discover(specs: [paired_spec, *extra_specs], warnings: warnings).first, warnings]
+      end
+
+      it "renders a template-side supporting template against the bundle, retargeted to x.md" do
+        paired_skill(template_files: { "references/notes.md.erb" => support_template })
+
+        skill, warnings = discover(sidekiq)
+        expect(warnings).to be_empty
+        expect(skill.support_files.map { |f| f[:path] }).to contain_exactly("references/notes.md")
+        expect(skill.support_files.first[:body]).to eq("notes: sidekiq\n")
+      end
+
+      it "supersedes the content dir's same-target static face without a warning" do
+        paired_skill(
+          template_files: { "references/notes.md.erb" => support_template },
+          content_files: { "references/notes.md" => "canonical face\n" }
+        )
+
+        skill, warnings = discover
+        expect(warnings).to be_empty
+        expect(skill.support_files.map { |f| f[:path] }).to contain_exactly("references/notes.md")
+        expect(skill.support_files.first[:body]).to eq("notes: none\n")
+      end
+
+      it "installs nothing at the target path when the template fails to render" do
+        paired_skill(
+          template_files: { "references/notes.md.erb" => "<% raise 'boom' %>\n" },
+          content_files: { "references/notes.md" => "canonical face\n" }
+        )
+
+        skill, warnings = discover
+        expect(warnings.join).to include("notes.md.erb").and include("ERB render failed")
+        expect(skill.support_files).to eq([])
+      end
+
+      it "installs nothing at the target path when the template is gated out" do
+        paired_skill(
+          template_files: { "references/notes.md.erb" => support_template },
+          content_files: { "references/notes.md" => "canonical face\n" },
+          manifest: "skills:\n  paired:\n    conditional:\n      references/notes.md.erb:\n        gem: not_bundled\n"
+        )
+
+        skill, warnings = discover
+        expect(warnings).to be_empty
+        expect(skill.support_files).to eq([])
+      end
+
+      it "counts a template-side file as shipped for the conditional staleness check" do
+        paired_skill(
+          template_files: { "references/notes.md.erb" => support_template },
+          manifest: "skills:\n  paired:\n    conditional:\n      references/notes.md.erb:\n        gem: \"*\"\n" \
+                    "      references/gone.md:\n        gem: \"*\"\n"
+        )
+
+        _skill, warnings = discover
+        expect(warnings.join).to include("'references/gone.md' names no shipped supporting file")
+        expect(warnings.join).not_to include("'references/notes.md.erb' names no")
+      end
+
+      it "no longer warns about a supporting template in the template dir" do
+        paired_skill(template_files: { "references/notes.md.erb" => support_template })
+
+        _skill, warnings = discover
+        expect(warnings.join).not_to include("ignoring")
+      end
+
+      it "still warns about a non-template extra in the template dir" do
+        paired_skill(template_files: { "references/stray.md" => "stray\n" })
+
+        skill, warnings = discover
+        expect(warnings.join).to include("besides SKILL.md.erb")
+        expect(skill.support_files).to eq([])
+      end
+    end
+
+    describe "supporting templates under a public skills root" do
+      it "warns once and still renders a content-dir supporting template" do
+        write("skills/solo/SKILL.md", static_body("solo"))
+        write("skills/solo/references/a.md.erb", "a\n")
+        write("skills/solo/references/b.md.erb", "b\n")
+
+        warnings = []
+        skill = described_class.discover(specs: [paired_spec], warnings: warnings).first
+        expect(warnings.grep(/public skills root/).size).to eq(1)
+        expect(skill.support_files.map { |f| f[:path] })
+          .to contain_exactly("references/a.md", "references/b.md")
+      end
+
+      it "leaves a convention-root skill's supporting template unflagged" do
+        write("lib/source_gem/hyperdrive/skills/solo/SKILL.md", static_body("solo"))
+        write("lib/source_gem/hyperdrive/skills/solo/references/a.md.erb", "a\n")
+
+        warnings = []
+        skill = described_class.discover(specs: [paired_spec], warnings: warnings).first
+        expect(warnings).to be_empty
+        expect(skill.support_files.map { |f| f[:path] }).to eq(["references/a.md"])
+      end
+
+      it "warns about a masked content-dir supporting template too" do
+        write("skills/paired/SKILL.md", static_body)
+        write("skills/paired/references/notes.md.erb", "<% raise 'never rendered' %>\n")
+        write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
+        write("lib/source_gem/hyperdrive/skills/paired/references/notes.md.erb", "templated\n")
+
+        warnings = []
+        skill = described_class.discover(specs: [paired_spec], warnings: warnings).first
+        expect(warnings.grep(/public skills root/).size).to eq(1)
+        expect(warnings.join).not_to include("ERB render failed")
+        expect(skill.support_files.map { |f| f[:body] }).to eq(["templated\n"])
+      end
+    end
   end
 
   describe "gem-root manifest gating" do
