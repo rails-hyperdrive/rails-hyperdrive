@@ -47,7 +47,9 @@ One-time setup, same as the root gem but with **workflow filename `release-plugi
 There is no bump script — cutting a release is manual:
 
 ```bash
-# 1. edit bundler-rails-hyperdrive/lib/bundler/hyperdrive/version.rb
+# 1. edit bundler-rails-hyperdrive/lib/bundler/hyperdrive/version.rb, and roll the
+#    ## [Unreleased] section of bundler-rails-hyperdrive/CHANGELOG.md into a dated
+#    ## [X.Y.Z] section (refreshing the link-reference footer)
 
 # 2. commit, then tag the commit with the namespaced tag
 git tag -a bundler-rails-hyperdrive/vX.Y.Z -m "bundler-rails-hyperdrive X.Y.Z"
