@@ -93,7 +93,7 @@ Companion gems ship two artifact types, tuned for how agents consume context:
 
 A companion gem declares in its manifest which gem each artifact targets and at which versions, so what lands in your app is what matches your `Gemfile.lock`, and nothing aimed at a library or version you don't run.
 
-With no companion gems, `hyperdrive:init` sets up just the server plumbing (`.mcp.json`, the engine mount, the lockfile) and puts **nothing** into your agent's context window.
+With no companion gems, `hyperdrive:init` sets up just the server plumbing (`.mcp.json`, the engine mount, the lockfile) and puts **nothing** into your agent's context window. The two halves are independently skippable: `--skip-mcp` installs content but no MCP plumbing, `--skip-content` the reverse. Neither removes anything already in place.
 
 ---
 

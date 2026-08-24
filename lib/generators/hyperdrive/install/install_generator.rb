@@ -28,6 +28,7 @@ module Rails
 
         class_option :mount_at,      type: :string,  default: DEFAULT_MOUNT_AT, desc: "Engine mount path."
         class_option :skip_content,  type: :boolean, default: false, desc: "Skip all .claude content, CLAUDE.md, and the lockfile; write only .mcp.json and the mount."
+        class_option :skip_mcp,      type: :boolean, default: false, desc: "Skip MCP setup entirely; write no .mcp.json entry and no engine mount."
         class_option :dry_run,       type: :boolean, default: false, desc: "Show what would change; write nothing."
 
         def verify_environment
@@ -41,6 +42,8 @@ module Rails
         # The write is forced: Thor's conflict prompt would otherwise block the
         # run waiting on stdin.
         def write_mcp_json
+          return if options[:skip_mcp]
+
           existing = mcp_json_on_disk
           document = existing ? parse_mcp_json(existing) : {}
           return if document.nil?
@@ -80,6 +83,8 @@ module Rails
         end
 
         def mount_engine
+          return if options[:skip_mcp]
+
           routes_file = "config/routes.rb"
           unless File.exist?(::Rails.root.join(routes_file))
             say_status :skip, "no #{routes_file} found; skipping engine mount", :yellow
@@ -107,9 +112,16 @@ module Rails
         def print_summary
           say ""
           say_status :done, "hyperdrive initialized", :green
-          say "  Mount: #{mount_path} (in config/routes.rb)"
-          say "  Server: #{::Rails::Hyperdrive::McpServer::TOOLS.size} MCP tools at http://localhost:3000#{mount_path}/mcp"
+          if options[:skip_mcp]
+            say "  MCP: skipped (--skip-mcp)"
+          else
+            say "  Mount: #{mount_path} (in config/routes.rb)"
+            say "  Server: #{::Rails::Hyperdrive::McpServer::TOOLS.size} MCP tools at http://localhost:3000#{mount_path}/mcp"
+          end
           runner.summary_lines.each { |line| say line } unless options[:skip_content]
+          # Every next step is about reaching the MCP endpoint.
+          return if options[:skip_mcp]
+
           say ""
           say "  Next steps:"
           say "    1. bin/rails server"

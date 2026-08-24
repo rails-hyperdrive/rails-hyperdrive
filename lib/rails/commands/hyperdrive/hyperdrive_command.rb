@@ -19,6 +19,7 @@ module Rails
       desc "init", "Install Rails Hyperdrive into this app (writes .mcp.json, CLAUDE.md, skills, guidelines, mounts engine)"
       option :mount_at, type: :string, default: "/_hyperdrive", desc: "Engine mount path."
       option :skip_content, type: :boolean, default: false, desc: "Skip all .claude content, CLAUDE.md, and the lockfile; write only .mcp.json and the mount."
+      option :skip_mcp, type: :boolean, default: false, desc: "Skip MCP setup entirely; write no .mcp.json entry and no engine mount."
       option :dry_run, type: :boolean, default: false, desc: "Show what would change; write nothing."
       def init(*)
         start_generator("install", "InstallGenerator")
