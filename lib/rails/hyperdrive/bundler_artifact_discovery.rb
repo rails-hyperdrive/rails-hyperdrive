@@ -551,8 +551,7 @@ module Rails
         []
       end
 
-      private_class_method :each_artifact_path, :warn_unknown_manifest_keys, :skill_paths,
-                           :guideline_paths,
+      private_class_method :each_artifact_path, :warn_unknown_manifest_keys,
                            :resolve_same_dir_tie, :pair_with_templates, :warn_template_extras,
                            :opted_in?, :metadata_present?, :notice_skills_sh_content,
                            :skills_dir_override, :skill_templates_dir, :parse, :support_files_for,

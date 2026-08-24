@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `rake hyperdrive:manifest:check`, a strict author-side lint of a companion
+  gem's `hyperdrive.yml`, on the same companion-repo rake surface as
+  `hyperdrive:skills:*` (add `require "rails/hyperdrive/skill_tasks"` to the
+  Rakefile; takes the same optional gemspec-path argument). Where the installer
+  is permissive so a manifest written for a newer schema never blocks an
+  install, the lint fails: unknown keys at every level — the top level,
+  `skills:`/`guidelines:` entries, and `conditional:` entries — plus any
+  `gem:`/`gems:` or `hyperdrive_version:` value the installer cannot parse, and
+  `skills:`/`guidelines:`/`conditional:` keys naming nothing the gem ships. The
+  retired `versions:` key and its `version:` near-miss are named pointedly.
+  A manifest that lints clean draws no gating warning at install time.
 - A template/content-paired skill's supporting files can be templated too: a
   `*.md.erb` in the template directory renders against the app's bundle and
   installs as `x.md`, so generic skills.sh consumers never copy raw ERB. Within
@@ -112,6 +123,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (and `:sync` / `:discover`) is no longer available, and the tasks no longer
   appear in `bin/rails -T`. Use `bin/rails hyperdrive:<command>`, which is
   unchanged.
+
+### Fixed
+
+- A parseable `hyperdrive_version:` fence now survives an unusable `gem:`,
+  both per entry and in the gem-wide defaults. The fence is resolved before
+  the gate, so fail-open reads "install ungated unless fenced out": a manifest
+  written in a value shape an older installer cannot parse is fenced out of
+  that installer instead of installing everywhere unconstrained — the exact
+  case `hyperdrive_version:` exists to cover. The two gem-wide defaults are
+  independent too: an unusable `gem:` default no longer drops a parseable
+  fence, and a malformed fence no longer drops a usable `gem:` default; each
+  warns for its own axis. An entry whose *own* `hyperdrive_version:` is
+  unparsable still installs ungated and unfenced — the gem-wide fence is not
+  substituted for a constraint the entry never asked for.
 
 ## [0.6.0] - 2026-08-17
 
