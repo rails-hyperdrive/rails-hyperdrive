@@ -26,8 +26,8 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
     ).call
   end
 
-  def compare(artifacts)
-    described_class.compare(root: root, artifacts: artifacts)
+  def compare(artifacts, bundled_gems: [])
+    described_class.compare(root: root, artifacts: artifacts, bundled_gems: bundled_gems)
   end
 
   it "reports everything as missing before anything is installed" do
@@ -74,6 +74,15 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
 
       expect(status.orphaned.map(&:path)).to eq([".claude/hyperdrive/guidelines/auth-pundit.md"])
       expect(status.orphaned.first.locked_source).to eq("rails-hyperdrive-x@1.0.0")
+      expect(status.orphaned.first.to_s).to include("no longer shipped by rails-hyperdrive-x@1.0.0")
+    end
+
+    it "never says an artifact is no longer shipped while its source gem is bundled" do
+      entry = compare([], bundled_gems: ["rails-hyperdrive-x"]).orphaned.first
+
+      expect(entry.to_s).to eq(
+        ".claude/hyperdrive/guidelines/auth-pundit.md (rails-hyperdrive-x is still bundled but did not offer this file)"
+      )
     end
 
     it "judges the lockfile, not the disk" do

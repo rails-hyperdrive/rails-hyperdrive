@@ -26,7 +26,8 @@ module Rails
       Result = Struct.new(:installed, :updated, :unchanged, :skipped, :orphaned, :removed, :merged, :sidecars,
         keyword_init: true)
 
-      def initialize(root:, shell:, artifacts:, mode: :preserve, warnings: [], notices: [])
+      def initialize(root:, shell:, artifacts:, mode: :preserve, warnings: [], notices: [],
+                     bundled_gems: [], skipped_gems: [])
         raise ArgumentError, "unknown mode #{mode.inspect}" unless MODES.include?(mode)
 
         @root = File.expand_path(root.to_s)
@@ -35,12 +36,16 @@ module Rails
         @mode = mode
         @warnings = warnings
         @notices = notices
+        @bundled_gems = Array(bundled_gems).map(&:to_s)
+        @skipped_gems = Array(skipped_gems).map(&:to_s)
         @result = Result.new(
           installed: [], updated: [], unchanged: [], skipped: [], orphaned: [], removed: [], merged: [], sidecars: []
         )
       end
 
       def call
+        return halt_schema_ahead if old_lock.schema_ahead?
+
         @new_lock = LockFile.new(abs(InstallLayout::LOCK_PATH)).carry_settings(old_lock)
         @plan = plan
 
@@ -50,6 +55,7 @@ module Rails
         guidelines = install_guidelines
         remove_disabled
         remove_stale_support_files
+        remove_stale_dests
         carry_orphans
         eager_guidelines = write_index_md(guidelines)
         write_claude_md(guidelines)
@@ -70,6 +76,13 @@ module Rails
       end
 
       private
+
+      # The backstop for callers that do not check the lock themselves: nothing
+      # is written, in every mode including :additive.
+      def halt_schema_ahead
+        @shell.say_status :warn, old_lock.schema_ahead_message(InstallLayout::LOCK_PATH), :yellow
+        @result
+      end
 
       def build_result
         @build_result ||= InstallPlan.build(@artifacts, lock: old_lock)
@@ -390,7 +403,7 @@ module Rails
           next unless type
           next if @new_lock.entry(entry.path)
 
-          next unless InstallPlan.disabled_dest?(old_lock, type, entry.path)
+          next unless InstallPlan.disabled_dest?(old_lock, type, entry.path, source_gem: entry.source_gem)
 
           file = abs(entry.path)
           next unless File.exist?(file)
@@ -437,6 +450,51 @@ module Rails
         end
       end
 
+      # An artifact that moved — renamed, or flipped between its canonical and
+      # postfixed destination — leaves a byte-duplicate copy at the old
+      # destination. Deletion is gated on the recorded sha and on the source gem
+      # being bundled and having lost nothing to a discovery skip, so a broken
+      # companion release or a version fence never removes a good install.
+      def remove_stale_dests
+        return if additive?
+
+        planned = @plan.flat_map { |e| [e.dest, *e.support_files.map { |f| f[:dest] }] }
+
+        old_lock.each_entry do |entry|
+          next unless InstallLayout::ARTIFACT_TYPES[entry.kind]
+          next if planned.include?(entry.path)
+          next if @new_lock.entry(entry.path)
+          next if already_removed?(entry.path)
+          next unless source_gem_converged?(entry)
+
+          file = abs(entry.path)
+          next unless File.exist?(file)
+
+          if DriftVerdict.unedited?(file, lock_entry: entry)
+            @shell.remove_file entry.path
+            @result.removed << entry.path
+            prune_empty_dirs(entry.path)
+          else
+            @result.skipped << entry.path
+            @shell.say_status :skip,
+              "#{entry.path} (#{entry.source_gem} no longer installs this path but it is locally modified; " \
+              "delete it by hand)", :yellow
+            @new_lock.carry(entry)
+          end
+        end
+      end
+
+      def source_gem_converged?(entry)
+        name = entry.source_gem.to_s
+        @bundled_gems.include?(name) && !@skipped_gems.include?(name)
+      end
+
+      # A dry run deletes nothing, so a path an earlier removal step already
+      # claimed is still on disk and must not be reported a second time.
+      def already_removed?(path)
+        @result.removed.include?(path)
+      end
+
       # Skill directories go only once empty; any user file keeps the whole
       # chain alive. The just-removed entry is subtracted because a dry run
       # deletes nothing from disk.
@@ -459,13 +517,18 @@ module Rails
         old_lock.each_entry do |entry|
           next if planned.include?(entry.path)
           next if @new_lock.entry(entry.path)
+          next if already_removed?(entry.path)
           next unless DriftVerdict.verdict(file: abs(entry.path), lock_entry: entry, gem_sha: nil) == :orphaned
 
           @result.orphaned << entry.path
-          @shell.say_status :orphan,
-            "#{entry.path} (no longer shipped by #{entry.source_label}; left in place)", :yellow
+          @shell.say_status :orphan, "#{entry.path} (#{orphan_reason(entry)}; left in place)", :yellow
           @new_lock.carry(entry)
         end
+      end
+
+      def orphan_reason(entry)
+        return "no longer shipped by #{entry.source_label}" unless @bundled_gems.include?(entry.source_gem.to_s)
+        "#{entry.source_gem} is still bundled but did not offer this file"
       end
 
       # Returns the eager set: the guidelines index.md ends up including.

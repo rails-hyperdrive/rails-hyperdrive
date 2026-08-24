@@ -1578,6 +1578,79 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
   end
 
+  describe "reporting the walk" do
+    around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
+
+    let(:spec)    { spec_double("source_gem", "1.0.0", @dir) }
+    let(:sidekiq) { spec_double("sidekiq", "7.3.0", "#{@dir}/nope") }
+
+    def write(rel, body)
+      path = File.join(@dir, rel)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, body)
+    end
+
+    def write_skill(name, body: nil)
+      write("lib/source_gem/hyperdrive/skills/#{name}/SKILL.md",
+        body || "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n")
+    end
+
+    def walk(*extra_specs)
+      bundled_gems = []
+      skipped_gems = []
+      described_class.discover(specs: [spec, *extra_specs], warnings: [],
+        bundled_gems: bundled_gems, skipped_gems: skipped_gems)
+      [bundled_gems, skipped_gems]
+    end
+
+    it "names every gem in the bundle, opted in or not" do
+      write_skill("a")
+
+      expect(walk(sidekiq).first).to eq(%w[source_gem sidekiq])
+    end
+
+    it "reports no skipped gem when every candidate parses and matches" do
+      write_skill("a")
+      write_skill("b")
+
+      expect(walk.last).to be_empty
+    end
+
+    it "reports a gem once however many artifacts it loses" do
+      write_skill("a", body: "no frontmatter\n")
+      write_skill("b", body: "---\nname: b\n---\n\n# b\n")
+
+      expect(walk.last).to eq(["source_gem"])
+    end
+
+    it "reports a gate that matches nothing in the bundle" do
+      write_skill("a")
+      write("hyperdrive.yml", "gem: absent_gem\n")
+
+      expect(walk.last).to eq(["source_gem"])
+    end
+
+    it "reports a version fence the installer does not satisfy" do
+      write_skill("a")
+      write("hyperdrive.yml", "hyperdrive_version: \">= 99\"\n")
+
+      expect(walk.last).to eq(["source_gem"])
+    end
+
+    it "reports an ERB definition that fails to render" do
+      write("lib/source_gem/hyperdrive/skills/a/SKILL.md.erb", "---\nname: a\n<%= boom %>\n---\n")
+
+      expect(walk.last).to eq(["source_gem"])
+    end
+
+    it "leaves a gem unreported for an advisory warning that costs it no artifact" do
+      write_skill("a")
+      write("hyperdrive.yml", "skills:\n  gone: {}\n")
+
+      expect(walk.last).to be_empty
+    end
+  end
+
   describe "permissive parser" do
     it "warns and skips on a version mismatch rather than raising" do
       old_spec = spec_double("dummy_gem", "2.5.0", dummy_root)

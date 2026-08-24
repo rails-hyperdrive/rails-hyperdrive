@@ -39,13 +39,17 @@ module Rails
       # companion is never scanned — its skills.sh content is only reported
       # through `notices`. Version-fence skips go to `warnings` as well as to
       # `fence_warnings`, which carries them to surfaces that print nothing else.
-      def discover(specs: nil, warnings: [], enabled_gems: [], notices: [], fence_warnings: [])
+      # `bundled_gems` and `skipped_gems` report the walk itself: every gem seen,
+      # and every gem that lost at least one artifact to a skip.
+      def discover(specs: nil, warnings: [], enabled_gems: [], notices: [], fence_warnings: [],
+                   bundled_gems: [], skipped_gems: [])
         specs ||= safe_bundler_specs
         enabled = Array(enabled_gems).map(&:to_s)
         resolved = specs.each_with_object({}) { |s, h| h[s.name.to_s] = s.version }
 
         candidates = []
         specs.each do |spec|
+          bundled_gems << spec.name.to_s
           unless opted_in?(spec, enabled_gems: enabled)
             notice_skills_sh_content(spec, notices: notices)
             next
@@ -57,7 +61,11 @@ module Rails
             gate = type == :skill ? manifest.skill_gate(key) : manifest.guideline_gate(key)
             artifact = parse(path, source_spec: spec, type: type, resolved: resolved,
               warnings: warnings, fence_warnings: fence_warnings, support_root: support_root, gate: gate)
-            candidates << artifact if artifact
+            if artifact
+              candidates << artifact
+            elsif !skipped_gems.include?(spec.name.to_s)
+              skipped_gems << spec.name.to_s
+            end
           end
           warn_unknown_manifest_keys(manifest, spec, seen, warnings)
         end

@@ -86,6 +86,38 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
     end
   end
 
+  describe "a lock written by a newer installer" do
+    before do
+      initialize_app([guideline(name: "auth-pundit")])
+      lock_path = File.join(root, ".hyperdrive/lock.yml")
+      data = YAML.safe_load(File.read(lock_path))
+      data["version"] = 2
+      File.write(lock_path, data.to_yaml)
+    end
+
+    it "installs nothing, never raises, and prints why" do
+      bundle_ships([guideline(name: "auth-pundit"), guideline(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+      before_lock = File.read(File.join(root, ".hyperdrive/lock.yml"))
+
+      result = described_class.run(root: root)
+
+      expect(result).to be_ran
+      expect(result.installed).to be_empty
+      expect(File).not_to exist(File.join(root, ".claude/hyperdrive/guidelines/jobs-sidekiq.md"))
+      expect(File.read(File.join(root, ".hyperdrive/lock.yml"))).to eq(before_lock)
+      expect(result.messages).to eq([
+        ".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 2, this installer supports 1); " \
+        "upgrade rails-hyperdrive"
+      ])
+    end
+
+    it "does not even compute a status" do
+      expect(Rails::Hyperdrive::ArtifactStatus).not_to receive(:compare)
+
+      described_class.run(root: root)
+    end
+  end
+
   it "forwards the lock's enabled: list to discovery" do
     initialize_app([])
     lock_path = File.join(root, ".hyperdrive/lock.yml")
