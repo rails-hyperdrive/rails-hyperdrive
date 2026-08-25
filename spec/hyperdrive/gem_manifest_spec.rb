@@ -590,6 +590,52 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
     end
   end
 
+  describe "directory keys" do
+    it "is nil for both when the gem ships no manifest" do
+      manifest, warnings = load_manifest
+      expect(manifest.skills_dir).to be_nil
+      expect(manifest.skill_templates_dir).to be_nil
+      expect(warnings).to be_empty
+    end
+
+    it "reads both declared roots" do
+      write("hyperdrive.yml", "skills_dir: extra/skills\nskill_templates_dir: tpl\n")
+      manifest, warnings = load_manifest
+      expect(manifest.skills_dir).to eq("extra/skills")
+      expect(manifest.skill_templates_dir).to eq("tpl")
+      expect(warnings).to be_empty
+    end
+
+    it "falls back silently on a blank value" do
+      write("hyperdrive.yml", "skills_dir: \"  \"\n")
+      manifest, warnings = load_manifest
+      expect(manifest.skills_dir).to be_nil
+      expect(warnings).to be_empty
+    end
+
+    it "warns and falls back on a value containing .. segments" do
+      write("hyperdrive.yml", "skills_dir: ../outside\n")
+      manifest, warnings = load_manifest
+      expect(manifest.skills_dir).to be_nil
+      expect(warnings).to eq(
+        ["source_gem: manifest top-level skills_dir: must not contain '..' segments; ignoring it"]
+      )
+    end
+
+    it "warns and falls back on a non-string value" do
+      write("hyperdrive.yml", "skill_templates_dir:\n  - tpl\n")
+      manifest, warnings = load_manifest
+      expect(manifest.skill_templates_dir).to be_nil
+      expect(warnings.join).to include("skill_templates_dir: must be a directory path relative to the gem root")
+    end
+
+    it "keeps gating readable alongside an unusable root" do
+      write("hyperdrive.yml", "skills_dir: ../outside\ngem: railties\n")
+      manifest, = load_manifest
+      expect(manifest.skill_gate("a").targets).to eq(["railties"])
+    end
+  end
+
   describe "path resolution (hyperdrive_manifest)" do
     it "reads the manifest from the metadata path" do
       write("config/gating.yml", "gem: railties\n")

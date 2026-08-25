@@ -33,14 +33,16 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
     write("lib/companion/hyperdrive/guidelines/#{name}", "# guideline\n")
   end
 
-  def write_template_skill
-    write_gemspec("hyperdrive_skill_templates_dir" => "templates")
+  # The templates root is a manifest key, so it has to be prepended to whatever
+  # manifest an example goes on to write.
+  def write_template_skill(support: true)
+    @manifest_prefix = "skill_templates_dir: templates\n"
     write("templates/alpha/SKILL.md.erb", "---\nname: alpha\ndescription: d\n---\n")
-    write("templates/alpha/references/tips.md.erb", "tips\n")
+    write("templates/alpha/references/tips.md.erb", "tips\n") if support
   end
 
   def problems(manifest)
-    write("hyperdrive.yml", manifest)
+    write("hyperdrive.yml", "#{@manifest_prefix}#{manifest}")
     described_class.check(dir: @dir).problems
   end
 
@@ -132,6 +134,28 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
     end
   end
 
+  describe "directory keys" do
+    it "accepts both, drawing no unknown-key problem" do
+      write("custom/beta/SKILL.md", "---\nname: beta\ndescription: d\n---\n\n# skill\n")
+      expect(problems("skills_dir: custom\nskill_templates_dir: templates\n")).to be_empty
+    end
+
+    it "fails on a non-string value" do
+      expect(problems("skills_dir:\n  - a\n  - b\n"))
+        .to eq(["top level: skills_dir: must be a directory path relative to the gem root"])
+    end
+
+    it "fails on a blank value" do
+      expect(problems("skill_templates_dir: \"  \"\n"))
+        .to eq(["top level: skill_templates_dir: must name a directory relative to the gem root"])
+    end
+
+    it "fails on a value containing .. segments" do
+      expect(problems("skills_dir: ../outside\n"))
+        .to eq(["top level: skills_dir: must not contain '..' segments"])
+    end
+  end
+
   describe "unknown keys" do
     it "fails at the top level" do
       expect(problems("skils:\n  alpha: {}\n").join).to include("top level: unknown key 'skils'")
@@ -212,8 +236,7 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
     end
 
     it "matches a paired skill by its content-directory relpath" do
-      write_gemspec("hyperdrive_skill_templates_dir" => "templates")
-      write("templates/alpha/SKILL.md.erb", "---\nname: alpha\ndescription: d\n---\n")
+      write_template_skill(support: false)
 
       expect(problems("skills:\n  alpha:\n    gem: sidekiq\n")).to be_empty
     end
@@ -236,9 +259,7 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
     end
 
     it "matches a template-side supporting file by its shipped *.md.erb path" do
-      write_gemspec("hyperdrive_skill_templates_dir" => "templates")
-      write("templates/alpha/SKILL.md.erb", "---\nname: alpha\ndescription: d\n---\n")
-      write("templates/alpha/references/tips.md.erb", "tips\n")
+      write_template_skill
 
       manifest = "skills:\n  alpha:\n    conditional:\n      references/tips.md.erb:\n        gem: sidekiq\n"
       expect(problems(manifest)).to be_empty

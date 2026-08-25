@@ -79,18 +79,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directive only; an app carrying the old one gets the new line appended and
   should drop the old. Nothing else changes: the `Bundler::Hyperdrive`
   namespace, the hook, and its behavior are untouched.
-- **Breaking (companion gemspecs).** The five companion-gem gemspec metadata
-  keys drop their `rails_` prefix: `rails_hyperdrive_targets` →
-  `hyperdrive_targets`, `rails_hyperdrive_artifacts` → `hyperdrive_artifacts`,
-  `rails_hyperdrive_skills_dir` → `hyperdrive_skills_dir`,
-  `rails_hyperdrive_skill_templates_dir` → `hyperdrive_skill_templates_dir`,
-  and `rails_hyperdrive_manifest` → `hyperdrive_manifest`. The contract is not
-  Rails-specific, and the keys now read that way. The old spellings are no
-  longer read, with no deprecated alias: a gem still declaring them is not
-  opted in as a companion, its skills-dir/templates-dir/manifest overrides are
-  ignored, and `hyperdrive:discover` — which now queries rubygems for
-  `metadata.hyperdrive_targets:*` — no longer surfaces it. Companion gems must
-  update their gemspecs.
+- **Breaking (companion gemspecs).** The two directory overrides move out of
+  gemspec metadata and into the gem-root manifest as top-level keys:
+  `hyperdrive_skills_dir` → `skills_dir:` in `hyperdrive.yml`, and
+  `hyperdrive_skill_templates_dir` → `skill_templates_dir:`. The metadata keys
+  are no longer read at all — under either spelling, the `rails_`-prefixed one
+  0.6.0 shipped included, and with no deprecation or dual-read — so a gem still
+  declaring them ships from the default roots, and they no longer count as
+  companion opt-in signals (the manifest that now carries them is one).
+  Gemspec metadata is left as strictly the pre-install surface rubygems
+  serves: `hyperdrive_targets`, `hyperdrive_artifacts`, and the
+  `hyperdrive_manifest` bootstrap pointer. Discovery resolves both roots
+  fail-open like every other manifest value: a non-string or `..`-containing
+  value is warned about and the default roots are used (where the metadata keys
+  were ignored silently), and a blank one falls back silently. The
+  companion-repo rake tasks stay strict and now raise on a manifest that will
+  not parse, rather than rendering with default roots over a file the
+  installer cannot read. `rake hyperdrive:manifest:check` validates the two
+  new keys.
+- **Breaking (companion gemspecs).** The remaining companion-gem gemspec
+  metadata keys drop their `rails_` prefix: `rails_hyperdrive_targets` →
+  `hyperdrive_targets`, `rails_hyperdrive_artifacts` →
+  `hyperdrive_artifacts`, and `rails_hyperdrive_manifest` →
+  `hyperdrive_manifest`. The contract is not Rails-specific, and the keys now
+  read that way. The old spellings are no longer read, with no deprecated
+  alias: a gem still declaring them is not opted in as a companion, its
+  manifest override is ignored, and `hyperdrive:discover` — which now queries
+  rubygems for `metadata.hyperdrive_targets:*` — no longer surfaces it.
+  Companion gems must update their gemspecs.
 - **Breaking (companion manifests).** Version constraints move onto the gate
   members and the sibling `versions:` key is gone. Wherever `gem:` takes a YAML
   list — the bare list and the `any:`/`all:` values alike — a member is now

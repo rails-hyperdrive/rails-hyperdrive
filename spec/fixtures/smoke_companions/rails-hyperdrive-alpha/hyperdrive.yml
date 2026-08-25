@@ -1,3 +1,4 @@
+skills_dir: skills
 gems:
   - railties: ">= 7.0"
 skills:

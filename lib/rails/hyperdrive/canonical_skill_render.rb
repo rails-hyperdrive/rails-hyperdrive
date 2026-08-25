@@ -1,6 +1,7 @@
 require "fileutils"
 require "yaml"
 require "rails/hyperdrive/bundler_artifact_discovery"
+require "rails/hyperdrive/gem_manifest"
 require "rails/hyperdrive/gemspec_locator"
 require "rails/hyperdrive/skill_template"
 
@@ -26,15 +27,24 @@ module Rails
       # Resolved once per task so a check does not load the gemspec twice.
       def resolve_roots(gemspec: nil, dir: Dir.pwd)
         spec, gem_root = GemspecLocator.load_spec(gemspec, dir)
+        path = File.join(gem_root, GemManifest.manifest_relpath(spec))
+        # Rendering with default roots over a manifest the installer cannot
+        # read would mask the bug this surface exists to catch.
+        manifest, failure = GemManifest.read_root(path)
+        raise Error, "#{path}: #{failure}" if failure
+
         Roots.new(
-          skills_root: File.join(gem_root, GemspecLocator.metadata_dir(
-            spec, "hyperdrive_skills_dir", default: PUBLIC_SKILLS_DIR
-          )),
-          templates_root: File.join(gem_root, GemspecLocator.metadata_dir(
-            spec, "hyperdrive_skill_templates_dir", default: File.join("lib", spec.name, "hyperdrive", "skills")
-          )),
+          skills_root: File.join(gem_root, manifest_dir(manifest, "skills_dir", path) || PUBLIC_SKILLS_DIR),
+          templates_root: File.join(gem_root, manifest_dir(manifest, "skill_templates_dir", path) ||
+            File.join("lib", spec.name, "hyperdrive", "skills")),
           public_skills_root: File.join(gem_root, PUBLIC_SKILLS_DIR)
         )
+      end
+
+      def manifest_dir(manifest, key, path)
+        value, failure = GemManifest.read_dir(manifest, key)
+        raise Error, "#{path}: #{failure}" if failure
+        value
       end
 
       def write(gemspec: nil, dir: Dir.pwd, roots: nil)
@@ -62,7 +72,7 @@ module Rails
           # static face.
           if File.expand_path(dest_dir) == File.expand_path(File.dirname(template))
             raise Error, "#{template}: content dir equals template dir; set " \
-                         "spec.metadata[\"hyperdrive_skills_dir\"] to a separate root"
+                         "skills_dir: in hyperdrive.yml to a separate root"
           end
 
           body = render_template(template)
@@ -118,7 +128,7 @@ module Rails
         raise Error, "#{template}: rendered frontmatter is not parseable YAML"
       end
 
-      private_class_method :support_renders, :render_template, :validate_output!
+      private_class_method :manifest_dir, :support_renders, :render_template, :validate_output!
     end
   end
 end

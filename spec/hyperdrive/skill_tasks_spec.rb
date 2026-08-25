@@ -34,9 +34,9 @@ RSpec.describe "hyperdrive rake tasks" do
         s.version = "0.1.0"
         s.summary = "fixture"
         s.authors = ["fixture"]
-        s.metadata["hyperdrive_skills_dir"] = "skills"
       end
     RUBY
+    write("hyperdrive.yml", "skills_dir: skills\n")
     write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
   end
 
@@ -83,6 +83,7 @@ RSpec.describe "hyperdrive rake tasks" do
     end
 
     it "passes when the gem ships no manifest" do
+      FileUtils.rm(File.join(@dir, "hyperdrive.yml"))
       expect { invoke("hyperdrive:manifest:check") }.to output(/nothing to lint/).to_stdout
     end
 
