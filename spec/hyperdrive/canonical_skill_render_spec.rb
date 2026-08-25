@@ -12,18 +12,24 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
     File.write(path, body)
   end
 
-  def write_gemspec(name: "paired_gem", skills_dir: "skills", templates_dir: nil, filename: nil)
-    metadata = []
-    metadata << %(  s.metadata["hyperdrive_skills_dir"] = #{skills_dir.inspect}\n) if skills_dir
-    metadata << %(  s.metadata["hyperdrive_skill_templates_dir"] = #{templates_dir.inspect}\n) if templates_dir
-    write(filename || "#{name}.gemspec", <<~RUBY)
+  # Roots resolve against the gemspec's directory, so the manifest carrying
+  # them is written beside it.
+  def write_gemspec(name: "paired_gem", skills_dir: "skills", templates_dir: nil, filename: nil, manifest: nil)
+    path = filename || "#{name}.gemspec"
+    write(path, <<~RUBY)
       Gem::Specification.new do |s|
         s.name    = #{name.inspect}
         s.version = "0.1.0"
         s.summary = "fixture"
         s.authors = ["fixture"]
-      #{metadata.join}end
+      end
     RUBY
+
+    keys = []
+    keys << "skills_dir: #{skills_dir.inspect}\n" if skills_dir
+    keys << "skill_templates_dir: #{templates_dir.inspect}\n" if templates_dir
+    body = manifest || keys.join
+    write(File.join(File.dirname(path), "hyperdrive.yml"), body) unless body.empty?
   end
 
   let(:template) { <<~MD }
@@ -81,7 +87,7 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
       expect(File.file?(File.join(@dir, "skills/cat/nested/SKILL.md"))).to be true
     end
 
-    it "honors hyperdrive_skill_templates_dir" do
+    it "honors skill_templates_dir:" do
       write_gemspec(templates_dir: "tpl")
       write("tpl/paired/SKILL.md.erb", template)
 
@@ -89,7 +95,7 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
       expect(File.file?(File.join(@dir, "skills/paired/SKILL.md"))).to be true
     end
 
-    it "renders lib-convention templates into top-level skills/ with no metadata declared" do
+    it "renders lib-convention templates into top-level skills/ with no manifest key declared" do
       write_gemspec(skills_dir: nil)
       write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
 
@@ -132,12 +138,78 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
         .to raise_error(described_class::Error, /lacks name: or description:/)
     end
 
-    it "errors on a metadata dir containing .. segments" do
+    it "errors on a manifest dir containing .. segments" do
       write_gemspec(skills_dir: "../outside")
       write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
 
       expect { described_class.write(dir: @dir) }
-        .to raise_error(described_class::Error, /must not contain '\.\.'/)
+        .to raise_error(described_class::Error, /skills_dir: must not contain '\.\.'/)
+    end
+
+    it "errors on a .. segment in the templates dir too" do
+      write_gemspec(templates_dir: "../outside")
+      write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
+
+      expect { described_class.write(dir: @dir) }
+        .to raise_error(described_class::Error, /skill_templates_dir: must not contain '\.\.'/)
+    end
+
+    it "errors on a non-string manifest dir" do
+      write_gemspec(manifest: "skills_dir:\n  - a\n  - b\n")
+      write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
+
+      expect { described_class.write(dir: @dir) }
+        .to raise_error(described_class::Error, /skills_dir: must be a directory path/)
+    end
+
+    it "errors on a malformed manifest rather than rendering with default roots" do
+      write_gemspec(manifest: "skills_dir: [unterminated\n")
+      write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
+
+      expect { described_class.write(dir: @dir) }
+        .to raise_error(described_class::Error, /malformed YAML/)
+    end
+
+    it "treats a blank manifest dir as the default root" do
+      write_gemspec(manifest: "skills_dir: \"  \"\n")
+      write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
+
+      described_class.write(dir: @dir)
+      expect(File.file?(File.join(@dir, "skills/paired/SKILL.md"))).to be true
+    end
+
+    it "ignores the retired dir-override gemspec metadata keys" do
+      write("paired_gem.gemspec", <<~RUBY)
+        Gem::Specification.new do |s|
+          s.name    = "paired_gem"
+          s.version = "0.1.0"
+          s.summary = "fixture"
+          s.authors = ["fixture"]
+          s.metadata["hyperdrive_skills_dir"] = "custom"
+          s.metadata["hyperdrive_skill_templates_dir"] = "tpl"
+        end
+      RUBY
+      write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)
+
+      described_class.write(dir: @dir)
+      expect(File.file?(File.join(@dir, "skills/paired/SKILL.md"))).to be true
+    end
+
+    it "reads the roots from the manifest the hyperdrive_manifest metadata key names" do
+      write("paired_gem.gemspec", <<~RUBY)
+        Gem::Specification.new do |s|
+          s.name    = "paired_gem"
+          s.version = "0.1.0"
+          s.summary = "fixture"
+          s.authors = ["fixture"]
+          s.metadata["hyperdrive_manifest"] = "config/hyperdrive.yml"
+        end
+      RUBY
+      write("config/hyperdrive.yml", "skill_templates_dir: tpl\n")
+      write("tpl/paired/SKILL.md.erb", template)
+
+      described_class.write(dir: @dir)
+      expect(File.file?(File.join(@dir, "skills/paired/SKILL.md"))).to be true
     end
   end
 

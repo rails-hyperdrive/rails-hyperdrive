@@ -567,24 +567,37 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
   end
 
-  describe "hyperdrive_skills_dir override" do
-    it "rejects an override containing .. segments" do
+  describe "manifest skills_dir:" do
+    it "warns and falls back to the default roots on a value containing .. segments" do
       Dir.mktmpdir do |dir|
         gem_root = File.join(dir, "gem_root")
         FileUtils.mkdir_p(gem_root)
+        File.write(File.join(gem_root, "hyperdrive.yml"), "skills_dir: ../outside\n")
         edir = File.join(dir, "outside", "evil")
         FileUtils.mkdir_p(edir)
         File.write(
           File.join(edir, "SKILL.md"),
-          "---\nname: evil\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# evil\n"
+          "---\nname: evil\ndescription: d\ngem: \"*\"\n---\n\n# evil\n"
         )
         spec = spec_double("dummy_gem", "1.0.0", gem_root)
-        allow(spec).to receive(:metadata).and_return("hyperdrive_skills_dir" => "../outside")
-        expect(described_class.discover(specs: [spec])).to be_empty
+        expect(described_class.discover(specs: [spec], report: report)).to be_empty
+        expect(warnings.join).to include("skills_dir: must not contain '..' segments")
       end
     end
 
-    it "discovers skills from a valid override directory (union with convention)" do
+    it "warns and falls back to the default roots on a non-string value" do
+      Dir.mktmpdir do |dir|
+        FileUtils.mkdir_p(File.join(dir, "skills", "top"))
+        File.write(File.join(dir, "skills", "top", "SKILL.md"), "---\nname: top\ndescription: d\n---\n\n# top\n")
+        File.write(File.join(dir, "hyperdrive.yml"), "skills_dir:\n  - custom\n")
+
+        results = described_class.discover(specs: [spec_double("dummy_gem", "1.0.0", dir)], report: report)
+        expect(results.map(&:name)).to eq(["top"])
+        expect(warnings.join).to include("skills_dir: must be a directory path relative to the gem root")
+      end
+    end
+
+    it "discovers skills from a valid directory (union with convention)" do
       Dir.mktmpdir do |dir|
         odir = File.join(dir, "custom_skills", "extra")
         FileUtils.mkdir_p(odir)
@@ -592,9 +605,10 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
           File.join(odir, "SKILL.md"),
           "---\nname: extra\ndescription: d\ngem: \"*\"\n---\n\n# extra\n"
         )
+        File.write(File.join(dir, "hyperdrive.yml"), "skills_dir: custom_skills\n")
         spec = spec_double("dummy_gem", "1.0.0", dir)
-        allow(spec).to receive(:metadata).and_return("hyperdrive_skills_dir" => "custom_skills")
-        expect(described_class.discover(specs: [spec]).map(&:name)).to include("extra")
+        expect(described_class.discover(specs: [spec], report: report).map(&:name)).to include("extra")
+        expect(warnings).to be_empty
       end
     end
   end
@@ -628,18 +642,18 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(described_class.discover(specs: [spec]).map(&:name)).to eq(["top"])
     end
 
-    it "scans skills/ when the gemspec declares hyperdrive_skills_dir" do
+    it "scans skills/ when the manifest declares only skills_dir:" do
       top_level_skill
       write("custom/extra/SKILL.md", "---\nname: extra\ndescription: d\n---\n\n# extra\n")
+      write("hyperdrive.yml", "skills_dir: custom\n")
       spec = spec_double("some_gem", "1.0.0", @dir)
-      allow(spec).to receive(:metadata).and_return("hyperdrive_skills_dir" => "custom")
       expect(described_class.discover(specs: [spec]).map(&:name)).to contain_exactly("top", "extra")
     end
 
-    it "does not double-discover when hyperdrive_skills_dir points at skills/" do
+    it "does not double-discover when skills_dir: points at skills/" do
       top_level_skill
+      write("hyperdrive.yml", "skills_dir: skills\n")
       spec = spec_double("some_gem", "1.0.0", @dir)
-      allow(spec).to receive(:metadata).and_return("hyperdrive_skills_dir" => "skills")
       results = described_class.discover(specs: [spec])
       expect(results.size).to eq(1)
       expect(results.first.name).to eq("top")
@@ -664,17 +678,37 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       spec = spec_double("some_gem", "1.0.0", @dir)
       allow(spec).to receive(:metadata).and_return(
         "rails_hyperdrive_targets" => "*",
-        "rails_hyperdrive_skills_dir" => "skills",
         "rails_hyperdrive_manifest" => "hyperdrive.yml"
       )
       expect(described_class.discover(specs: [spec])).to be_empty
     end
 
-    it "treats a rejected ..-containing override as an opt-in signal while still ignoring its path" do
+    it "does not accept the retired dir-override metadata keys as opt-in signals" do
       top_level_skill
       spec = spec_double("some_gem", "1.0.0", @dir)
-      allow(spec).to receive(:metadata).and_return("hyperdrive_skills_dir" => "../outside")
+      allow(spec).to receive(:metadata).and_return(
+        "hyperdrive_skills_dir" => "custom",
+        "hyperdrive_skill_templates_dir" => "tpl"
+      )
+      expect(described_class.discover(specs: [spec])).to be_empty
+    end
+
+    it "ignores the retired dir-override metadata keys on an opted-in gem" do
+      top_level_skill
+      write("custom/extra/SKILL.md", "---\nname: extra\ndescription: d\n---\n\n# extra\n")
+      write("hyperdrive.yml", "")
+      spec = spec_double("some_gem", "1.0.0", @dir)
+      allow(spec).to receive(:metadata).and_return("hyperdrive_skills_dir" => "custom")
       expect(described_class.discover(specs: [spec]).map(&:name)).to eq(["top"])
+    end
+
+    it "keeps a manifest with an unusable skills_dir: opted in, scanning the default roots" do
+      top_level_skill
+      write("hyperdrive.yml", "skills_dir: ../outside\n")
+      spec = spec_double("some_gem", "1.0.0", @dir)
+      results = described_class.discover(specs: [spec], report: report)
+      expect(results.map(&:name)).to eq(["top"])
+      expect(warnings.join).to include("skills_dir: must not contain '..' segments")
     end
 
     it "scans skills/ when the gem ships a conventional hyperdrive.yml, even an empty one" do
@@ -1121,10 +1155,10 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
 
     let(:sidekiq) { spec_double("sidekiq", "7.3.0", @dir.to_s + "/nope") }
 
-    def paired_spec(metadata = { "hyperdrive_skills_dir" => "skills" })
-      s = spec_double("source_gem", "1.0.0", @dir)
-      allow(s).to receive(:metadata).and_return(metadata)
-      s
+    # The manifest is what opts the gem in; its presence alone is enough.
+    def paired_spec(manifest = "")
+      write("hyperdrive.yml", manifest)
+      spec_double("source_gem", "1.0.0", @dir)
     end
 
     def write(rel, body)
@@ -1239,43 +1273,36 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(skill.path).to eq(File.join(@dir, "lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb"))
     end
 
-    it "honors hyperdrive_skill_templates_dir" do
+    it "honors the manifest's skill_templates_dir:" do
       write("skills/paired/SKILL.md", static_body)
       write("tpl/paired/SKILL.md.erb", template_body)
 
-      spec = paired_spec(
-        "hyperdrive_skills_dir" => "skills",
-        "hyperdrive_skill_templates_dir" => "tpl"
-      )
+      spec = paired_spec("skill_templates_dir: tpl\n")
       skill = described_class.discover(specs: [spec]).first
       expect(skill.body).to include("(templated)")
       expect(skill.path).to eq(File.join(@dir, "tpl/paired/SKILL.md.erb"))
     end
 
-    it "treats a blank templates dir as the default" do
+    it "treats a blank templates dir as the default, silently" do
       write("skills/paired/SKILL.md", static_body)
       write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
 
-      spec = paired_spec(
-        "hyperdrive_skills_dir" => "skills",
-        "hyperdrive_skill_templates_dir" => "  "
-      )
-      skill = described_class.discover(specs: [spec]).first
+      spec = paired_spec("skill_templates_dir: \"  \"\n")
+      skill = described_class.discover(specs: [spec], report: report).first
       expect(skill.body).to include("(templated)")
+      expect(warnings).to be_empty
     end
 
-    it "rejects a templates dir containing .. segments, falling back to the default" do
+    it "warns about a templates dir containing .. segments, falling back to the default" do
       write("skills/paired/SKILL.md", static_body)
       outside = File.join(File.dirname(@dir), "outside-#{File.basename(@dir)}")
       FileUtils.mkdir_p(File.join(outside, "paired"))
       File.write(File.join(outside, "paired", "SKILL.md.erb"), template_body)
 
-      spec = paired_spec(
-        "hyperdrive_skills_dir" => "skills",
-        "hyperdrive_skill_templates_dir" => "../#{File.basename(outside)}"
-      )
-      skill = described_class.discover(specs: [spec]).first
+      spec = paired_spec("skill_templates_dir: ../#{File.basename(outside)}\n")
+      skill = described_class.discover(specs: [spec], report: report).first
       expect(skill.body).to include("(static)")
+      expect(warnings.join).to include("skill_templates_dir: must not contain '..' segments")
     ensure
       FileUtils.rm_rf(outside) if outside
     end
@@ -1297,12 +1324,12 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb", template_body)
         template_files.each { |rel, body| write("lib/source_gem/hyperdrive/skills/paired/#{rel}", body) }
         content_files.each { |rel, body| write("skills/paired/#{rel}", body) }
-        write("hyperdrive.yml", manifest) if manifest
+        @manifest = manifest
       end
 
       def discover(*extra_specs)
         @report = described_class::Report.new
-        [described_class.discover(specs: [paired_spec, *extra_specs], report: report).first, warnings]
+        [described_class.discover(specs: [paired_spec(@manifest.to_s), *extra_specs], report: report).first, warnings]
       end
 
       it "renders a template-side supporting template against the bundle, retargeted to x.md" do
@@ -1536,7 +1563,6 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
 
     it "gates a template-paired skill through its content-dir relpath" do
-      allow(spec).to receive(:metadata).and_return("hyperdrive_skills_dir" => "skills")
       write("skills/paired/SKILL.md", "---\nname: paired\ndescription: d\n---\n\n# paired (static)\n")
       write("lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb",
         "---\nname: paired\ndescription: d\n---\n\n# paired (templated)\n")

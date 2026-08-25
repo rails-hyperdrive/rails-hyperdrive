@@ -88,11 +88,11 @@ module Rails
           end
           manifest = GemManifest.load(spec, warnings: report.warnings)
           seen = { skill: [], guideline: [] }
-          each_artifact_path(spec, report: report) do |path, type, support_root, key|
+          each_artifact_path(spec, manifest: manifest, report: report) do |path, type, support_root, key|
             seen[type] << key
             gate = type == :skill ? manifest.skill_gate(key) : manifest.guideline_gate(key)
             artifact = parse(path, source_spec: spec, type: type, resolved: resolved,
-              report: report, support_root: support_root, gate: gate, key: key)
+              report: report, support_root: support_root, gate: gate, key: key, manifest: manifest)
             if artifact.is_a?(Artifact)
               candidates << artifact
             elsif artifact != :gate_miss
@@ -114,8 +114,9 @@ module Rails
       # from its skills root, a guideline's filename. Keys are collected before
       # parsing, so a candidate later dropped (e.g. an ERB render failure)
       # still counts as known to the manifest.
-      def each_artifact_path(spec, report:)
-        skill_paths(spec, report: report).each { |path, support_root, rel| yield path, :skill, support_root, rel }
+      def each_artifact_path(spec, manifest:, report:)
+        skill_paths(spec, manifest: manifest, report: report)
+          .each { |path, support_root, rel| yield path, :skill, support_root, rel }
         guideline_paths(spec).each { |p| yield p, :guideline, nil, File.basename(p) }
       end
 
@@ -130,14 +131,8 @@ module Rails
         end
       end
 
-      def skill_paths(spec, report: Report.new)
-        roots = [
-          File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive", "skills"),
-          File.join(spec.full_gem_path, "skills")
-        ]
-        if (override = skills_dir_override(spec))
-          roots << File.join(spec.full_gem_path, override)
-        end
+      def skill_paths(spec, manifest:, report: Report.new)
+        roots = skills_roots(spec, manifest)
 
         candidates = []
         seen = {}
@@ -154,7 +149,25 @@ module Rails
           end
         end
 
-        pair_with_templates(candidates, spec, report: report)
+        pair_with_templates(candidates, spec, manifest: manifest, report: report)
+      end
+
+      # The manifest's skills_dir: is searched in addition to the default
+      # roots, never instead of them.
+      def skills_roots(spec, manifest)
+        roots = [
+          File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive", "skills"),
+          File.join(spec.full_gem_path, "skills")
+        ]
+        roots << File.join(spec.full_gem_path, manifest.skills_dir) if manifest.skills_dir
+        roots
+      end
+
+      def templates_root(spec, manifest)
+        File.join(
+          spec.full_gem_path,
+          manifest.skill_templates_dir || File.join("lib", spec.name, "hyperdrive", "skills")
+        )
       end
 
       def resolve_same_dir_tie(dir, group, report)
@@ -168,13 +181,13 @@ module Rails
       # the definition, the static dir the support root. The static SKILL.md is
       # never parsed — falling back to it when the template fails to render
       # would silently un-condition the skill.
-      def pair_with_templates(candidates, spec, report:)
-        templates_root = File.join(spec.full_gem_path, skill_templates_dir(spec))
+      def pair_with_templates(candidates, spec, manifest:, report:)
+        root = templates_root(spec, manifest)
 
         pairs = {}
         candidates.each do |cand|
           next unless File.basename(cand[:path]) == "SKILL.md"
-          template_dir = File.expand_path(File.join(templates_root, cand[:rel]))
+          template_dir = File.expand_path(File.join(root, cand[:rel]))
           next if template_dir == File.expand_path(cand[:dir])
           template = File.join(template_dir, "SKILL.md.erb")
           next unless File.file?(template)
@@ -214,8 +227,6 @@ module Rails
       # intent. Only an explicit signal makes a gem's content installable.
       def opted_in?(spec, enabled_gems:)
         return true if enabled_gems.include?(spec.name.to_s)
-        return true if metadata_present?(spec, "hyperdrive_skills_dir")
-        return true if metadata_present?(spec, "hyperdrive_skill_templates_dir")
         return true if metadata_present?(spec, "hyperdrive_targets")
         return true if GemManifest.opt_in?(spec)
 
@@ -242,29 +253,11 @@ module Rails
                           "in .hyperdrive/lock.yml and re-run bin/rails hyperdrive:sync to install them"
       end
 
-      # ".." segments are rejected to prevent escaping the gem root.
-      def skills_dir_override(spec)
-        return nil unless spec.respond_to?(:metadata)
-        raw = spec.metadata && spec.metadata["hyperdrive_skills_dir"]
-        return nil if raw.nil? || raw.to_s.strip.empty?
-        return nil if raw.to_s.split(%r{[/\\]}).include?("..")
-        raw.to_s
-      end
-
-      def skill_templates_dir(spec)
-        default = File.join("lib", spec.name, "hyperdrive", "skills")
-        return default unless spec.respond_to?(:metadata)
-        raw = spec.metadata && spec.metadata["hyperdrive_skill_templates_dir"]
-        return default if raw.nil? || raw.to_s.strip.empty?
-        return default if raw.to_s.split(%r{[/\\]}).include?("..")
-        raw.to_s
-      end
-
       # Frontmatter's schema is exactly name and description; any other key is
       # unknown to the parser and rides untouched in the installed body.
       # Returns the Artifact, :gate_miss when a well-formed gate simply does
       # not match the bundle, or nil for a hard skip.
-      def parse(path, source_spec:, type:, resolved:, report:, gate:, key:, support_root: nil)
+      def parse(path, source_spec:, type:, resolved:, report:, gate:, key:, manifest:, support_root: nil)
         support_root ||= File.dirname(path)
         body = File.read(path)
         if erb_template?(path)
@@ -328,7 +321,7 @@ module Rails
             if type == :skill
               skill_support_files(
                 path, support_root, gate.conditional,
-                source_spec: source_spec, resolved: resolved, report: report,
+                source_spec: source_spec, manifest: manifest, resolved: resolved, report: report,
                 label: "#{name} (from #{source_spec.name})"
               )
             else
@@ -379,12 +372,12 @@ module Rails
         end
       end
 
-      def skill_support_files(path, support_root, conditional, source_spec:, resolved:, report:, label:)
+      def skill_support_files(path, support_root, conditional, source_spec:, manifest:, resolved:, report:, label:)
         conditioned_support_files(
           support_root, conditional,
           resolved: resolved, report: report, label: label,
           template_dir: template_dir_for(path, support_root), source_root: source_spec.full_gem_path,
-          public_root: public_support_root?(source_spec, support_root)
+          public_root: public_support_root?(source_spec, manifest, support_root)
         )
       end
 
@@ -413,15 +406,12 @@ module Rails
           "move them to the paired template directory and commit their rendered faces here"
       end
 
-      def public_support_root?(spec, support_root)
+      def public_support_root?(spec, manifest, support_root)
         dir = "#{File.expand_path(support_root)}/"
-        templates_root = File.join(spec.full_gem_path, skill_templates_dir(spec))
-        return false if dir.start_with?("#{File.expand_path(templates_root)}/")
+        return false if dir.start_with?("#{File.expand_path(templates_root(spec, manifest))}/")
 
         roots = [File.join(spec.full_gem_path, "skills")]
-        if (override = skills_dir_override(spec))
-          roots << File.join(spec.full_gem_path, override)
-        end
+        roots << File.join(spec.full_gem_path, manifest.skills_dir) if manifest.skills_dir
         roots.any? { |root| dir.start_with?("#{File.expand_path(root)}/") }
       end
 
@@ -618,9 +608,10 @@ module Rails
       end
 
       private_class_method :each_artifact_path, :warn_unknown_manifest_keys,
+                           :skills_roots, :templates_root,
                            :resolve_same_dir_tie, :pair_with_templates, :warn_template_extras,
                            :opted_in?, :metadata_present?, :notice_skills_sh_content,
-                           :skills_dir_override, :skill_templates_dir, :parse, :fence_message,
+                           :parse, :fence_message,
                            :erb_template?, :support_files_for,
                            :template_support_files, :skill_support_files,
                            :conditioned_support_files, :warn_public_support_templates,

@@ -15,5 +15,4 @@ Gem::Specification.new do |spec|
 
   spec.metadata["hyperdrive_targets"]   = "railties"
   spec.metadata["hyperdrive_artifacts"] = "skill,guideline"
-  spec.metadata["hyperdrive_skills_dir"] = "skills"
 end

@@ -2,12 +2,15 @@ require "yaml"
 
 module Rails
   module Hyperdrive
-    # A companion gem's root manifest (hyperdrive.yml) declares artifact
-    # gating: top-level gem:/gems: defaults for the whole gem,
-    # per-skill entries keyed by the skill dir's relative path from its skills
-    # root, per-guideline entries keyed by filename. Fail-open at every level:
-    # malformed input warns and resolves to an ungated install — an artifact is
-    # never skipped because its gating could not be read, and nothing raises.
+    # A companion gem's root manifest (hyperdrive.yml) is everything the
+    # installer reads from the gem: the roots it ships skills and templates
+    # under (skills_dir:, skill_templates_dir:), and artifact gating —
+    # top-level gem:/gems: defaults for the whole gem, per-skill entries keyed
+    # by the skill dir's relative path from its skills root, per-guideline
+    # entries keyed by filename. Fail-open at every level: malformed input
+    # warns and resolves to an ungated install at the default roots — an
+    # artifact is never skipped because its config could not be read, and
+    # nothing raises.
     class GemManifest
       FILE_NAME = "hyperdrive.yml"
       METADATA_KEY = "hyperdrive_manifest"
@@ -94,6 +97,19 @@ module Rails
 
         def requirement_parts(req)
           Array(req).flat_map { |s| s.is_a?(String) ? s.split(",").map(&:strip) : s }
+        end
+
+        # Returns [relative directory or nil, failure reason or nil]. Absent or
+        # blank is no failure — the caller uses its own default root. ".."
+        # segments are rejected to prevent escaping the gem root.
+        def read_dir(root, key)
+          raw = root[key]
+          return [nil, nil] if raw.nil?
+          return [nil, "#{key}: must be a directory path relative to the gem root"] unless raw.is_a?(String)
+          return [nil, nil] if raw.strip.empty?
+          return [nil, "#{key}: must not contain '..' segments"] if raw.split(%r{[/\\]}).include?("..")
+
+          [raw, nil]
         end
 
         # Returns [root map or nil, failure reason or nil]. An absent or empty
@@ -199,12 +215,17 @@ module Rails
         end
       end
 
+      # nil means the caller's default root.
+      attr_reader :skills_dir, :skill_templates_dir
+
       def initialize(spec, warnings:)
         @spec = spec
         @warnings = warnings
         root = load_root
         @skills = section(root, "skills", "skill relpath")
         @guidelines = section(root, "guidelines", "guideline filename")
+        @skills_dir = dir(root, "skills_dir")
+        @skill_templates_dir = dir(root, "skill_templates_dir")
         @default_spec, @default_fence = defaults(root)
       end
 
@@ -244,6 +265,12 @@ module Rails
 
         report("ignoring manifest #{manifest_relpath}: #{failure}")
         {}
+      end
+
+      def dir(root, key)
+        value, failure = self.class.read_dir(root, key)
+        report("manifest top-level #{failure}; ignoring it") if failure
+        value
       end
 
       def section(root, key, key_label)

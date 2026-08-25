@@ -14,7 +14,8 @@ module Rails
     module ManifestLint
       Error = GemspecLocator::Error
 
-      ROOT_KEYS = %w[gem gems hyperdrive_version skills guidelines].freeze
+      ROOT_KEYS = %w[gem gems hyperdrive_version skills_dir skill_templates_dir skills guidelines].freeze
+      DIR_KEYS = %w[skills_dir skill_templates_dir].freeze
       SKILL_ENTRY_KEYS = %w[gem gems hyperdrive_version conditional].freeze
       GUIDELINE_ENTRY_KEYS = %w[gem gems hyperdrive_version].freeze
       CONDITIONAL_ENTRY_KEYS = %w[gem gems].freeze
@@ -61,8 +62,10 @@ module Rails
 
         check_keys(root, ROOT_KEYS, "top level", problems)
         check_gate(root, "top level", problems)
+        check_dirs(root, problems)
 
-        skills = shipped_skills(repo_spec)
+        manifest = GemManifest.load(repo_spec, warnings: [])
+        skills = shipped_skills(repo_spec, manifest)
         each_entry(root, "skills", skills.keys, "skill directory", problems) do |key, entry|
           where = "skills entry '#{key}'"
           check_keys(entry, SKILL_ENTRY_KEYS, where, problems)
@@ -114,6 +117,16 @@ module Rails
             "#{where}: unknown key '#{key}'#{did_you_mean(key, allowed)}; " \
               "allowed keys are #{allowed.join(", ")}"
           end
+        end
+      end
+
+      def check_dirs(root, problems)
+        DIR_KEYS.each do |key|
+          next unless root.key?(key)
+
+          dir, failure = GemManifest.read_dir(root, key)
+          next if dir
+          problems << "top level: #{failure || "#{key}: must name a directory relative to the gem root"}"
         end
       end
 
@@ -178,8 +191,8 @@ module Rails
       # Maps each skill's manifest key to the dir-relative paths a conditional:
       # entry may name: every supporting file as shipped, plus the rendered
       # face of each *.md.erb, since either spelling gates the same file.
-      def shipped_skills(repo_spec)
-        found = BundlerArtifactDiscovery.skill_paths(repo_spec)
+      def shipped_skills(repo_spec, manifest)
+        found = BundlerArtifactDiscovery.skill_paths(repo_spec, manifest: manifest)
         found.each_with_object({}) do |(path, support_root, rel), h|
           shipped = BundlerArtifactDiscovery.support_relpaths(support_root) |
                     BundlerArtifactDiscovery.support_relpaths(
@@ -194,7 +207,7 @@ module Rails
       end
 
       private_class_method :missing_manifest, :problems_in, :parse_root, :each_entry, :check_keys,
-                           :did_you_mean, :check_gate, :check_conditional, :shipped_skills,
+                           :check_dirs, :did_you_mean, :check_gate, :check_conditional, :shipped_skills,
                            :shipped_guidelines
     end
   end

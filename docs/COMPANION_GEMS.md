@@ -21,21 +21,21 @@ Top-level `skills/` is the recommended home for skill content: it is the public,
 Discovery walks the entire bundle, and many gemspecs package files via `git ls-files`, so an ordinary non-companion gem can ship a contributor-facing `skills/` directory by accident. A gem's artifacts are therefore only scanned when one of a closed set of signals is present:
 
 - artifacts under the `lib/<gem_name>/hyperdrive/` convention path — skills or guidelines;
-- a `hyperdrive.yml` manifest at the gem root (below);
-- one of the gemspec metadata keys `hyperdrive_skills_dir`, `hyperdrive_skill_templates_dir`, `hyperdrive_targets`, or `hyperdrive_manifest` — any non-empty value counts, even one discovery later rejects (a `..` segment, say), since declaring the key at all signals intent;
+- a `hyperdrive.yml` manifest at the gem root (below), whatever it contains — an unusable value inside it changes nothing about the opt-in;
+- one of the gemspec metadata keys `hyperdrive_targets` or `hyperdrive_manifest` — any non-empty value counts, even one discovery later rejects (a `..` segment, say), since declaring the key at all signals intent;
 - the app naming the gem in the `enabled:` list of `.hyperdrive/lock.yml`.
 
 `hyperdrive_artifacts` is deliberately not in that set: it is a presentational hint read by `hyperdrive:discover` (below) and never an opt-in signal.
 
 An un-opted gem shipping `skills/*/SKILL.md` never auto-installs: `hyperdrive:init`/`hyperdrive:sync` surface it with a pointer to the `enabled:` list instead.
 
-Skills may also ship under an additional root declared in gemspec metadata:
+Skills may also ship under an additional root declared in the gem-root manifest (below):
 
-```ruby
-spec.metadata["hyperdrive_skills_dir"] = "extra/skills"   # optional; relative to the gem root
+```yaml
+skills_dir: extra/skills   # optional; relative to the gem root
 ```
 
-That root is searched **in addition to** the default roots, never instead of them, so an override never hides skills already shipped elsewhere. Roots are deduplicated by expanded path (declaring `"skills"` explicitly changes nothing), and a value containing a `..` segment is ignored. Guidelines have no override: they are found only at the convention path.
+That root is searched **in addition to** the default roots, never instead of them, so an override never hides skills already shipped elsewhere. Roots are deduplicated by expanded path (declaring `"skills"` explicitly changes nothing). An unusable value — not a string, or containing a `..` segment — is warned about and the default roots are used; a blank value falls back to them silently. Guidelines have no override: they are found only at the convention path.
 
 ## Multi-file skills
 
@@ -69,9 +69,11 @@ Renaming a skill directory or its `name:` is a breaking change for apps that alr
 
 ## The gem-root manifest
 
-Gating (which bundles an artifact installs into) is declared in a `hyperdrive.yml` at the gem root, or at the path named by a `hyperdrive_manifest` gemspec metadata key (relative to the gem root; a value containing `..` segments, or a blank value, falls back to the conventional path). Every key is optional, and no manifest (or an empty one) means every artifact installs universally:
+Everything the installer reads from a companion gem lives in a `hyperdrive.yml` at the gem root, or at the path named by a `hyperdrive_manifest` gemspec metadata key (relative to the gem root; a value containing `..` segments, or a blank value, falls back to the conventional path): the roots the gem ships skills and templates under, and gating — which bundles an artifact installs into. Every key is optional, and no manifest (or an empty one) means every artifact installs universally from the default roots:
 
 ```yaml
+skills_dir: skills             # optional; an additional skills root — see above
+skill_templates_dir: lib/<gem_name>/hyperdrive/skills   # optional; the templates root for pairing — see below
 gems:                    # gem-wide default TARGET gem(s); "gem:" is an exact alias
   - railties: ">= 7.2"   # a list member is a bare name, or a name: requirement pair
 hyperdrive_version: ">= 0.7"   # gem-wide default fence against the INSTALLER's own version — see below
@@ -233,16 +235,15 @@ lib/<gem_name>/hyperdrive/skills/<name>/SKILL.md.erb    # template dir: the mast
 lib/<gem_name>/hyperdrive/skills/<name>/references/…    # …plus any supporting *.md.erb templates
 ```
 
-with gemspec metadata pointing the two roots apart:
+with the manifest pointing the two roots apart (both keys optional — the defaults above are already a valid pairing, and the gemspec only has to package both directories):
 
-```ruby
-spec.files = Dir["lib/**/*", "skills/**/*"]
-spec.metadata["hyperdrive_skills_dir"] = "skills"
-# optional; defaults to the convention path lib/<gem_name>/hyperdrive/skills
-spec.metadata["hyperdrive_skill_templates_dir"] = "lib/<gem_name>/hyperdrive/skills"
+```yaml
+# hyperdrive.yml
+skills_dir: skills                                      # default: top-level skills/ is scanned anyway
+skill_templates_dir: lib/<gem_name>/hyperdrive/skills   # default: the convention path
 ```
 
-A skill dir holding a static `SKILL.md` pairs with the template dir at the **same relative path** under the templates root (nested layouts like `skills/<category>/<name>/` pair too). The pair is one skill: hyperdrive renders the **template** against the app's bundle and takes the supporting files from the **content dir**. It never reads the static `SKILL.md`, which exists for consumers that can't inspect a bundle. Pairing is strictly opt-in: a content dir with no matching template is an ordinary standalone skill, and so is a template dir with no matching content dir — but only when that template dir sits under a root discovery actually enumerates, namely the convention path (which is also the default templates root), top-level `skills/`, or the `hyperdrive_skills_dir` override. A custom `hyperdrive_skill_templates_dir` is consulted for pairing alone and never enumerated, so a template-only skill placed there is silently dropped; keep standalone template skills under a scanned skills root. A template that fails to render skips the skill (the static file is deliberately not a fallback, because falling back would silently un-condition the skill).
+A skill dir holding a static `SKILL.md` pairs with the template dir at the **same relative path** under the templates root (nested layouts like `skills/<category>/<name>/` pair too). The pair is one skill: hyperdrive renders the **template** against the app's bundle and takes the supporting files from the **content dir**. It never reads the static `SKILL.md`, which exists for consumers that can't inspect a bundle. Pairing is strictly opt-in: a content dir with no matching template is an ordinary standalone skill, and so is a template dir with no matching content dir — but only when that template dir sits under a root discovery actually enumerates, namely the convention path (which is also the default templates root), top-level `skills/`, or the manifest's `skills_dir:`. A custom `skill_templates_dir:` is consulted for pairing alone and never enumerated, so a template-only skill placed there is silently dropped; keep standalone template skills under a scanned skills root. A template that fails to render skips the skill (the static file is deliberately not a fallback, because falling back would silently un-condition the skill).
 
 The template dir holds templates and nothing else: `SKILL.md.erb` plus any supporting `*.md.erb`, which render against the app's bundle and install as plain `.md` alongside the rest of the skill. Any other file in it is ignored with a warning — static supporting files are the content dir's to ship. A template-side file **owns** its rendered target path: a same-named file in the content dir never installs, whether the template renders, is gated out by `conditional:`, or fails to render, since falling back to the static face would silently un-condition the file. A supporting `*.md.erb` under a public skills root still renders, but warns and points you at the template dir: generic consumers copy it verbatim and get raw ERB.
 
@@ -256,13 +257,13 @@ require "hyperdrive/skill_tasks"
 
 - `rake hyperdrive:skills:render` renders each `SKILL.md.erb` to its paired static `SKILL.md`, and each supporting `*.md.erb` to its own face in the same content dir, using the **canonical** binding: `gem?`/`any_gem?` always true (even with a version requirement), `gem_version` always `nil`. Templates that interpolate `gem_version` must handle `nil` (e.g. `<%= gem_version("sidekiq") || "(any version)" %>`).
 - `rake hyperdrive:skills:check` renders in memory and fails, listing any stale static file; it also fails on any `*.md.erb` found under a public skills root.
-- `rake hyperdrive:manifest:check` lints `hyperdrive.yml` where the installer is deliberately permissive, and fails on: unknown keys at every level (top level, `skills:`/`guidelines:` entries, `conditional:` entries), any `gem:`/`gems:`/`hyperdrive_version:` value the installer cannot parse or would only accept with a warning, entry keys naming nothing the gem ships — with the retired `versions:` and its `version:` near-miss called out by name — and a `hyperdrive_manifest` metadata key naming a path that is not a file, which would otherwise leave the gem opted in with every artifact ungated. A manifest that lints clean draws no gating warning at install time.
+- `rake hyperdrive:manifest:check` lints `hyperdrive.yml` where the installer is deliberately permissive, and fails on: unknown keys at every level (top level, `skills:`/`guidelines:` entries, `conditional:` entries), any `gem:`/`gems:`/`hyperdrive_version:` value the installer cannot parse or would only accept with a warning, a `skills_dir:`/`skill_templates_dir:` value it would refuse and fall back from (not a string, blank, or containing a `..` segment), entry keys naming nothing the gem ships — with the retired `versions:` and its `version:` near-miss called out by name — and a `hyperdrive_manifest` metadata key naming a path that is not a file, which would otherwise leave the gem opted in with every artifact ungated. A manifest that lints clean draws no gating warning at install time.
 
 Because every predicate reads true in the canonical binding, the render takes the **first** branch: an `if`/`elsif`/`else` chain contributes only its `if` body to the static face, and an `unless gem?(...)` body vanishes from it entirely — and `skills:check` byte-blesses whatever comes out, so nothing catches the loss. Write templates meant for pairing as independent, additive `if gem?(...)` blocks; never wrap a bundle predicate in `else`, `elsif`, or `unless`.
 
 Run both `check` tasks in CI: one keeps the generated face in step with its templates, the other keeps the manifest inside the schema.
 
-All three tasks read the single `*.gemspec` in the working directory (pass an explicit path as a task argument otherwise: `rake "hyperdrive:skills:render[path/to/name.gemspec]"`) and require rails-hyperdrive only as a development dependency, with no Rails app involved. The generated file is the rendered template verbatim; with gating in the manifest, the static face is already the pristine skills.sh view. The two `skills:` tasks are stricter than discovery about their roots: where discovery quietly ignores a `..` segment in `hyperdrive_skills_dir` or `hyperdrive_skill_templates_dir`, they fail on one (`gemspec metadata <key> must not contain '..' segments`).
+All three tasks read the single `*.gemspec` in the working directory (pass an explicit path as a task argument otherwise: `rake "hyperdrive:skills:render[path/to/name.gemspec]"`) and require rails-hyperdrive only as a development dependency, with no Rails app involved. The generated file is the rendered template verbatim; with gating in the manifest, the static face is already the pristine skills.sh view. The two `skills:` tasks are stricter than discovery about their roots: where discovery warns about an unusable `skills_dir:`/`skill_templates_dir:` and falls back to the default, they fail on it — and on a manifest that will not parse at all, rather than rendering with default roots over a file the installer cannot read.
 
 ## Discovery never raises
 
