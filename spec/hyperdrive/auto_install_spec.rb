@@ -91,7 +91,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       initialize_app([guideline(name: "auth-pundit")])
       lock_path = File.join(root, ".hyperdrive/lock.yml")
       data = YAML.safe_load(File.read(lock_path))
-      data["version"] = 2
+      data["version"] = 3
       File.write(lock_path, data.to_yaml)
     end
 
@@ -106,7 +106,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(File).not_to exist(File.join(root, ".claude/hyperdrive/guidelines/jobs-sidekiq.md"))
       expect(File.read(File.join(root, ".hyperdrive/lock.yml"))).to eq(before_lock)
       expect(result.messages).to eq([
-        ".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 2, this installer supports 1); " \
+        ".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 3, this installer supports 2); " \
         "upgrade rails-hyperdrive"
       ])
     end

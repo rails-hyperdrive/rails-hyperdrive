@@ -1,19 +1,22 @@
 require "yaml"
+require "rails/hyperdrive/install_layout"
 
 module Rails
   module Hyperdrive
     # A companion gem's root manifest (hyperdrive.yml) is everything the
-    # installer reads from the gem: the roots it ships skills and templates
-    # under (skills_dir:, skill_templates_dir:), and artifact gating —
-    # top-level gem:/gems: defaults for the whole gem, per-skill entries keyed
-    # by the skill dir's relative path from its skills root, per-guideline
-    # entries keyed by filename. Fail-open at every level: malformed input
-    # warns and resolves to an ungated install at the default roots — an
-    # artifact is never skipped because its config could not be read, and
-    # nothing raises.
+    # installer reads from the gem: the roots it ships each artifact kind and
+    # its templates under (skills_dir:, skill_templates_dir:, …), and artifact
+    # gating — top-level gem:/gems: defaults for the whole gem, plus one
+    # section per kind whose entries are keyed the way that kind declares.
+    # Fail-open at every level: malformed input warns and resolves to an
+    # ungated install at the default roots — an artifact is never skipped
+    # because its config could not be read, and nothing raises.
     class GemManifest
       FILE_NAME = "hyperdrive.yml"
       METADATA_KEY = "hyperdrive_manifest"
+
+      SKILL_TEMPLATES_DIR_KEY = "skill_templates_dir".freeze
+      DIR_KEYS = (InstallLayout.dir_keys + [SKILL_TEMPLATES_DIR_KEY]).freeze
 
       UNGATED = ["*"].freeze
       MATCH_MODES = %w[any all].freeze
@@ -215,36 +218,48 @@ module Rails
         end
       end
 
-      # nil means the caller's default root.
-      attr_reader :skills_dir, :skill_templates_dir
-
       def initialize(spec, warnings:)
         @spec = spec
         @warnings = warnings
         root = load_root
-        @skills = section(root, "skills", "skill relpath")
-        @guidelines = section(root, "guidelines", "guideline filename")
-        @skills_dir = dir(root, "skills_dir")
-        @skill_templates_dir = dir(root, "skill_templates_dir")
+        @sections = {}
+        @prefixes = {}
+        InstallLayout.content_kinds.each do |kind|
+          entries, settings = section(root, kind)
+          @sections[kind.type] = entries
+          @prefixes[kind.type] = read_name_prefix(kind, settings)
+        end
+        @dirs = DIR_KEYS.each_with_object({}) { |key, h| h[key] = resolve_dir(root, key) }
         @default_spec, @default_fence = defaults(root)
       end
 
-      def skill_gate(rel)
-        return default_gate unless @skills.key?(rel)
-        entry_gate(@skills[rel], rel, with_conditional: true)
+      def gate(type, key)
+        entries = @sections[type] || {}
+        return default_gate unless entries.key?(key)
+        entry_gate(entries[key], key, with_conditional: InstallLayout.kind(type).dir_shaped?)
       end
 
-      def guideline_gate(filename)
-        return default_gate unless @guidelines.key?(filename)
-        entry_gate(@guidelines[filename], filename, with_conditional: false)
+      def section_keys(type)
+        (@sections[type] || {}).keys
       end
 
-      def skill_keys
-        @skills.keys
+      # The section-level scalar a kind prepends to every artifact name it
+      # discovers; nil when absent or unusable.
+      def name_prefix(type)
+        @prefixes[type]
       end
 
-      def guideline_keys
-        @guidelines.keys
+      # nil means the caller's default root.
+      def dir(key)
+        @dirs[key.to_s]
+      end
+
+      def skills_dir
+        dir(InstallLayout.kind(:skill).dir_key)
+      end
+
+      def skill_templates_dir
+        dir(SKILL_TEMPLATES_DIR_KEY)
       end
 
       private
@@ -267,20 +282,45 @@ module Rails
         {}
       end
 
-      def dir(root, key)
+      def resolve_dir(root, key)
         value, failure = self.class.read_dir(root, key)
         report("manifest top-level #{failure}; ignoring it") if failure
         value
       end
 
-      def section(root, key, key_label)
-        value = root[key]
-        return {} if value.nil?
+      # Returns [gating entries, the kind's reserved section-level settings].
+      def section(root, kind)
+        value = root[kind.section]
+        return [{}, {}] if value.nil?
         unless value.is_a?(Hash)
-          report("manifest #{key}: must be a map of #{key_label} to a gating map; ignoring the section")
-          return {}
+          report("manifest #{kind.section}: must be a map of #{kind.key_label} to a gating map; ignoring the section")
+          return [{}, {}]
         end
-        value.transform_keys(&:to_s)
+
+        entries = value.transform_keys(&:to_s)
+        reserved = Array(kind.prefix_key)
+        [entries.reject { |k, _| reserved.include?(k) }, entries.slice(*reserved)]
+      end
+
+      # A prefix becomes part of the installed filename, so anything that could
+      # reach outside the kind's directory is refused rather than sanitized.
+      def read_name_prefix(kind, settings)
+        key = kind.prefix_key
+        return nil unless key
+
+        raw = settings[key]
+        return nil if raw.nil?
+        unless raw.is_a?(String)
+          report("manifest #{kind.section} #{key}: must be a name prefix string; ignoring it")
+          return nil
+        end
+
+        prefix = raw.strip
+        return nil if prefix.empty?
+        return prefix unless prefix.match?(%r{[/\\]}) || prefix.include?("..")
+
+        report("manifest #{kind.section} #{key}: must not contain path separators or '..' segments; ignoring it")
+        nil
       end
 
       # Independent axes: an unusable gem: must not silence a parseable fence,

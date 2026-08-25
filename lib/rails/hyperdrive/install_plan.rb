@@ -7,16 +7,16 @@ module Rails
     # shipped by several installs every variant, postfixed --<source_gem>.
     module InstallPlan
       Entry = Struct.new(:type, :artifact, :final_name, :dest, :collision, keyword_init: true) do
-        # The renamed name: is part of the hashed body, so a postfixed skill
+        # The renamed name: is part of the hashed body, so a postfixed artifact
         # hashes to a stable value.
         def install_ready_body
           body = BundlerArtifactDiscovery.install_ready_body(artifact)
-          return body unless type == :skill && final_name != artifact.name
+          return body unless kind&.collision_rewrites_name && final_name != artifact.name
           body.sub(/^name:\s*.+$/, "name: #{final_name}")
         end
 
         def support_files
-          return [] unless type == :skill
+          return [] unless kind&.dir_shaped?
           dir = File.dirname(dest)
           Array(artifact.support_files).map do |file|
             { path: file[:path], body: file[:body], dest: "#{dir}/#{file[:path]}",
@@ -38,6 +38,10 @@ module Rails
 
         def artifact_kind
           type.to_s
+        end
+
+        def kind
+          InstallLayout.kind(type)
         end
       end
 

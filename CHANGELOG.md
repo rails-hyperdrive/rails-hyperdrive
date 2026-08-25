@@ -72,6 +72,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking (installer skew).** `.hyperdrive/lock.yml` is now written at schema
+  version 2. An installer older than this release refuses to run `init`, `sync`,
+  or the bundler-plugin top-up against a lock this one wrote, and names the
+  upgrade instead — so every machine working on an app that has synced with this
+  release needs it too.
 - **Breaking (bundler plugin).** The `bundler-rails-hyperdrive` plugin gem is
   renamed `bundler-hyperdrive` — its directory, gem name, Gemfile directive
   (`plugin "bundler-hyperdrive"`), and release tag namespace

@@ -4,7 +4,7 @@ module Rails
   module Hyperdrive
     # installed_at is volatile metadata, never an input to any comparison.
     class LockFile
-      SCHEMA_VERSION = 1
+      SCHEMA_VERSION = 2
       STATE_PRESENT  = "present".freeze
       STATE_REMOVED  = "removed-by-user".freeze
 

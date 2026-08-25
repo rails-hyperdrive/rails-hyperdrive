@@ -2,6 +2,7 @@ require "yaml"
 require "rails/hyperdrive/bundler_artifact_discovery"
 require "rails/hyperdrive/gem_manifest"
 require "rails/hyperdrive/gemspec_locator"
+require "rails/hyperdrive/install_layout"
 
 module Rails
   module Hyperdrive
@@ -14,10 +15,10 @@ module Rails
     module ManifestLint
       Error = GemspecLocator::Error
 
-      ROOT_KEYS = %w[gem gems hyperdrive_version skills_dir skill_templates_dir skills guidelines].freeze
-      DIR_KEYS = %w[skills_dir skill_templates_dir].freeze
-      SKILL_ENTRY_KEYS = %w[gem gems hyperdrive_version conditional].freeze
-      GUIDELINE_ENTRY_KEYS = %w[gem gems hyperdrive_version].freeze
+      GATE_KEYS = %w[gem gems hyperdrive_version].freeze
+      DIR_KEYS = GemManifest::DIR_KEYS
+      ROOT_KEYS = (GATE_KEYS + DIR_KEYS + InstallLayout.content_kinds.map(&:section)).freeze
+      SKILL_ENTRY_KEYS = (GATE_KEYS + %w[conditional]).freeze
       CONDITIONAL_ENTRY_KEYS = %w[gem gems].freeze
       RETIRED_VERSION_KEYS = %w[versions version].freeze
       RETIRED_VERSION_HINT = "is not a gating key; put the requirement on the gem: member, " \
@@ -66,18 +67,15 @@ module Rails
 
         manifest = GemManifest.load(repo_spec, warnings: [])
         skills = shipped_skills(repo_spec, manifest)
-        each_entry(root, "skills", skills.keys, "skill directory", problems) do |key, entry|
-          where = "skills entry '#{key}'"
-          check_keys(entry, SKILL_ENTRY_KEYS, where, problems)
-          check_gate(entry, where, problems)
-          check_conditional(entry["conditional"], where, skills[key], problems) if entry.key?("conditional")
-        end
-
-        guidelines = shipped_guidelines(repo_spec)
-        each_entry(root, "guidelines", guidelines, "guideline", problems) do |key, entry|
-          where = "guidelines entry '#{key}'"
-          check_keys(entry, GUIDELINE_ENTRY_KEYS, where, problems)
-          check_gate(entry, where, problems)
+        InstallLayout.content_kinds.each do |kind|
+          shipped = kind.dir_shaped? ? skills.keys : shipped_flat(repo_spec, kind, manifest)
+          each_entry(root, kind, shipped, problems) do |key, entry|
+            where = "#{kind.section} entry '#{key}'"
+            check_keys(entry, kind.dir_shaped? ? SKILL_ENTRY_KEYS : GATE_KEYS, where, problems)
+            check_gate(entry, where, problems)
+            next unless kind.dir_shaped? && entry.key?("conditional")
+            check_conditional(entry["conditional"], where, skills[key], problems)
+          end
         end
 
         problems
@@ -90,22 +88,41 @@ module Rails
         root
       end
 
-      def each_entry(root, section, shipped, shipped_label, problems)
-        value = root[section]
+      def each_entry(root, kind, shipped, problems)
+        value = root[kind.section]
         return if value.nil?
         unless value.is_a?(Hash)
-          problems << "#{section}: must be a map of #{shipped_label} keys to gating maps"
+          problems << "#{kind.section}: must be a map of #{kind.shipped_label} keys to gating maps"
           return
         end
 
-        value.each do |key, entry|
-          key = key.to_s
-          problems << "#{section} entry '#{key}' names no shipped #{shipped_label}" unless shipped.include?(key)
+        entries = value.transform_keys(&:to_s)
+        check_section_settings(entries, kind, problems)
+
+        entries.each do |key, entry|
+          next if Array(kind.prefix_key).include?(key)
+
+          unless shipped.include?(key)
+            problems << "#{kind.section} entry '#{key}' names no shipped #{kind.shipped_label}"
+          end
           unless entry.is_a?(Hash)
-            problems << "#{section} entry '#{key}' must be a map of gating keys"
+            problems << "#{kind.section} entry '#{key}' must be a map of gating keys"
             next
           end
           yield key, entry.transform_keys(&:to_s)
+        end
+      end
+
+      # A kind's section-level scalar is not a gating entry; it becomes part of
+      # an installed filename, so it may not reach outside the kind's directory.
+      def check_section_settings(entries, kind, problems)
+        Array(kind.prefix_key).each do |key|
+          next unless entries.key?(key)
+
+          value = entries[key]
+          next if value.is_a?(String) && !value.strip.empty? &&
+                  !value.match?(%r{[/\\]}) && !value.include?("..")
+          problems << "#{kind.section}: #{key}: must be a name prefix with no path separators or '..' segments"
         end
       end
 
@@ -202,13 +219,13 @@ module Rails
         end
       end
 
-      def shipped_guidelines(repo_spec)
-        BundlerArtifactDiscovery.guideline_paths(repo_spec).map { |p| File.basename(p) }
+      def shipped_flat(repo_spec, kind, manifest)
+        BundlerArtifactDiscovery.flat_paths(repo_spec, kind, manifest: manifest).map { |p| File.basename(p) }
       end
 
-      private_class_method :missing_manifest, :problems_in, :parse_root, :each_entry, :check_keys,
-                           :check_dirs, :did_you_mean, :check_gate, :check_conditional, :shipped_skills,
-                           :shipped_guidelines
+      private_class_method :missing_manifest, :problems_in, :parse_root, :each_entry, :check_section_settings,
+                           :check_keys, :check_dirs, :did_you_mean, :check_gate, :check_conditional,
+                           :shipped_skills, :shipped_flat
     end
   end
 end

@@ -16,8 +16,7 @@ module Rails
     # The application root is explicit and no Rails constant is touched, so any
     # process that can see the bundle can run this.
     class InstallPipeline
-      ARTIFACT_DESTINATIONS =
-        [InstallLayout::SKILLS_DIR, InstallLayout::HYPERDRIVE_DIR, InstallLayout::LOCK_PATH].freeze
+      ARTIFACT_DESTINATIONS = (InstallLayout.dest_roots + [InstallLayout::LOCK_PATH]).freeze
 
       WARN_LINES = 150
       WARN_TOKENS = 1_500
@@ -50,8 +49,7 @@ module Rails
 
         report_collisions
         report_disabled
-        install_skills
-        guidelines = install_guidelines
+        guidelines = install_artifacts
         remove_disabled
         remove_stale_support_files
         remove_stale_dests
@@ -126,33 +124,36 @@ module Rails
         end
       end
 
-      def install_skills
-        @plan.select { |e| e.type == :skill }.each do |entry|
-          skill_relpath = source_relpath_for(entry.artifact)
-          support_base = support_relpath_base(entry.artifact, skill_relpath)
-          install_file(entry: entry, type: :skill, install_ready_body: entry.install_ready_body,
-            source_relpath: skill_relpath, final_name: entry.final_name)
-          entry.support_files.each do |file|
-            install_file(
-              dest: file[:dest],
-              type: :skill_support,
-              install_ready_body: file[:body],
-              source_gem: entry.source_gem,
-              version: entry.version,
-              artifact_kind: "skill_support",
-              source_relpath: file[:source_relpath] || (support_base && File.join(support_base, file[:path]))
-            )
+      # Returns the eager artifacts: the ones the index and the CLAUDE.md
+      # import line are built from.
+      def install_artifacts
+        eager = []
+        InstallLayout.content_kinds.each do |kind|
+          @plan.select { |e| e.type == kind.type }.each do |entry|
+            relpath = source_relpath_for(entry.artifact)
+            body = entry.install_ready_body
+            warn_if_oversize(entry.dest, body) if kind.eager
+            install_file(entry: entry, type: kind.type, install_ready_body: body,
+              source_relpath: relpath, final_name: entry.final_name)
+            install_support_files(entry, relpath) if kind.dir_shaped?
+            eager << { base: "#{entry.final_name}.md", dest: entry.dest, body: body } if kind.eager
           end
         end
+        eager
       end
 
-      def install_guidelines
-        @plan.select { |e| e.type == :guideline }.map do |entry|
-          body = entry.install_ready_body
-          warn_if_oversize(entry.dest, body)
-          install_file(entry: entry, type: :guideline, install_ready_body: body,
-            source_relpath: source_relpath_for(entry.artifact), final_name: entry.final_name)
-          { base: "#{entry.final_name}.md", dest: entry.dest, body: body }
+      def install_support_files(entry, relpath)
+        support_base = support_relpath_base(entry.artifact, relpath)
+        entry.support_files.each do |file|
+          install_file(
+            dest: file[:dest],
+            type: :skill_support,
+            install_ready_body: file[:body],
+            source_gem: entry.source_gem,
+            version: entry.version,
+            artifact_kind: "skill_support",
+            source_relpath: file[:source_relpath] || (support_base && File.join(support_base, file[:path]))
+          )
         end
       end
 

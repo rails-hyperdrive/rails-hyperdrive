@@ -54,7 +54,7 @@ RSpec.describe Rails::Hyperdrive::LockFile do
 
     expect(lock.to_yaml).to eq(<<~YAML)
       ---
-      version: 1
+      version: 2
       claude_md:
         state: present
       disabled:
@@ -311,27 +311,27 @@ RSpec.describe Rails::Hyperdrive::LockFile do
     end
 
     it "reads a lock written by a newer installer as ahead" do
-      load_with("version: 2\n") do |lock|
+      load_with("version: 3\n") do |lock|
         expect(lock.schema_ahead?).to be(true)
-        expect(lock.schema_version).to eq(2)
+        expect(lock.schema_version).to eq(3)
         expect(lock.schema_ahead_message(".hyperdrive/lock.yml"))
-          .to eq(".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 2, " \
-                 "this installer supports 1); upgrade rails-hyperdrive")
+          .to eq(".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 3, " \
+                 "this installer supports 2); upgrade rails-hyperdrive")
       end
     end
 
     it "still reads the rest of a schema-ahead lock, so the guard can report it" do
       Dir.mktmpdir do |dir|
         path = File.join(dir, "lock.yml")
-        File.write(path, "version: 2\ndisabled:\n  skills:\n    - vcr\nfiles: []\n")
+        File.write(path, "version: 3\ndisabled:\n  skills:\n    - vcr\nfiles: []\n")
 
         expect(described_class.load(path).disabled?(:skill, "vcr")).to be(true)
       end
     end
 
     it "is not ahead at the supported version, an older one, a missing one, or a non-numeric one" do
+      load_with("version: 2\n") { |lock| expect(lock.schema_ahead?).to be(false) }
       load_with("version: 1\n") { |lock| expect(lock.schema_ahead?).to be(false) }
-      load_with("version: 0\n") { |lock| expect(lock.schema_ahead?).to be(false) }
       load_with("") { |lock| expect(lock.schema_ahead?).to be(false) }
       load_with("version: two\n") { |lock| expect(lock.schema_ahead?).to be(false) }
     end

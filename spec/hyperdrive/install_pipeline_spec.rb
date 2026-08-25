@@ -836,7 +836,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       run(artifacts: [guideline(name: "auth-pundit")], bundled_gems: [source])
       lock = File.join(root, ".hyperdrive/lock.yml")
       data = YAML.safe_load(File.read(lock))
-      data["version"] = 2
+      data["version"] = 3
       File.write(lock, data.to_yaml)
     end
 
@@ -856,7 +856,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       out = run_reporting(artifacts: [guideline(name: "auth-pundit")], bundled_gems: [source])
 
       expect(out.scan("was written by a newer rails-hyperdrive").size).to eq(1)
-      expect(out).to include("lock schema 2, this installer supports 1")
+      expect(out).to include("lock schema 3, this installer supports 2")
     end
   end
 
