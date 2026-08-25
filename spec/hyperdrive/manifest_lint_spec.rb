@@ -156,6 +156,59 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
     end
   end
 
+  describe "the agents: and commands: sections" do
+    before do
+      write("agents/reviewer.md", "---\nname: reviewer\ndescription: d\n---\n")
+      write("commands/analyze.md", "# analyze\n")
+    end
+
+    it "accepts gated entries, the directory keys, and command_prefix" do
+      expect(problems(<<~YAML)).to be_empty
+        agents_dir: plugin/agents
+        commands_dir: plugin/commands
+        agents:
+          reviewer.md:
+            gem: railties
+            hyperdrive_version: ">= 0.8"
+        commands:
+          command_prefix: layered-rails
+          analyze.md:
+            gems:
+              all:
+                - devise
+                - pundit
+      YAML
+    end
+
+    it "fails on an entry naming nothing the gem ships" do
+      expect(problems("agents:\n  gone.md:\n    gem: railties\ncommands:\n  vanished.md: {}\n"))
+        .to contain_exactly(
+          "agents entry 'gone.md' names no shipped agent",
+          "commands entry 'vanished.md' names no shipped command"
+        )
+    end
+
+    it "fails on an unknown entry key, conditional: included" do
+      expect(problems("commands:\n  analyze.md:\n    conditional: {}\n").join)
+        .to include("commands entry 'analyze.md': unknown key 'conditional'")
+    end
+
+    it "fails on a command_prefix that is not a usable name prefix" do
+      expect(problems("commands:\n  command_prefix:\n    - a\n"))
+        .to eq(["commands: command_prefix: must be a name prefix with no path separators or '..' segments"])
+      expect(problems("commands:\n  command_prefix: ../evil\n"))
+        .to eq(["commands: command_prefix: must be a name prefix with no path separators or '..' segments"])
+    end
+
+    it "reads command_prefix nowhere else" do
+      expect(problems("agents:\n  command_prefix: layered-rails\n"))
+        .to contain_exactly(
+          "agents entry 'command_prefix' names no shipped agent",
+          "agents entry 'command_prefix' must be a map of gating keys"
+        )
+    end
+  end
+
   describe "unknown keys" do
     it "fails at the top level" do
       expect(problems("skils:\n  alpha: {}\n").join).to include("top level: unknown key 'skils'")

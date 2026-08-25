@@ -1,2 +1,4 @@
 gems:
   - dummy_gem: "~> 1.0"
+commands:
+  command_prefix: companion

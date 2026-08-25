@@ -84,6 +84,17 @@ RSpec.describe Rails::Generators::Hyperdrive::DiscoverGenerator do
       expect(out).not_to include("bundle add rails-hyperdrive-sidekiq")
     end
 
+    it "prints every artifact kind a companion declares" do
+      suggestions = [
+        Suggestion.new(gem_name: "rails-hyperdrive-layered", version: "1.0.0", targets: ["railties"],
+                       artifacts: %w[skill agent command], matched_target: "railties", matched_version: "8.1.0",
+                       installed: false)
+      ]
+      stub_discovery(Result.new(suggestions: suggestions, warnings: [], status: :online))
+
+      expect(run_generator([])).to include("ships skill + agent + command")
+    end
+
     it "labels a universal companion as applying to any stack" do
       suggestions = [
         Suggestion.new(gem_name: "rails-hyperdrive-core", version: "1.0.0", targets: ["*"],

@@ -20,6 +20,24 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     )
   end
 
+  def agent(name:, source:)
+    Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact.new(
+      name: name, description: "d", target_gem: "*", versions: "*",
+      artifact_type: :agent, source_gem: source, path: "/x/#{source}/agents/#{name}.md",
+      body: "---\nname: #{name}\ndescription: d\ntools: Read\n---\n\n# #{name}\n",
+      spec_version: "1.0.0"
+    )
+  end
+
+  def command(name:, source:, body: nil)
+    Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact.new(
+      name: name, description: nil, target_gem: "*", versions: "*",
+      artifact_type: :command, source_gem: source, path: "/x/#{source}/commands/#{name}.md",
+      body: body || "# #{name}\n\nDo the thing.\n",
+      spec_version: "1.0.0"
+    )
+  end
+
   it "places a uniquely-named artifact at its canonical path" do
     entry = described_class.build([skill(name: "jobs", source: "gem_a")]).entries.first
 
@@ -62,6 +80,43 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     expect(entry.source_label).to eq("gem_a@1.0.0")
   end
 
+  describe "agents" do
+    it "installs as a flat file with the body verbatim, frontmatter kept" do
+      entry = described_class.build([agent(name: "reviewer", source: "gem_a")]).entries.first
+
+      expect(entry.dest).to eq(".claude/agents/reviewer.md")
+      expect(entry.install_ready_body).to eq(entry.artifact.body)
+      expect(entry.support_files).to eq([])
+    end
+
+    it "postfixes the filename and the frontmatter name on a cross-source collision" do
+      plan = described_class.build([agent(name: "reviewer", source: "gem_a"), agent(name: "reviewer", source: "gem_b")]).entries
+
+      expect(plan.map(&:dest)).to contain_exactly(".claude/agents/reviewer--gem_a.md", ".claude/agents/reviewer--gem_b.md")
+      expect(plan.find { |e| e.source_gem == "gem_a" }.install_ready_body).to include("name: reviewer--gem_a")
+    end
+  end
+
+  describe "commands" do
+    it "installs as a flat file with the body byte-identical" do
+      entry = described_class.build([command(name: "analyze", source: "gem_a")]).entries.first
+
+      expect(entry.dest).to eq(".claude/commands/analyze.md")
+      expect(entry.install_ready_body).to eq(entry.artifact.body)
+    end
+
+    it "keeps frontmatter, never rewriting it on a collision" do
+      body = "---\ndescription: d\n---\n\n# analyze\n"
+      plan = described_class.build([
+        command(name: "analyze", source: "gem_a", body: body),
+        command(name: "analyze", source: "gem_b", body: body)
+      ]).entries
+
+      expect(plan.map(&:dest)).to contain_exactly(".claude/commands/analyze--gem_a.md", ".claude/commands/analyze--gem_b.md")
+      expect(plan.map(&:install_ready_body)).to all(eq(body))
+    end
+  end
+
   describe "supporting files" do
     let(:support) do
       [
@@ -102,11 +157,10 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
   end
 
   describe "a disabled name" do
-    def lock(skills: [], guidelines: [])
+    def lock(skills: [], guidelines: [], agents: [], commands: [])
+      lists = { skill: skills, guideline: guidelines, agent: agents, command: commands }
       instance_double(Rails::Hyperdrive::LockFile).tap do |double|
-        allow(double).to receive(:disabled?) do |type, name|
-          (type == :skill ? skills : guidelines).include?(name)
-        end
+        allow(double).to receive(:disabled?) { |type, name| lists.fetch(type, []).include?(name) }
       end
     end
 
@@ -186,6 +240,28 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
       expect(described_class.disabled_dest?(disabled, :skill, dest, source_gem: "gem_b")).to be false
       expect(
         described_class.disabled_dest?(disabled, :skill_support, ".claude/skills/jobs/references/deep.md", source_gem: "gem_a")
+      ).to be true
+    end
+
+    it "honors the base and the postfixed name for agents and commands alike" do
+      result = described_class.build(
+        [agent(name: "reviewer", source: "gem_a"), command(name: "analyze", source: "gem_a")],
+        lock: lock(agents: ["reviewer"], commands: ["analyze--gem_a"])
+      )
+
+      expect(result.entries).to be_empty
+      expect(result.disabled.map(&:dest))
+        .to contain_exactly(".claude/agents/reviewer.md", ".claude/commands/analyze.md")
+    end
+
+    it "matches an installed agent or command path back to the name that disables it" do
+      disabled = lock(agents: ["reviewer"], commands: ["analyze--gem_a"])
+
+      expect(described_class.disabled_dest?(disabled, :agent, ".claude/agents/reviewer.md")).to be true
+      expect(described_class.disabled_dest?(disabled, :agent, ".claude/agents/reviewer--gem_b.md")).to be true
+      expect(described_class.disabled_dest?(disabled, :command, ".claude/commands/analyze.md")).to be false
+      expect(
+        described_class.disabled_dest?(disabled, :command, ".claude/commands/analyze.md", source_gem: "gem_a")
       ).to be true
     end
 

@@ -60,6 +60,8 @@ RSpec.describe Rails::Hyperdrive::LockFile do
       disabled:
         skills: []
         guidelines: []
+        agents: []
+        commands: []
       enabled: []
       files:
       - path: ".claude/hyperdrive/guidelines/jobs-sidekiq.md"
@@ -199,9 +201,9 @@ RSpec.describe Rails::Hyperdrive::LockFile do
   end
 
   describe "the disabled list" do
-    it "serializes an empty list for both artifact types" do
+    it "serializes an empty list for every artifact kind" do
       yaml = YAML.safe_load(described_class.new("/no/such/lock.yml").to_yaml)
-      expect(yaml["disabled"]).to eq("skills" => [], "guidelines" => [])
+      expect(yaml["disabled"]).to eq("skills" => [], "guidelines" => [], "agents" => [], "commands" => [])
     end
 
     it "reads a hand-written list and reports names as disabled" do
@@ -224,6 +226,21 @@ RSpec.describe Rails::Hyperdrive::LockFile do
         expect(lock.disabled?(:guideline, "service-objects")).to be(true)
         expect(lock.disabled?(:skill, "service-objects")).to be(false)
         expect(lock.disabled?(:guideline, "vcr-cassettes")).to be(false)
+      end
+    end
+
+    it "reads and re-serializes the agent and command lists" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "lock.yml")
+        File.write(path, "disabled:\n  agents:\n    - reviewer\n  commands:\n    - analyze--gem_a\n")
+
+        lock = described_class.load(path)
+        expect(lock.disabled?(:agent, "reviewer")).to be(true)
+        expect(lock.disabled?(:command, "analyze--gem_a")).to be(true)
+        expect(lock.disabled?(:command, "reviewer")).to be(false)
+
+        rewritten = YAML.safe_load(described_class.new(path).carry_settings(lock).to_yaml)
+        expect(rewritten["disabled"]).to include("agents" => ["reviewer"], "commands" => ["analyze--gem_a"])
       end
     end
 

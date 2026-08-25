@@ -8,3 +8,5 @@ skills:
         gem: sqlite3
       references/alba-notes.md:
         gem: alba
+commands:
+  command_prefix: alpha

@@ -634,6 +634,115 @@ RSpec.describe Rails::Hyperdrive::GemManifest do
       manifest, = load_manifest
       expect(manifest.gate(:skill, "a").targets).to eq(["railties"])
     end
+
+    it "reads the agent and command roots on the same terms" do
+      write("hyperdrive.yml", "agents_dir: plugin/agents\ncommands_dir: \"  \"\n")
+      manifest, warnings = load_manifest
+      expect(manifest.dir("agents_dir")).to eq("plugin/agents")
+      expect(manifest.dir("commands_dir")).to be_nil
+      expect(warnings).to be_empty
+    end
+  end
+
+  describe "the agents: and commands: sections" do
+    it "gates them exactly like guidelines, keyed by shipped filename" do
+      write("hyperdrive.yml", <<~YAML)
+        gem: railties
+        agents:
+          reviewer.md:
+            gems:
+              any:
+                - sidekiq
+                - solid_queue: ">= 1.0"
+            hyperdrive_version: ">= 0.8"
+        commands:
+          analyze.md:
+            gem: "*"
+      YAML
+      manifest, warnings = load_manifest
+
+      expect(warnings).to be_empty
+      expect(manifest.gate(:agent, "reviewer.md").to_h).to include(
+        targets: %w[sidekiq solid_queue], match_mode: :any,
+        versions: { "solid_queue" => ">= 1.0" }, hyperdrive_version: ">= 0.8"
+      )
+      expect(manifest.gate(:command, "analyze.md").targets).to eq(["*"])
+      expect(manifest.gate(:agent, "unlisted.md").targets).to eq(["railties"])
+      expect(manifest.section_keys(:agent)).to eq(["reviewer.md"])
+    end
+
+    it "exposes no conditional: on either kind" do
+      write("hyperdrive.yml", "commands:\n  analyze.md:\n    conditional:\n      x.md:\n        gem: alba\n")
+      manifest, = load_manifest
+      expect(manifest.gate(:command, "analyze.md").conditional).to be_nil
+    end
+
+    it "falls open on a malformed entry, installing ungated" do
+      write("hyperdrive.yml", "gem: railties\nagents:\n  reviewer.md: nope\n")
+      manifest, warnings = load_manifest
+
+      expect(manifest.gate(:agent, "reviewer.md").targets).to eq(["*"])
+      expect(warnings.join).to include("manifest entry for 'reviewer.md' must be a map with gem:")
+    end
+
+    it "warns and ignores the retired versions: key without dropping the gate" do
+      write("hyperdrive.yml", "commands:\n  analyze.md:\n    gem: sidekiq\n    versions: \">= 7\"\n")
+      manifest, warnings = load_manifest
+
+      expect(manifest.gate(:command, "analyze.md").to_h).to include(targets: ["sidekiq"], versions: nil)
+      expect(warnings.join).to include("versions: is no longer supported")
+    end
+  end
+
+  describe "command_prefix" do
+    it "is nil when the section declares none" do
+      write("hyperdrive.yml", "commands:\n  analyze.md:\n    gem: \"*\"\n")
+      manifest, warnings = load_manifest
+
+      expect(manifest.name_prefix(:command)).to be_nil
+      expect(warnings).to be_empty
+    end
+
+    it "is reserved: it is read as a setting, never as a gating entry" do
+      write("hyperdrive.yml", "commands:\n  command_prefix: layered-rails\n")
+      manifest, warnings = load_manifest
+
+      expect(manifest.name_prefix(:command)).to eq("layered-rails")
+      expect(manifest.section_keys(:command)).to be_empty
+      expect(warnings).to be_empty
+    end
+
+    it "exists for commands alone" do
+      write("hyperdrive.yml", "agents:\n  command_prefix: nope\n")
+      manifest, = load_manifest
+
+      expect(manifest.name_prefix(:agent)).to be_nil
+      expect(manifest.section_keys(:agent)).to eq(["command_prefix"])
+    end
+
+    it "warns and falls open on a non-string value" do
+      write("hyperdrive.yml", "commands:\n  command_prefix: 42\n")
+      manifest, warnings = load_manifest
+
+      expect(manifest.name_prefix(:command)).to be_nil
+      expect(warnings.join).to include("manifest commands command_prefix: must be a name prefix string")
+    end
+
+    it "warns and falls open on a value reaching out of the directory" do
+      write("hyperdrive.yml", "commands:\n  command_prefix: \"../evil\"\n")
+      manifest, warnings = load_manifest
+
+      expect(manifest.name_prefix(:command)).to be_nil
+      expect(warnings.join).to include("must not contain path separators or '..' segments")
+    end
+
+    it "reads a blank value as absent, without warning" do
+      write("hyperdrive.yml", "commands:\n  command_prefix: \"  \"\n")
+      manifest, warnings = load_manifest
+
+      expect(manifest.name_prefix(:command)).to be_nil
+      expect(warnings).to be_empty
+    end
   end
 
   describe "path resolution (hyperdrive_manifest)" do

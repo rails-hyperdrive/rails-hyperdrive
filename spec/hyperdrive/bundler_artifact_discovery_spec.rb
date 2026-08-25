@@ -565,6 +565,19 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
                                  .select { |a| a.name == "dummy-skill" }
       expect(survivors.map(&:source_gem)).to contain_exactly("dummy_gem", "companion_gem")
     end
+
+    it "keeps one agent per source when two gems ship the same frontmatter name" do
+      survivors = described_class.discover(specs: [dummy_spec, companion_spec])
+                                 .select { |a| a.name == "shared-agent" }
+      expect(survivors.map(&:source_gem)).to contain_exactly("dummy_gem", "companion_gem")
+      expect(survivors.map(&:artifact_type)).to all(eq(:agent))
+    end
+
+    it "applies each source gem's own command_prefix" do
+      names = described_class.discover(specs: [dummy_spec, companion_spec])
+                             .select { |a| a.artifact_type == :command }.map(&:name)
+      expect(names).to contain_exactly("analyze", "companion-report")
+    end
   end
 
   describe "manifest skills_dir:" do
@@ -1948,6 +1961,156 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       write("hyperdrive.yml", "skills:\n  gone: {}\n")
 
       expect(walk.last).to be_empty
+    end
+  end
+
+  describe "agents and commands" do
+    around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
+
+    def write(rel, body)
+      path = File.join(@dir, rel)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, body)
+    end
+
+    def discovered
+      described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir)], report: report)
+    end
+
+    it "discovers an agent from the top-level agents/ root, body verbatim" do
+      write("hyperdrive.yml", "")
+      body = "---\nname: reviewer\ndescription: d\ntools: Read\n---\n\n# reviewer\n"
+      write("agents/reviewer.md", body)
+
+      artifact = discovered.first
+      expect(artifact.artifact_type).to eq(:agent)
+      expect(artifact.name).to eq("reviewer")
+      expect(artifact.description).to eq("d")
+      expect(described_class.install_ready_body(artifact)).to eq(body)
+      expect(warnings).to be_empty
+    end
+
+    it "skips an agent missing a required frontmatter field" do
+      write("hyperdrive.yml", "")
+      write("agents/broken.md", "---\ndescription: d\n---\n\n# broken\n")
+
+      expect(discovered).to be_empty
+      expect(skips.join).to include("missing a required field (name, description)")
+    end
+
+    it "discovers a command with no frontmatter, identified by its filename stem" do
+      write("hyperdrive.yml", "")
+      write("commands/analyze.md", "# analyze\n")
+
+      artifact = discovered.first
+      expect(artifact.artifact_type).to eq(:command)
+      expect(artifact.name).to eq("analyze")
+      expect(artifact.description).to be_nil
+      expect(described_class.install_ready_body(artifact)).to eq("# analyze\n")
+      expect(warnings).to be_empty
+    end
+
+    it "never validates a command's frontmatter, installing it byte-identical" do
+      write("hyperdrive.yml", "")
+      body = "---\nargument-hint: \"[path]\"\n---\n\n# analyze\n"
+      write("commands/analyze.md", body)
+
+      artifact = discovered.first
+      expect(artifact.name).to eq("analyze")
+      expect(described_class.install_ready_body(artifact)).to eq(body)
+      expect(warnings).to be_empty
+    end
+
+    it "prepends the manifest's command_prefix to every command name" do
+      write("hyperdrive.yml", "commands:\n  command_prefix: layered-rails\n")
+      write("commands/analyze.md", "# analyze\n")
+
+      expect(discovered.map(&:name)).to eq(["layered-rails-analyze"])
+      expect(warnings).to be_empty
+    end
+
+    it "warns and installs unprefixed on a non-string command_prefix" do
+      write("hyperdrive.yml", "commands:\n  command_prefix:\n    - a\n")
+      write("commands/analyze.md", "# analyze\n")
+
+      expect(discovered.map(&:name)).to eq(["analyze"])
+      expect(warnings.join).to include("commands command_prefix: must be a name prefix string")
+    end
+
+    it "warns and installs unprefixed on a command_prefix reaching out of the directory" do
+      write("hyperdrive.yml", "commands:\n  command_prefix: ../evil\n")
+      write("commands/analyze.md", "# analyze\n")
+
+      expect(discovered.map(&:name)).to eq(["analyze"])
+      expect(warnings.join).to include("commands command_prefix: must not contain path separators")
+    end
+
+    it "keys command gating by the shipped filename while reporting the prefixed name" do
+      write("hyperdrive.yml", "commands:\n  command_prefix: cp\n  analyze.md:\n    gem: absent_gem\n")
+      write("commands/analyze.md", "# analyze\n")
+
+      expect(discovered).to be_empty
+      expect(skips.join).to include("skip cp-analyze (from some_gem): target gem 'absent_gem' not in bundle")
+      expect(skipped_gems).to be_empty
+    end
+
+    it "reports the version fence on a fenced-out agent" do
+      write("hyperdrive.yml", "agents:\n  reviewer.md:\n    hyperdrive_version: \">= 99.0\"\n")
+      write("agents/reviewer.md", "---\nname: reviewer\ndescription: d\n---\n\n# r\n")
+
+      expect(discovered).to be_empty
+      expect(fence_warnings.join).to include("agent 'reviewer' (from some_gem) requires rails-hyperdrive >= 99.0")
+    end
+
+    it "searches the manifest's agents_dir: in addition to the convention root" do
+      write("hyperdrive.yml", "agents_dir: extra/agents\n")
+      write("agents/a.md", "---\nname: a\ndescription: d\n---\n")
+      write("extra/agents/b.md", "---\nname: b\ndescription: d\n---\n")
+
+      expect(discovered.map(&:name)).to contain_exactly("a", "b")
+      expect(warnings).to be_empty
+    end
+
+    it "does not double-discover when commands_dir: points at the convention root" do
+      write("hyperdrive.yml", "commands_dir: commands\n")
+      write("commands/analyze.md", "# analyze\n")
+
+      expect(discovered.map(&:name)).to eq(["analyze"])
+    end
+
+    it "warns and falls back to the convention root on a ..-containing agents_dir:" do
+      write("hyperdrive.yml", "agents_dir: ../outside\n")
+      write("agents/a.md", "---\nname: a\ndescription: d\n---\n")
+
+      expect(discovered.map(&:name)).to eq(["a"])
+      expect(warnings.join).to include("agents_dir: must not contain '..' segments")
+    end
+
+    it "warns about entries naming no shipped agent or command, never about command_prefix" do
+      write("hyperdrive.yml", <<~YAML)
+        agents:
+          gone.md:
+            gem: "*"
+        commands:
+          command_prefix: cp
+          vanished.md:
+            gem: "*"
+      YAML
+      write("commands/analyze.md", "# analyze\n")
+
+      discovered
+      expect(warnings).to contain_exactly(
+        "some_gem: manifest agents entry 'gone.md' names no shipped agent",
+        "some_gem: manifest commands entry 'vanished.md' names no shipped command"
+      )
+    end
+
+    it "does not opt a gem in on bare agents/ or commands/ dirs, and posts no notice" do
+      write("agents/a.md", "---\nname: a\ndescription: d\n---\n")
+      write("commands/analyze.md", "# analyze\n")
+
+      expect(discovered).to be_empty
+      expect(notices).to be_empty
     end
   end
 

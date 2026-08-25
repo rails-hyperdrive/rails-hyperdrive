@@ -67,7 +67,26 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(index).to eq("@guidelines/alpha-guide.md\n")
       expect(File.read(File.join(app_dir, "CLAUDE.md"))).to include("@.claude/hyperdrive/index.md")
 
+      agent_path = File.join(app_dir, ".claude/agents/alpha-agent.md")
+      expect(File.exist?(agent_path)).to be(true), "alpha-agent not installed:\n#{out}"
+      agent = File.read(agent_path)
+      expect(agent).to start_with("---")
+      expect(agent).to include("name: alpha-agent", "tools: Read, Grep") # frontmatter kept verbatim
+
+      # command_prefix: alpha renames the file and the /slash-command with it.
+      command_path = File.join(app_dir, ".claude/commands/alpha-analyze.md")
+      expect(File.exist?(command_path)).to be(true), "alpha-analyze not installed:\n#{out}"
+      command = File.read(command_path)
+      expect(command).to eq(File.read(File.expand_path(
+        "../fixtures/smoke_companions/rails-hyperdrive-alpha/commands/analyze.md", __dir__
+      )))
+      expect(File.exist?(File.join(app_dir, ".claude/commands/analyze.md"))).to be(false)
+
       lock = File.read(File.join(app_dir, ".hyperdrive/lock.yml"))
+      expect(lock).to include(".claude/agents/alpha-agent.md")
+      expect(lock).to include(".claude/commands/alpha-analyze.md")
+      expect(lock).to include("artifact: agent")
+      expect(lock).to include("artifact: command")
       expect(lock).to include(".claude/skills/alpha-skill/SKILL.md")
       expect(lock).to include(".claude/skills/alpha-skill/references/deep-dive.md")
       expect(lock).to include(".claude/skills/alpha-skill/references/sqlite-notes.md")
@@ -85,9 +104,13 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       out2, status2 = Smoke.run_hyperdrive_init!(app_dir)
       expect(status2.success?).to be(true), out2
       expect(out2).to match(/unchanged/)
+      expect(out2).to match(%r{unchanged\s+\.claude/agents/alpha-agent\.md})
+      expect(out2).to match(%r{unchanged\s+\.claude/commands/alpha-analyze\.md})
       expect(File.read(skill_path)).to eq(skill)
       expect(File.binread(support_path)).to eq(shipped)
       expect(File.read(guide_path)).to eq(guide)
+      expect(File.read(agent_path)).to eq(agent)
+      expect(File.read(command_path)).to eq(command)
     end
   end
 
@@ -207,7 +230,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(File.exist?(File.join(app_dir, "CLAUDE.md"))).to be(false)
 
       expect(YAML.safe_load(File.read(lock_path))["disabled"])
-        .to eq("skills" => ["alpha-skill"], "guidelines" => ["alpha-guide"])
+        .to eq("skills" => ["alpha-skill"], "guidelines" => ["alpha-guide"], "agents" => [], "commands" => [])
 
       out2, status2 = Smoke.run_hyperdrive_init!(app_dir)
       expect(status2.success?).to be(true), out2

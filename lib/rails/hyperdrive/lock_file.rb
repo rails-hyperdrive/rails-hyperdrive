@@ -8,7 +8,7 @@ module Rails
       STATE_PRESENT  = "present".freeze
       STATE_REMOVED  = "removed-by-user".freeze
 
-      DISABLED_KEYS = { skill: "skills", guideline: "guidelines" }.freeze
+      DISABLED_KEYS = { skill: "skills", guideline: "guidelines", agent: "agents", command: "commands" }.freeze
 
       # In-memory form of one files: entry. On disk, source_gem and
       # source_version are a single "gem@version" string; the split/join lives

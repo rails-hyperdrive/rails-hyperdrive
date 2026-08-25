@@ -7,6 +7,8 @@ module Rails
     module InstallLayout
       SKILLS_DIR = ".claude/skills".freeze
       HYPERDRIVE_DIR = ".claude/hyperdrive".freeze
+      AGENTS_DIR = ".claude/agents".freeze
+      COMMANDS_DIR = ".claude/commands".freeze
       INDEX_PATH = "#{HYPERDRIVE_DIR}/index.md".freeze
       LOCK_PATH = ".hyperdrive/lock.yml".freeze
 
@@ -96,6 +98,40 @@ module Rails
               path: ->(name) { "#{HYPERDRIVE_DIR}/guidelines/#{name}.md" }
             )
           }
+        ),
+        agent: Kind.new(
+          type: :agent,
+          shape: :flat,
+          section: "agents",
+          key_label: "agent filename",
+          shipped_label: "agent",
+          dir_key: "agents_dir",
+          prefix_key: nil,
+          convention_roots: ->(_gem_name) { ["agents"] },
+          identity: :frontmatter,
+          frontmatter: :required,
+          install_body: :verbatim,
+          collision_rewrites_name: true,
+          eager: false,
+          name_from_dest: ->(dest) { File.basename(dest, ".md") },
+          dests: { claude: Dest.new(root: AGENTS_DIR, path: ->(name) { "#{AGENTS_DIR}/#{name}.md" }) }
+        ),
+        command: Kind.new(
+          type: :command,
+          shape: :flat,
+          section: "commands",
+          key_label: "command filename",
+          shipped_label: "command",
+          dir_key: "commands_dir",
+          prefix_key: "command_prefix",
+          convention_roots: ->(_gem_name) { ["commands"] },
+          identity: :filename_stem,
+          frontmatter: :optional,
+          install_body: :verbatim,
+          collision_rewrites_name: false,
+          eager: false,
+          name_from_dest: ->(dest) { File.basename(dest, ".md") },
+          dests: { claude: Dest.new(root: COMMANDS_DIR, path: ->(name) { "#{COMMANDS_DIR}/#{name}.md" }) }
         )
       }.freeze
 

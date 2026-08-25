@@ -287,6 +287,32 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(result.installed).to eq([".claude/skills/jobs-sidekiq/SKILL.md"])
       expect(result.unwired).to be false
     end
+
+    it "tops up an agent and a command without wiring anything eager" do
+      bundle_ships([agent(name: "reviewer"), command(name: "analyze")])
+
+      result = described_class.run(root: root)
+
+      expect(result.installed).to contain_exactly(".claude/agents/reviewer.md", ".claude/commands/analyze.md")
+      expect(result.unwired).to be false
+      expect(File).not_to exist(File.join(root, "CLAUDE.md"))
+    end
+  end
+
+  def agent(name:, source: "rails-hyperdrive-x", version: "1.0.0")
+    Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact.new(
+      name: name, description: "d", target_gem: "*", versions: "*",
+      artifact_type: :agent, source_gem: source, path: "/x/agents/#{name}.md",
+      body: "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n", spec_version: version
+    )
+  end
+
+  def command(name:, source: "rails-hyperdrive-x", version: "1.0.0")
+    Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact.new(
+      name: name, description: nil, target_gem: "*", versions: "*",
+      artifact_type: :command, source_gem: source, path: "/x/commands/#{name}.md",
+      body: "# #{name}\n", spec_version: version
+    )
   end
 
   def skill(name:, source: "rails-hyperdrive-x", version: "1.0.0")

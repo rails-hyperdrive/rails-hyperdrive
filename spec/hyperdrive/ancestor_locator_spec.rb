@@ -140,6 +140,34 @@ RSpec.describe Rails::Hyperdrive::AncestorLocator do
     expect(body.b).to eq(raw)
   end
 
+  it "rebuilds an agent verbatim, rewriting name: for a postfixed install" do
+    relpath = "agents/reviewer.md"
+    shipped = "---\nname: reviewer\ndescription: d\n---\n\n# Reviewer\n"
+    ship(relpath, shipped)
+    postfixed = shipped.sub("name: reviewer", "name: reviewer--rails-hyperdrive-x")
+
+    expect(described_class.locate(
+      kind: "agent", relpath: relpath,
+      lock_entry: lock_entry(kind: "agent", sha: sha(shipped)), gem_paths: [home]
+    )).to eq(shipped)
+
+    expect(described_class.locate(
+      kind: "agent", relpath: relpath, final_name: "reviewer--rails-hyperdrive-x",
+      lock_entry: lock_entry(kind: "agent", sha: sha(postfixed)), gem_paths: [home]
+    )).to eq(postfixed)
+  end
+
+  it "rebuilds a command byte-identical, frontmatter and all" do
+    relpath = "commands/analyze.md"
+    shipped = "---\ndescription: d\n---\n\n# Analyze\n"
+    ship(relpath, shipped)
+
+    expect(described_class.locate(
+      kind: "command", relpath: relpath, final_name: "analyze--rails-hyperdrive-x",
+      lock_entry: lock_entry(kind: "command", sha: sha(shipped)), gem_paths: [home]
+    )).to eq(shipped)
+  end
+
   it "returns nil for a nil or incomplete lock entry" do
     expect(described_class.locate(kind: "guideline", relpath: guideline_relpath, lock_entry: nil, gem_paths: [home]))
       .to be_nil
