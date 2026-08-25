@@ -113,8 +113,7 @@ module Rails
         end
       end
 
-      # A kind's section-level scalar is not a gating entry; it becomes part of
-      # an installed filename, so it may not reach outside the kind's directory.
+      # A kind's section-level scalar is a setting, not a gating entry.
       def check_section_settings(entries, kind, problems)
         Array(kind.prefix_key).each do |key|
           next unless entries.key?(key)

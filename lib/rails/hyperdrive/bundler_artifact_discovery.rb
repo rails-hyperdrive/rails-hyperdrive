@@ -138,7 +138,7 @@ module Rails
       end
 
       def skill_paths(spec, manifest:, report: Report.new)
-        roots = skills_roots(spec, manifest)
+        roots = artifact_roots(spec, InstallLayout.kind(:skill), manifest)
 
         candidates = []
         seen = {}
@@ -156,17 +156,6 @@ module Rails
         end
 
         pair_with_templates(candidates, spec, manifest: manifest, report: report)
-      end
-
-      # The manifest's skills_dir: is searched in addition to the default
-      # roots, never instead of them.
-      def skills_roots(spec, manifest)
-        roots = [
-          File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive", "skills"),
-          File.join(spec.full_gem_path, "skills")
-        ]
-        roots << File.join(spec.full_gem_path, manifest.skills_dir) if manifest.skills_dir
-        roots
       end
 
       def templates_root(spec, manifest)
@@ -223,15 +212,17 @@ module Rails
           "supporting *.md.erb templates; static supporting files ship in the paired content directory"
       end
 
-      # One .md file per artifact, gathered from the kind's convention roots and
-      # its manifest override alike, deduped by expanded path.
+      # One .md file per artifact, deduped by expanded path so overlapping roots
+      # yield each file once.
       def flat_paths(spec, kind, manifest:)
-        flat_roots(spec, kind, manifest)
+        artifact_roots(spec, kind, manifest)
           .flat_map { |root| Dir.glob(File.join(root, "*.md")) }
           .uniq { |path| File.expand_path(path) }
       end
 
-      def flat_roots(spec, kind, manifest)
+      # The manifest's directory override is searched in addition to the kind's
+      # convention roots, never instead of them.
+      def artifact_roots(spec, kind, manifest)
         roots = kind.roots_for(spec.name.to_s).map { |rel| File.join(spec.full_gem_path, rel) }
         override = kind.dir_key && manifest.dir(kind.dir_key)
         roots << File.join(spec.full_gem_path, override) if override
@@ -638,7 +629,7 @@ module Rails
       end
 
       private_class_method :each_artifact_path, :warn_unknown_manifest_keys,
-                           :flat_roots, :prefixed_stem, :skills_roots, :templates_root,
+                           :artifact_roots, :prefixed_stem, :templates_root,
                            :resolve_same_dir_tie, :pair_with_templates, :warn_template_extras,
                            :opted_in?, :metadata_present?, :notice_skills_sh_content,
                            :parse, :fence_message,
