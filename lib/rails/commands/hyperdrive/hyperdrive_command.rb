@@ -30,13 +30,13 @@ module Rails
         @argv = @argv.drop(1) if @argv.first == "--"
       end
 
-      desc "init", "Install Rails Hyperdrive into this app (writes .mcp.json, CLAUDE.md, skills, guidelines, mounts engine)"
+      desc "init", "Install Rails Hyperdrive into this app (writes .mcp.json, CLAUDE.md, companion content, mounts engine)"
       mirror_generator_options ::Rails::Generators::Hyperdrive::InstallGenerator
       def init(*)
         start_generator("install", "InstallGenerator")
       end
 
-      desc "sync", "Sync Rails Hyperdrive content (skills, guidelines, index.md, lockfile); locally-edited files are preserved"
+      desc "sync", "Sync Rails Hyperdrive content (skills, guidelines, agents, commands, index.md, lockfile); locally-edited files are preserved"
       mirror_generator_options ::Rails::Generators::Hyperdrive::SyncGenerator
       def sync(*)
         start_generator("sync", "SyncGenerator")

@@ -309,8 +309,8 @@ An artifact with missing or malformed frontmatter, a missing `name:` or `descrip
 To be discoverable by `hyperdrive:discover` **before** it is installed, a companion also declares gemspec metadata (read remotely from rubygems, so the frontmatter inside the gem isn't visible yet):
 
 ```ruby
-spec.metadata["hyperdrive_targets"]   = "sidekiq"          # required; comma-sep, or "*" for always-applicable
-spec.metadata["hyperdrive_artifacts"] = "guideline,skill"  # optional; presentational hint
+spec.metadata["hyperdrive_targets"]   = "sidekiq"                       # required; comma-sep, or "*" for always-applicable
+spec.metadata["hyperdrive_artifacts"] = "skill,guideline,agent,command"  # optional; presentational hint
 ```
 
 `hyperdrive_targets` is what makes a gem discoverable: `hyperdrive:discover` searches rubygems for gems declaring it, so a companion is found by what it declares rather than by what it is named. Naming plays no part in discovery: every name is found on the same terms. Still, prefer `rails-hyperdrive-<name>`: the prefix tells a Gemfile reader the gem is agent guidance consumed by rails-hyperdrive, not runtime code.

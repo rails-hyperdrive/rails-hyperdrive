@@ -3,14 +3,11 @@ require "rails/hyperdrive/install_layout"
 
 module Rails
   module Hyperdrive
-    # A companion gem's root manifest (hyperdrive.yml) is everything the
-    # installer reads from the gem: the roots it ships each artifact kind and
-    # its templates under (skills_dir:, skill_templates_dir:, …), and artifact
-    # gating — top-level gem:/gems: defaults for the whole gem, plus one
-    # section per kind whose entries are keyed the way that kind declares.
-    # Fail-open at every level: malformed input warns and resolves to an
-    # ungated install at the default roots — an artifact is never skipped
-    # because its config could not be read, and nothing raises.
+    # Everything the installer reads from a companion gem: where each artifact
+    # kind lives, and which artifacts a given bundle gets.
+    # Fail-open at every level — malformed input warns and resolves to an
+    # ungated install at the default roots; an artifact is never skipped for
+    # unreadable config, and nothing raises.
     class GemManifest
       FILE_NAME = "hyperdrive.yml"
       METADATA_KEY = "hyperdrive_manifest"
