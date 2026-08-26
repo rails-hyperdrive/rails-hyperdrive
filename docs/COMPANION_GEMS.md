@@ -238,13 +238,14 @@ For a template-backed supporting file, either spelling is a valid key: the templ
 
 ### ERB-templated markdown
 
-A file named `*.md.erb` in a skill directory is rendered at install time and lands as plain `.md` (the `.erb` suffix is dropped). `SKILL.md.erb` defines a skill exactly like `SKILL.md`; its frontmatter is parsed from the rendered output. Hyperdrive provides three helpers, and they are the only API a template may rely on:
+A file named `*.md.erb` in a skill directory is rendered at install time and lands as plain `.md` (the `.erb` suffix is dropped). `SKILL.md.erb` defines a skill exactly like `SKILL.md`; its frontmatter is parsed from the rendered output. Hyperdrive provides four helpers, and they are the only API a template may rely on:
 
 - `gem?("name")` / `gem?("name", ">= 2.0")`: is the gem bundled (at a satisfying version)?
 - `any_gem?("a", "b", …)`: is any of these bundled?
 - `gem_version("name")`: the resolved version as a String, or `nil`.
+- `canonical_render?`: `true` in the author-side canonical render (`rake hyperdrive:skills:render`/`check`), `false` when rendering into an app.
 
-Nothing beyond those three is a contract — but nothing is blocked either. A template is plain ERB over an ordinary Ruby binding, not a sandbox: it can reach anything Ruby can, and it runs with the developer's own privileges at discovery time — during `hyperdrive:init`/`hyperdrive:sync`, on every `bundle install` through the bundler plugin, and when the MCP server answers `describe_app`. Enabling a companion trusts its templates exactly like its `lib/` code.
+Nothing beyond those four is a contract — but nothing is blocked either. A template is plain ERB over an ordinary Ruby binding, not a sandbox: it can reach anything Ruby can, and it runs with the developer's own privileges at discovery time — during `hyperdrive:init`/`hyperdrive:sync`, on every `bundle install` through the bundler plugin, and when the MCP server answers `describe_app`. Enabling a companion trusts its templates exactly like its `lib/` code.
 
 ```erb
 Use `bundle exec sidekiq` (you run Sidekiq <%= gem_version("sidekiq") || "any version" %>).
@@ -294,7 +295,19 @@ require "hyperdrive/skill_tasks"
 - `rake hyperdrive:skills:check` renders in memory and fails, listing any stale static file; it also fails on any `*.md.erb` found under a public skills root.
 - `rake hyperdrive:manifest:check` lints `hyperdrive.yml` where the installer is deliberately permissive, and fails on: unknown keys at every level (top level, every kind's entries, `conditional:` entries), any `gem:`/`gems:`/`hyperdrive_version:` value the installer cannot parse or would only accept with a warning, a directory-key value it would refuse and fall back from (not a string, blank, or containing a `..` segment), a `command_prefix:` that is not a usable name prefix, entry keys naming nothing the gem ships — with the retired `versions:` and its `version:` near-miss called out by name — and a `hyperdrive_manifest` metadata key naming a path that is not a file, which would otherwise leave the gem opted in with every artifact ungated. A manifest that lints clean draws no gating warning at install time.
 
-Because every predicate reads true in the canonical binding, the render takes the **first** branch: an `if`/`elsif`/`else` chain contributes only its `if` body to the static face, and an `unless gem?(...)` body vanishes from it entirely — and `skills:check` byte-blesses whatever comes out, so nothing catches the loss. Write templates meant for pairing as independent, additive `if gem?(...)` blocks; never wrap a bundle predicate in `else`, `elsif`, or `unless`.
+Because every bundle predicate reads true in the canonical binding, the render takes the **first** branch: an `if`/`elsif`/`else` chain contributes only its `if` body to the static face, and an `unless gem?(...)` body vanishes from it entirely — and `skills:check` byte-blesses whatever comes out, so nothing catches the loss. Write templates meant for pairing as independent, additive `if gem?(...)` blocks; never wrap a bundle predicate in `else`, `elsif`, or `unless`.
+
+`canonical_render?` is the exception, and that is its purpose: it is deterministic in **both** bindings — `true` in the canonical render, `false` on install — so `if`/`else`/`unless` on it is safe by construction. Use it where the same content has to read differently per channel, such as a companion that also ships as a Claude Code plugin whose command spellings diverge from the hyperdrive-installed ones:
+
+```erb
+<%- if canonical_render? -%>
+Run `/my-gem:generate` to scaffold a service.
+<%- else -%>
+Run `/my-gem-generate` to scaffold a service.
+<%- end -%>
+```
+
+A template calling `canonical_render?` needs an installer that defines it; on an older one the render raises `NameError` and is skipped as a render failure — the whole skill when it's `SKILL.md.erb`, otherwise just that supporting file, which leaves the skill installed with a link pointing at nothing. Pair it with a fence — `hyperdrive_version: ">= 0.8"`, per entry or gem-wide — so a pre-0.8 installer skips the skill as a unit and reports "upgrade rails-hyperdrive to install it" instead.
 
 Run both `check` tasks in CI: one keeps the generated face in step with its templates, the other keeps the manifest inside the schema.
 

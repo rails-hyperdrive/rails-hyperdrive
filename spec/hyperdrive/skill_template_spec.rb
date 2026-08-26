@@ -44,8 +44,24 @@ RSpec.describe Rails::Hyperdrive::SkillTemplate do
     end
   end
 
+  describe "canonical_render?" do
+    it "is false in the install binding" do
+      expect(render(%(<%= canonical_render? %>))).to eq("false")
+    end
+
+    it "is true in the canonical binding" do
+      expect(described_class.render_canonical(%(<%= canonical_render? %>))).to eq("true")
+    end
+
+    it "renders one source two ways" do
+      source = "<%- if canonical_render? -%>A<%- else -%>B<%- end -%>"
+      expect(render(source)).to eq("B")
+      expect(described_class.render_canonical(source)).to eq("A")
+    end
+  end
+
   describe "sealed binding" do
-    it "exposes only the three helpers — no stray lookup surface" do
+    it "exposes only the four helpers — no stray lookup surface" do
       expect { render("<%= resolved %>") }.to raise_error(NameError)
       expect { render("<%= config %>") }.to raise_error(NameError)
       expect { render("<%= app_root %>") }.to raise_error(NameError)
