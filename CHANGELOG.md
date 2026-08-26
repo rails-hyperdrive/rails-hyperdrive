@@ -96,12 +96,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking (installer skew).** `.hyperdrive/lock.yml` is now written at schema
-  version 2. An installer older than this release refuses to run `init`, `sync`,
-  or the bundler-plugin top-up against a lock this one wrote, and names the
-  upgrade instead — so every machine working on an app that has synced with this
-  release needs it too. The bump exists because an older installer never
-  discovers agents or commands: it would read their lock entries as
-  destinations nothing claims any more and delete the installed files.
+  version 2, so every machine working on an app that has synced with this
+  release needs this release too. Older installers ship no schema guard and
+  cannot refuse: a 0.6.0 `init`, `sync`, or bundler-plugin top-up run against a
+  lock this release wrote silently degrades instead — it never discovers agents
+  or commands, so it orphan-warns their lock entries on every run, drops their
+  `disabled:` lists, and rewrites the lock back to version 1. Installed files
+  are never deleted. From this release on, the read guard (below) makes the
+  same skew halt with the upgrade remedy instead of degrading.
 - **Breaking (bundler plugin).** The `bundler-rails-hyperdrive` plugin gem is
   renamed `bundler-hyperdrive` — its directory, gem name, Gemfile directive
   (`plugin "bundler-hyperdrive"`), and release tag namespace
@@ -162,8 +164,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.hyperdrive/lock.yml` is now read-guarded against its own schema version. The
   lock is git-tracked and shared across branches that pin different
   rails-hyperdrive versions, so an installer can meet a lock a newer one wrote.
-  It previously salvaged nothing it did not recognize and rewrote the file,
-  silently dropping `disabled:`, `enabled:`, and the `CLAUDE.md` import state.
+  It previously rewrote the file anyway: unknown top-level keys survive the
+  round-trip, but anything a newer schema stores inside the keys it recognizes
+  — `disabled:` lists for kinds it does not know, or a reshaped `enabled:` or
+  `claude_md` — was silently dropped.
   `hyperdrive:init` and `hyperdrive:sync` now fail with the upgrade remedy
   before any content write (`--dry-run` included, and init's bootstrap steps
   still complete), and `bundle install`'s auto-install prints the same reason
