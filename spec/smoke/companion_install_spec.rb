@@ -64,7 +64,9 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
 
       # The eager chain exists only because the companion shipped a guideline.
       index = File.read(File.join(app_dir, ".claude/hyperdrive/index.md"))
-      expect(index).to eq("@guidelines/alpha-guide.md\n")
+      expect(index.lines.map(&:chomp)).to contain_exactly(
+        "@guidelines/alpha-guide.md", "@guidelines/alpha-stack-guide.md"
+      )
       expect(File.read(File.join(app_dir, "CLAUDE.md"))).to include("@.claude/hyperdrive/index.md")
 
       agent_path = File.join(app_dir, ".claude/agents/alpha-agent.md")
@@ -82,7 +84,42 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       )))
       expect(File.exist?(File.join(app_dir, ".claude/commands/analyze.md"))).to be(false)
 
+      # Flat kinds ship *.md.erb in their own root and install as the rendered face.
+      scout_path = File.join(app_dir, ".claude/agents/alpha-scout.md")
+      expect(File.exist?(scout_path)).to be(true), "alpha-scout not installed:\n#{out}"
+      scout = File.read(scout_path)
+      expect(scout).to start_with("---")
+      expect(scout).to include("name: alpha-scout", "tools: Read, Grep") # frontmatter kept verbatim
+      expect(scout).to match(/sqlite3 2\./)
+      expect(scout).not_to include("Alba")
+      expect(scout).not_to include("<%")
+      expect(File.exist?(scout_path + ".erb")).to be(false)
+
+      # A templated command takes its identity from the rendered stem, prefix and all.
+      stack_cmd_path = File.join(app_dir, ".claude/commands/alpha-stack.md")
+      expect(File.exist?(stack_cmd_path)).to be(true), "alpha-stack not installed:\n#{out}"
+      stack_cmd = File.read(stack_cmd_path)
+      expect(stack_cmd).to match(/sqlite3 2\./)
+      expect(stack_cmd).not_to include("Alba")
+      expect(stack_cmd).not_to include("<%")
+      expect(File.exist?(File.join(app_dir, ".claude/commands/stack.md"))).to be(false)
+      expect(File.exist?(stack_cmd_path + ".erb")).to be(false)
+
+      # A templated guideline renders first, then has the rendered frontmatter stripped.
+      stack_guide_path = File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-stack-guide.md")
+      expect(File.exist?(stack_guide_path)).to be(true), "alpha-stack-guide not installed:\n#{out}"
+      stack_guide = File.read(stack_guide_path)
+      expect(stack_guide).to start_with("# Alpha Stack Guideline")
+      expect(stack_guide).not_to include("description:") # frontmatter stripped post-render
+      expect(stack_guide).to match(/sqlite3 2\./)
+      expect(stack_guide).not_to include("Alba")
+      expect(stack_guide).not_to include("<%")
+
       lock = File.read(File.join(app_dir, ".hyperdrive/lock.yml"))
+      expect(lock).to include(".claude/agents/alpha-scout.md")
+      expect(lock).to include(".claude/commands/alpha-stack.md")
+      expect(lock).to include(".claude/hyperdrive/guidelines/alpha-stack-guide.md")
+      expect(lock).not_to include(".md.erb")
       expect(lock).to include(".claude/agents/alpha-agent.md")
       expect(lock).to include(".claude/commands/alpha-analyze.md")
       expect(lock).to include("artifact: agent")
@@ -99,7 +136,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
 
       expect(out).to match(/skill\s+alpha-skill \(\+3 files\)/)
 
-      expect(out).to match(/1 guideline\(s\), ~[1-9]\d* tokens always in context/)
+      expect(out).to match(/2 guideline\(s\), ~[1-9]\d* tokens always in context/)
 
       out2, status2 = Smoke.run_hyperdrive_init!(app_dir)
       expect(status2.success?).to be(true), out2
@@ -111,6 +148,9 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(File.read(guide_path)).to eq(guide)
       expect(File.read(agent_path)).to eq(agent)
       expect(File.read(command_path)).to eq(command)
+      expect(File.read(scout_path)).to eq(scout)
+      expect(File.read(stack_cmd_path)).to eq(stack_cmd)
+      expect(File.read(stack_guide_path)).to eq(stack_guide)
     end
   end
 
@@ -217,7 +257,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(File.exist?(File.join(skill_dir, "SKILL.md"))).to be(true)
       expect(File.exist?(guide_path)).to be(true)
 
-      rewrite_disabled(skills: ["alpha-skill"], guidelines: ["alpha-guide"])
+      rewrite_disabled(skills: ["alpha-skill"], guidelines: ["alpha-guide", "alpha-stack-guide"])
 
       out, status = Smoke.run_hyperdrive_init!(app_dir)
       expect(status.success?).to be(true), out
@@ -230,7 +270,8 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(File.exist?(File.join(app_dir, "CLAUDE.md"))).to be(false)
 
       expect(YAML.safe_load(File.read(lock_path))["disabled"])
-        .to eq("skills" => ["alpha-skill"], "guidelines" => ["alpha-guide"], "agents" => [], "commands" => [])
+        .to eq("skills" => ["alpha-skill"], "guidelines" => ["alpha-guide", "alpha-stack-guide"],
+          "agents" => [], "commands" => [])
 
       out2, status2 = Smoke.run_hyperdrive_init!(app_dir)
       expect(status2.success?).to be(true), out2
@@ -284,7 +325,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       index = File.read(File.join(app_dir, ".claude/hyperdrive/index.md"))
       expect(index).to include("@guidelines/alpha-guide.md")
       expect(index).to include("@guidelines/beta-guide.md")
-      expect(out).to match(/2 guideline\(s\), ~[1-9]\d* tokens always in context/)
+      expect(out).to match(/3 guideline\(s\), ~[1-9]\d* tokens always in context/)
 
       # The installed name rewrite must be stable across runs, or a second run
       # would read as drift and rewrite the file.

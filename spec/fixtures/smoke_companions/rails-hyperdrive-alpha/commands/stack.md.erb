@@ -1,0 +1,13 @@
+---
+description: Smoke-fixture slash command rendered from a template by the alpha companion gem.
+---
+
+# Stack
+
+<%- if gem?("sqlite3") -%>
+Report the SQLite version this app resolved (sqlite3 <%= gem_version("sqlite3") || "any version" %>).
+<%- end -%>
+<%- if gem?("alba") -%>
+Report the Alba serializers in use.
+<%- end -%>
+Rendered by hyperdrive at install time.
