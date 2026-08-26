@@ -45,6 +45,18 @@ RSpec.describe "hyperdrive rake tasks" do
     expect(File.read(File.join(@dir, "skills/paired/SKILL.md"))).to include("# Paired")
   end
 
+  it "hyperdrive:skills:render and :check take the canonical branch of canonical_render?" do
+    write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb",
+          template + "<%- if canonical_render? -%>\nstatic face\n<%- else -%>\ninstalled face\n<%- end -%>\n")
+
+    quiet_render
+    face = File.read(File.join(@dir, "skills/paired/SKILL.md"))
+    expect(face).to include("static face")
+    expect(face).not_to include("installed face")
+
+    expect { invoke("hyperdrive:skills:check") }.to output(/up to date/).to_stdout
+  end
+
   it "hyperdrive:skills:check passes when the static faces are fresh" do
     quiet_render
     expect { invoke("hyperdrive:skills:check") }.to output(/up to date/).to_stdout

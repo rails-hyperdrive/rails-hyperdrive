@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `canonical_render?`, a fourth skill-template ERB helper: `true` in the
+  author-side canonical render (`rake hyperdrive:skills:render`/`check`) and
+  `false` when rendering into an app, so one template can serve both channels
+  where the same content has to read differently — a companion that also ships
+  as a Claude Code plugin, say, whose command spellings differ from the
+  hyperdrive-installed ones. Unlike the bundle predicates it is deterministic in
+  both bindings, so `if`/`else`/`unless` on it is safe. A template using it
+  should declare `hyperdrive_version: ">= 0.8"` in its manifest entry (or
+  gem-wide), so an older installer reports "upgrade rails-hyperdrive" rather
+  than skipping the skill with a template-render failure.
+
 ## [0.7.0] - 2026-08-26
 
 ### Added
