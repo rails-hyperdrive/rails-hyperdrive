@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-26
+
 ### Changed
 
 - Renamed the gem from `bundler-rails-hyperdrive` to `bundler-hyperdrive`. The
@@ -33,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release: an `after-install-all` Bundler hook that installs missing
   hyperdrive artifacts during `bundle install`, with zero runtime dependencies.
 
-[Unreleased]: https://github.com/rails-hyperdrive/rails-hyperdrive/compare/bundler-hyperdrive/v0.1.1...HEAD
+[Unreleased]: https://github.com/rails-hyperdrive/rails-hyperdrive/compare/bundler-hyperdrive/v0.2.0...HEAD
+[0.2.0]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/bundler-hyperdrive/v0.2.0
 [0.1.1]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/bundler-hyperdrive/v0.1.1
 [0.1.0]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/bundler-hyperdrive/v0.1.0
