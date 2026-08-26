@@ -22,7 +22,7 @@ module Rails
       # identified and validated, and where each target tool installs it.
       Kind = Struct.new(
         :type, :shape, :section, :key_label, :shipped_label, :dir_key, :prefix_key,
-        :convention_roots, :identity, :frontmatter, :install_body,
+        :convention_roots, :identity, :frontmatter, :install_body, :erb,
         :collision_rewrites_name, :eager, :name_from_dest, :dests,
         keyword_init: true
       ) do
@@ -63,6 +63,7 @@ module Rails
           identity: :frontmatter,
           frontmatter: :required,
           install_body: :verbatim,
+          erb: true,
           collision_rewrites_name: true,
           eager: false,
           name_from_dest: ->(dest) { File.basename(File.dirname(dest)) },
@@ -89,6 +90,7 @@ module Rails
           identity: :frontmatter,
           frontmatter: :required,
           install_body: :strip_frontmatter,
+          erb: true,
           collision_rewrites_name: false,
           eager: true,
           name_from_dest: ->(dest) { File.basename(dest, ".md") },
@@ -111,6 +113,7 @@ module Rails
           identity: :frontmatter,
           frontmatter: :required,
           install_body: :verbatim,
+          erb: true,
           collision_rewrites_name: true,
           eager: false,
           name_from_dest: ->(dest) { File.basename(dest, ".md") },
@@ -128,6 +131,7 @@ module Rails
           identity: :filename_stem,
           frontmatter: :optional,
           install_body: :verbatim,
+          erb: true,
           collision_rewrites_name: false,
           eager: false,
           name_from_dest: ->(dest) { File.basename(dest, ".md") },

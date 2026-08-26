@@ -88,9 +88,7 @@ module Rails
             next
           end
           manifest = GemManifest.load(spec, warnings: report.warnings)
-          seen = Hash.new { |h, k| h[k] = [] }
-          each_artifact_path(spec, manifest: manifest, report: report) do |path, kind, support_root, key|
-            seen[kind.type] << key
+          seen = each_artifact_path(spec, manifest: manifest, report: report) do |path, kind, support_root, key|
             gate = manifest.gate(kind.type, key)
             artifact = parse(path, source_spec: spec, kind: kind, resolved: resolved,
               report: report, support_root: support_root, gate: gate, key: key, manifest: manifest)
@@ -111,20 +109,27 @@ module Rails
         end
       end
 
-      # Yields each candidate with its kind descriptor and its manifest join
-      # key: a directory-shaped kind's relpath from its root, a flat kind's
-      # filename. Keys are collected before parsing, so a candidate later
-      # dropped (e.g. an ERB render failure) still counts as known to the
-      # manifest.
+      # Yields each candidate with its kind descriptor and the manifest join key
+      # its gating is read under: a directory-shaped kind's relpath from its
+      # root, a flat kind's filename. Returns every key the manifest could have
+      # named a shipped artifact by, collected before parsing so a candidate
+      # later dropped (e.g. an ERB render failure) still counts as known.
       def each_artifact_path(spec, manifest:, report:)
+        seen = Hash.new { |h, k| h[k] = [] }
         InstallLayout.content_kinds.each do |kind|
           if kind.dir_shaped?
-            skill_paths(spec, manifest: manifest, report: report)
-              .each { |path, support_root, rel| yield path, kind, support_root, rel }
+            skill_paths(spec, manifest: manifest, report: report).each do |path, support_root, rel|
+              seen[kind.type] << rel
+              yield path, kind, support_root, rel
+            end
           else
-            flat_paths(spec, kind, manifest: manifest).each { |p| yield p, kind, nil, File.basename(p) }
+            seen[kind.type].concat(flat_keys(spec, kind, manifest: manifest))
+            flat_paths(spec, kind, manifest: manifest, report: report).each do |path|
+              yield path, kind, nil, flat_gate_key(path, kind, manifest, spec, report)
+            end
           end
         end
+        seen
       end
 
       # The staleness signal for gating detached from content: an entry
@@ -212,12 +217,58 @@ module Rails
           "supporting *.md.erb templates; static supporting files ship in the paired content directory"
       end
 
-      # One .md file per artifact, deduped by expanded path so overlapping roots
-      # yield each file once.
-      def flat_paths(spec, kind, manifest:)
+      # One file per artifact: everything shipped, minus the templates a static
+      # file already ships the rendered face of.
+      def flat_paths(spec, kind, manifest:, report:)
+        resolve_flat_ties(flat_candidates(spec, kind, manifest: manifest), report)
+      end
+
+      # Every filename a manifest may key one of the kind's artifacts by: the
+      # name as shipped, plus each template's rendered face. Templates the tie
+      # rule drops are included — the manifest names shipped files, not
+      # surviving ones.
+      def flat_keys(spec, kind, manifest:)
+        flat_candidates(spec, kind, manifest: manifest)
+          .flat_map { |path| [File.basename(path), File.basename(target_path(path))] }
+          .uniq
+      end
+
+      # Deduped by expanded path so overlapping roots yield each file once.
+      def flat_candidates(spec, kind, manifest:)
+        glob = kind.erb ? "{*.md,*.md.erb}" : "*.md"
         artifact_roots(spec, kind, manifest)
-          .flat_map { |root| Dir.glob(File.join(root, "*.md")) }
+          .flat_map { |root| Dir.glob(File.join(root, glob)) }
           .uniq { |path| File.expand_path(path) }
+      end
+
+      # A flat kind is identified by its filename, so a static file and a
+      # template rendering to that name are the same artifact anywhere in the
+      # root set; the static one wins, never silently.
+      def resolve_flat_ties(paths, report)
+        paths.group_by { |path| File.basename(target_path(path)) }.flat_map do |face, group|
+          templates, static = group.partition { |path| erb_template?(path) }
+          next group if templates.empty? || static.empty?
+
+          templates.each { |path| report.skip "skip #{path}: #{face} takes precedence" }
+          static
+        end
+      end
+
+      # A templated artifact answers to its shipped *.md.erb name and to the
+      # rendered face it installs as; the exact spelling wins when a manifest
+      # carries both.
+      def flat_gate_key(path, kind, manifest, spec, report)
+        shipped = File.basename(path)
+        face = File.basename(target_path(path))
+        return shipped if face == shipped
+
+        keys = manifest.section_keys(kind.type)
+        return face if keys.include?(face) && !keys.include?(shipped)
+        if keys.include?(shipped) && keys.include?(face)
+          report.warn "#{spec.name}: manifest #{kind.section} keys '#{shipped}' and '#{face}' both gate " \
+                      "'#{face}'; using '#{shipped}'"
+        end
+        shipped
       end
 
       # The manifest's directory override is searched in addition to the kind's
@@ -239,7 +290,7 @@ module Rails
 
         convention_root = File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive")
         Dir.glob(File.join(convention_root, "skills", "**", "{SKILL.md,SKILL.md.erb}")).any? ||
-          Dir.glob(File.join(convention_root, "guidelines", "*.md")).any?
+          Dir.glob(File.join(convention_root, "guidelines", "{*.md,*.md.erb}")).any?
       end
 
       def metadata_present?(spec, key)
@@ -348,7 +399,7 @@ module Rails
       # the manifest; the manifest still keys its own entries by the shipped
       # filename.
       def prefixed_stem(path, kind, manifest)
-        stem = File.basename(path, ".md")
+        stem = File.basename(target_path(path), ".md")
         prefix = manifest.name_prefix(kind.type)
         prefix ? "#{prefix}-#{stem}" : stem
       end
@@ -629,6 +680,7 @@ module Rails
       end
 
       private_class_method :each_artifact_path, :warn_unknown_manifest_keys,
+                           :flat_paths, :flat_candidates, :resolve_flat_ties, :flat_gate_key,
                            :artifact_roots, :prefixed_stem, :templates_root,
                            :resolve_same_dir_tie, :pair_with_templates, :warn_template_extras,
                            :opted_in?, :metadata_present?, :notice_skills_sh_content,

@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ERB templates for guidelines, agents, and commands.** A companion can ship a
+  flat artifact as `<name>.md.erb` directly in its own root
+  (`lib/<gem_name>/hyperdrive/guidelines/`, `agents/`, `commands/`, or an
+  `agents_dir:`/`commands_dir:` override). It renders at discovery against the
+  app's resolved bundle with the same helpers skills use — `gem?`, `any_gem?`,
+  `gem_version`, `canonical_render?` — and installs as `<name>.md`: a
+  guideline's frontmatter is parsed from the render and then stripped, a
+  templated command takes its identity from the rendered stem
+  (`analyze.md.erb` → `/analyze`, prefixed by `command_prefix:` as usual), and
+  the rendered bytes are what the lock hashes, so a re-render is an ordinary
+  upstream delivery through the existing drift, sidecar, and merge machinery.
+  There is no template/content pairing for flat kinds and no separate template
+  root: Claude Code plugins glob `*.md`, so a template is invisible to them.
+  A static `<name>.md` beats a template rendering to the same filename anywhere
+  in the kind's roots, always with a warning; a manifest entry may key the
+  artifact by either spelling (`reviewer.md.erb` or `reviewer.md`), the shipped
+  spelling winning with a warning when both appear, and
+  `rake hyperdrive:manifest:check` fails on that ambiguity. A convention-path
+  guideline template opts a gem in as a companion, like its static twin.
+  Declare a gem-wide `hyperdrive_version: ">= 0.8"` when shipping templated flat
+  artifacts: earlier installers never look for `*.md.erb` outside skill
+  directories, so the fence is what turns their silence into "upgrade
+  rails-hyperdrive to install it".
 - `canonical_render?`, a fourth skill-template ERB helper: `true` in the
   author-side canonical render (`rake hyperdrive:skills:render`/`check`) and
   `false` when rendering into an app, so one template can serve both channels

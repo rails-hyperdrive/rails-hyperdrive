@@ -349,6 +349,31 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     end
   end
 
+  describe "flat ERB ancestry relpaths" do
+    let(:locator) { Rails::Hyperdrive::AncestorLocator }
+
+    def templated_guideline(version:, edition: "")
+      Artifact.new(
+        name: "jobs", description: "d", target_gem: "*", versions: "*",
+        artifact_type: :guideline, source_gem: "rails-hyperdrive-x",
+        path: "/gem/lib/x/hyperdrive/guidelines/jobs.md.erb",
+        body: "---\nname: jobs\ndescription: d\n---\n\n# jobs\n#{edition}",
+        spec_version: version, source_root: "/gem"
+      )
+    end
+
+    it "looks the ancestor up at the .erb-normalized relpath" do
+      run(artifacts: [templated_guideline(version: "1.0.0")])
+      File.write(File.join(root, ".claude/hyperdrive/guidelines/jobs.md"), "edited\n")
+      allow(locator).to receive(:locate).and_return(nil)
+
+      run(mode: :merge, artifacts: [templated_guideline(version: "2.0.0", edition: "v2")])
+
+      expect(locator).to have_received(:locate)
+        .with(hash_including(kind: "guideline", relpath: "lib/x/hyperdrive/guidelines/jobs.md"))
+    end
+  end
+
   describe "artifacts dropped by the disabled list" do
     def disable(key, *names)
       lock = File.join(root, ".hyperdrive/lock.yml")

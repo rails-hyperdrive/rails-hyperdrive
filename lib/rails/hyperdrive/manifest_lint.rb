@@ -102,9 +102,14 @@ module Rails
         entries.each do |key, entry|
           next if Array(kind.prefix_key).include?(key)
 
+          face = BundlerArtifactDiscovery.target_path(key)
           unless shipped.include?(key)
             problems << "#{kind.section} entry '#{key}' names no shipped #{kind.shipped_label}"
           end
+          if face != key && entries.key?(face)
+            problems << "#{kind.section} entry '#{key}': '#{face}' keys the same file; keep one spelling"
+          end
+
           unless entry.is_a?(Hash)
             problems << "#{kind.section} entry '#{key}' must be a map of gating keys"
             next
@@ -218,8 +223,9 @@ module Rails
         end
       end
 
+      # Both spellings of a template-shipped file, since either gates it.
       def shipped_flat(repo_spec, kind, manifest)
-        BundlerArtifactDiscovery.flat_paths(repo_spec, kind, manifest: manifest).map { |p| File.basename(p) }
+        BundlerArtifactDiscovery.flat_keys(repo_spec, kind, manifest: manifest)
       end
 
       private_class_method :missing_manifest, :problems_in, :parse_root, :each_entry, :check_section_settings,

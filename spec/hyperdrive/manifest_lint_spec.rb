@@ -293,6 +293,27 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
 
       expect(problems("skills:\n  alpha:\n    gem: sidekiq\n")).to be_empty
     end
+
+    it "matches a templated flat artifact by either spelling" do
+      write("agents/reviewer.md.erb", "---\nname: reviewer\ndescription: d\n---\n")
+
+      expect(problems("agents:\n  reviewer.md.erb:\n    gem: sidekiq\n")).to be_empty
+      expect(problems("agents:\n  reviewer.md:\n    gem: sidekiq\n")).to be_empty
+    end
+
+    it "matches a template a static file of the same name displaces at install time" do
+      write("agents/reviewer.md", "---\nname: reviewer\ndescription: d\n---\n")
+      write("agents/reviewer.md.erb", "---\nname: reviewer\ndescription: d\n---\n")
+
+      expect(problems("agents:\n  reviewer.md.erb:\n    gem: sidekiq\n")).to be_empty
+    end
+
+    it "fails when both spellings key the same templated flat artifact" do
+      write("agents/reviewer.md.erb", "---\nname: reviewer\ndescription: d\n---\n")
+
+      expect(problems("agents:\n  reviewer.md.erb:\n    gem: sidekiq\n  reviewer.md:\n    gem: devise\n"))
+        .to eq(["agents entry 'reviewer.md.erb': 'reviewer.md' keys the same file; keep one spelling"])
+    end
   end
 
   describe "conditional entries" do
