@@ -9,10 +9,10 @@ body:
       label: Affected surface
       description: Which part of rails-hyperdrive is misbehaving?
       options:
-        - hyperdrive:init / hyperdrive:update (generator, lockfile, drift)
+        - hyperdrive:init / hyperdrive:sync (generator, lockfile, drift)
         - hyperdrive:discover (networked companion discovery)
         - MCP server / tools (runtime at /_hyperdrive/mcp)
-        - Artifact discovery (skills/guidelines skipped or not found)
+        - Artifact discovery (skills, guidelines, agents, or commands skipped or not found)
         - Other / not sure
     validations:
       required: true

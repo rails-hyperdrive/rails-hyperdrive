@@ -6,13 +6,13 @@ Gem::Specification.new do |spec|
   spec.authors     = ["Bakaface"]
   spec.email       = ["afaceisnomore@gmail.com"]
 
-  spec.summary     = "Dev-only Rails engine that bootstraps an MCP server + skills/guidelines for AI coding agents."
+  spec.summary     = "Dev-only Rails engine that bootstraps an MCP server + stack-matched skills, guidelines, agents, and commands for AI coding agents."
   spec.description = <<~DESC
     Rails Hyperdrive mounts an MCP (Model Context Protocol) server at /_hyperdrive/mcp in development,
     exposing introspection tools for AI coding agents (eval Ruby, query DB, tail logs,
     list models/routes, locate source, fetch docs, snapshot stack). It also ships a
-    `hyperdrive:init` generator that discovers and installs two artifact types — lazy skills
-    and eager guidelines — shipped by companion gems under a documented contract.
+    `hyperdrive:init` generator that discovers and installs four artifact kinds — skills,
+    guidelines, agents, and commands — shipped by companion gems under a documented contract.
     rails-hyperdrive is the mechanism; companion gems (rails-hyperdrive-<library>) are the content.
   DESC
   spec.homepage    = "https://github.com/rails-hyperdrive/rails-hyperdrive"

@@ -187,7 +187,7 @@ Draw the listed targets from the gem's own `hyperdrive_targets` (below): the gem
 
 ### Version-fencing against rails-hyperdrive
 
-`hyperdrive_version:` is the sanctioned way to require a minimum rails-hyperdrive for a piece of content. Write it at the top level for the whole gem, or in a `skills:`/`guidelines:` entry for one artifact, as a `Gem::Requirement`: one string (comma-separated allowed) or a YAML list of requirement strings.
+`hyperdrive_version:` is the sanctioned way to require a minimum rails-hyperdrive for a piece of content. Write it at the top level for the whole gem, or in a `skills:`/`guidelines:`/`agents:`/`commands:` entry for one artifact, as a `Gem::Requirement`: one string (comma-separated allowed) or a YAML list of requirement strings.
 
 ```yaml
 skills:

@@ -25,8 +25,9 @@ Description:
     upstream wholesale. Either way the next sync is quiet: the lock already
     records the delivered upstream, so the same version is never re-offered.
 
-    Touches no bootstrap artifact: .mcp.json, the engine mount, the optional
-    initializer, and .gitignore belong to hyperdrive:init and are left alone.
+    Touches no bootstrap artifact: .mcp.json, the engine mount, the Gemfile
+    plugin directive, and .gitignore belong to hyperdrive:init and are left
+    alone.
 
 Examples:
     bin/rails hyperdrive:sync

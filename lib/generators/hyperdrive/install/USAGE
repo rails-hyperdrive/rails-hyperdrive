@@ -3,6 +3,9 @@ Description:
       - adds the rails-hyperdrive server to .mcp.json (Claude Code config),
         merging into any servers already configured there
       - mounts Rails::Hyperdrive::Engine at /_hyperdrive in config/routes.rb (idempotent)
+      - registers the bundler-hyperdrive plugin in the Gemfile, so newly
+        bundled companion gems install their artifacts on bundle install
+      - adds a .gitignore rule for the hyperdrive:discover cache
       - discovers companion-gem skills, guidelines, agents, and commands in the
         bundle and installs them (skills to .claude/skills/, guidelines to
         .claude/hyperdrive/guidelines/, agents to .claude/agents/, commands to

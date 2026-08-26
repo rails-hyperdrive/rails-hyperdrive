@@ -9,8 +9,8 @@ Gem::Specification.new do |spec|
   spec.summary     = "Bundler plugin that installs rails-hyperdrive companion artifacts on bundle install."
   spec.description = <<~DESC
     A Bundler plugin for applications using rails-hyperdrive. After every
-    `bundle install` in development it installs the artifacts (skills and
-    guidelines) that newly bundled companion gems ship — additively, never
+    `bundle install` in development it installs the artifacts (skills,
+    guidelines, agents, and commands) that newly bundled companion gems ship — additively, never
     overwriting or deleting a file — and reports anything that needs
     `bin/rails hyperdrive:sync`. It never fails an install.
   DESC

@@ -13,7 +13,7 @@
 Rails Hyperdrive is a development-only Rails engine for working on Rails apps with AI coding agents. It gives the agent two things it can't get from source alone: live answers from the booted app, and guidance specific to the gems and versions in the bundle.
 
 - **Live introspection.** The engine mounts an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server at `http://localhost:3000/_hyperdrive/mcp` with **8 tools** that answer from the running app itself: eval Ruby, query the DB (read-only), tail logs, list models and routes, jump to source, look up docs, snapshot the stack. The agent asks the router instead of grepping `routes.rb`, and reads the live schema instead of replaying migrations.
-- **Stack-specific knowledge.** `bin/rails hyperdrive:init` discovers **skills** and **guidelines** shipped by companion gems and installs only the ones matching your Gemfile: guidance targeting Sidekiq, for example, lands only if your app bundles Sidekiq, at a version the guidance covers.
+- **Stack-specific knowledge.** `bin/rails hyperdrive:init` discovers **skills**, **guidelines**, **agents**, and **commands** shipped by companion gems and installs only the ones matching your Gemfile: guidance targeting Sidekiq, for example, lands only if your app bundles Sidekiq, at a version the guidance covers.
 
 **rails-hyperdrive is the mechanism; companion gems are the content.** The gem itself ships no skills or guidelines, only the contract and the discovery/install engine. Content reaches your app three ways:
 

@@ -21,7 +21,8 @@ body:
     attributes:
       value: >
         **Note:** rails-hyperdrive ships the mechanism (discovery, install, MCP
-        server); companion gems ship the content (skills, guidelines). Requests
+        server); companion gems ship the content (skills, guidelines, agents,
+        commands). Requests
         for new skill/guideline content usually belong in a companion gem and
         may be redirected.
   - type: textarea
