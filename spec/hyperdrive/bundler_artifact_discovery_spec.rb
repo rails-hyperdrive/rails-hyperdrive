@@ -2114,6 +2114,177 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
     end
   end
 
+  describe "ERB-templated flat artifacts" do
+    around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
+
+    let(:sidekiq) { spec_double("sidekiq", "7.3.0", "#{@dir}/nope") }
+
+    def write(rel, body)
+      path = File.join(@dir, rel)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, body)
+    end
+
+    def guideline_path(name) = "lib/some_gem/hyperdrive/guidelines/#{name}"
+
+    def discovered(*extra_specs)
+      described_class.discover(specs: [spec_double("some_gem", "1.0.0", @dir), *extra_specs], report: report)
+    end
+
+    it "renders an agent template, parsing frontmatter post-render" do
+      write("hyperdrive.yml", "")
+      write("agents/reviewer.md.erb", <<~MD)
+        ---
+        name: reviewer
+        description: <%= gem?("sidekiq") ? "queues" : "none" %>
+        ---
+
+        # Reviewer
+
+        <%- if gem?("sidekiq", ">= 7.0") -%>
+        Sidekiq <%= gem_version("sidekiq") %>.
+        <%- end -%>
+      MD
+
+      artifact = discovered(sidekiq).first
+      expect(artifact.artifact_type).to eq(:agent)
+      expect(artifact.name).to eq("reviewer")
+      expect(artifact.description).to eq("queues")
+      expect(described_class.install_ready_body(artifact)).to include("Sidekiq 7.3.0.")
+      expect(warnings).to be_empty
+    end
+
+    it "renders a command template, taking its identity from the rendered filename" do
+      write("hyperdrive.yml", "")
+      write("commands/analyze.md.erb", "# analyze <%= gem_version(\"sidekiq\") %>\n")
+
+      artifact = discovered(sidekiq).first
+      expect(artifact.artifact_type).to eq(:command)
+      expect(artifact.name).to eq("analyze")
+      expect(described_class.install_ready_body(artifact)).to eq("# analyze 7.3.0\n")
+      expect(warnings).to be_empty
+    end
+
+    it "renders a guideline template, then strips the rendered frontmatter" do
+      write(guideline_path("jobs.md.erb"), <<~MD)
+        ---
+        name: jobs
+        description: <%= any_gem?("sidekiq") ? "queues" : "none" %>
+        ---
+
+        # Jobs
+
+        Use <%= gem_version("sidekiq") %>.
+      MD
+
+      artifact = discovered(sidekiq).first
+      expect(artifact.artifact_type).to eq(:guideline)
+      expect(artifact.name).to eq("jobs")
+      expect(artifact.description).to eq("queues")
+      expect(described_class.install_ready_body(artifact)).to eq("# Jobs\n\nUse 7.3.0.\n")
+      expect(warnings).to be_empty
+    end
+
+    it "opts a gem in on a convention-path guideline template alone" do
+      write(guideline_path("jobs.md.erb"), "---\nname: jobs\ndescription: d\n---\n\n# Jobs\n")
+
+      expect(discovered.map(&:name)).to eq(["jobs"])
+    end
+
+    it "leaves bare agents/ and commands/ templates a non-signal" do
+      write("agents/reviewer.md.erb", "---\nname: reviewer\ndescription: d\n---\n")
+      write("commands/analyze.md.erb", "# analyze\n")
+
+      expect(discovered).to be_empty
+      expect(notices).to be_empty
+    end
+
+    it "skips a flat artifact whose template fails to render, marking its source gem" do
+      write("hyperdrive.yml", "")
+      write("agents/broken.md.erb", "<% raise 'boom' %>\n")
+
+      expect(discovered).to be_empty
+      expect(skips.join).to include("broken.md.erb").and include("ERB render failed")
+      expect(skipped_gems).to eq(["some_gem"])
+    end
+
+    it "reports the version fence rather than the render error on a fenced-out template" do
+      write("hyperdrive.yml", "commands:\n  analyze.md.erb:\n    hyperdrive_version: \">= 99.0\"\n")
+      write("commands/analyze.md.erb", "<% raise 'boom' %>\n")
+
+      expect(discovered).to be_empty
+      expect(fence_warnings.join).to include("requires rails-hyperdrive >= 99.0")
+      expect(skips.join).not_to include("ERB render failed")
+    end
+
+    it "prefers a static file over a template of the same name in one root, with a warning" do
+      write("hyperdrive.yml", "")
+      write("agents/reviewer.md", "---\nname: static\ndescription: d\n---\n")
+      write("agents/reviewer.md.erb", "---\nname: templated\ndescription: d\n---\n")
+
+      expect(discovered.map(&:name)).to eq(["static"])
+      expect(skips.join).to include("reviewer.md.erb").and include("reviewer.md takes precedence")
+    end
+
+    it "prefers a static file over a template of the same name in another root of the root set" do
+      write("hyperdrive.yml", "agents_dir: extra/agents\n")
+      write("agents/reviewer.md", "---\nname: static\ndescription: d\n---\n")
+      write("extra/agents/reviewer.md.erb", "---\nname: templated\ndescription: d\n---\n")
+
+      expect(discovered.map(&:name)).to eq(["static"])
+      expect(skips.join).to include("reviewer.md takes precedence")
+    end
+
+    it "prefixes a templated command's rendered stem, gating it by the shipped filename" do
+      write("hyperdrive.yml", "commands:\n  command_prefix: cp\n  analyze.md.erb:\n    gem: absent_gem\n")
+      write("commands/analyze.md.erb", "# analyze\n")
+
+      expect(discovered).to be_empty
+      expect(skips.join).to include("skip cp-analyze (from some_gem): target gem 'absent_gem' not in bundle")
+    end
+
+    it "names a templated command by its rendered stem" do
+      write("hyperdrive.yml", "commands:\n  command_prefix: cp\n")
+      write("commands/analyze.md.erb", "# analyze\n")
+
+      expect(discovered.map(&:name)).to eq(["cp-analyze"])
+    end
+
+    it "gates a template keyed by the rendered face it installs as" do
+      write("hyperdrive.yml", "agents:\n  reviewer.md:\n    gem: absent_gem\n")
+      write("agents/reviewer.md.erb", "---\nname: reviewer\ndescription: d\n---\n")
+
+      expect(discovered).to be_empty
+      expect(skips.join).to include("target gem 'absent_gem' not in bundle")
+      expect(warnings.join).not_to include("names no shipped agent")
+    end
+
+    it "warns and reads the shipped spelling when a manifest keys both" do
+      write("hyperdrive.yml", <<~YAML)
+        agents:
+          reviewer.md.erb:
+            gem: "*"
+          reviewer.md:
+            gem: absent_gem
+      YAML
+      write("agents/reviewer.md.erb", "---\nname: reviewer\ndescription: d\n---\n")
+
+      expect(discovered.map(&:name)).to eq(["reviewer"])
+      expect(warnings.join).to include(
+        "manifest agents keys 'reviewer.md.erb' and 'reviewer.md' both gate 'reviewer.md'; using 'reviewer.md.erb'"
+      )
+    end
+
+    it "counts both spellings of a tie-dropped template as keys the manifest may name" do
+      write("hyperdrive.yml", "agents:\n  reviewer.md.erb:\n    gem: \"*\"\n")
+      write("agents/reviewer.md", "---\nname: reviewer\ndescription: d\n---\n")
+      write("agents/reviewer.md.erb", "---\nname: templated\ndescription: d\n---\n")
+
+      expect(discovered.map(&:name)).to eq(["reviewer"])
+      expect(warnings.join).not_to include("names no shipped agent")
+    end
+  end
+
   describe "permissive parser" do
     it "warns and skips on a version mismatch rather than raising" do
       old_spec = spec_double("dummy_gem", "2.5.0", dummy_root)

@@ -1,0 +1,14 @@
+---
+name: alpha-stack-guide
+description: A smoke-fixture guideline rendered from a template by rails-hyperdrive-alpha.
+---
+
+# Alpha Stack Guideline
+
+<%- if gem?("sqlite3") -%>
+This app persists to SQLite (sqlite3 <%= gem_version("sqlite3") || "any version" %>).
+<%- end -%>
+<%- if gem?("alba") -%>
+This app serializes with Alba.
+<%- end -%>
+Rendered by hyperdrive at install time, then frontmatter-stripped.

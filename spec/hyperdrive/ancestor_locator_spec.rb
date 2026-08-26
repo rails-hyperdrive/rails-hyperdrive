@@ -96,6 +96,20 @@ RSpec.describe Rails::Hyperdrive::AncestorLocator do
     expect(body).to eq(rendered)
   end
 
+  it "renders a guideline's .md.erb twin, then strips the rendered frontmatter" do
+    ship("#{guideline_relpath}.erb",
+      "---\nname: auth\ndescription: d\n---\n\n# Auth\n\nsidekiq <%= gem_version('sidekiq') %>.\n")
+    ready = "# Auth\n\nsidekiq 7.2.0.\n"
+
+    body = described_class.locate(
+      kind: "guideline", relpath: guideline_relpath,
+      lock_entry: lock_entry(kind: "guideline", sha: sha(ready)),
+      gem_paths: [home], resolved: { "sidekiq" => Gem::Version.new("7.2.0") }
+    )
+
+    expect(body).to eq(ready)
+  end
+
   it "reconstructs a template-paired skill's ancestor from the SKILL.md.erb twin" do
     relpath = "lib/rails-hyperdrive-x/hyperdrive/skills/jobs/SKILL.md"
     ship("#{relpath}.erb",

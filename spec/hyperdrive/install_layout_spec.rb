@@ -28,6 +28,11 @@ RSpec.describe Rails::Hyperdrive::InstallLayout do
       expect(described_class.kind(:guideline).dir_shaped?).to be(false)
     end
 
+    it "marks every kind a companion ships as ERB-templatable" do
+      expect(described_class.content_kinds.map(&:erb)).to all(be(true))
+      expect(described_class.kind(:skill_support).erb).to be_nil
+    end
+
     it "resolves each kind's convention roots against the gem name" do
       expect(described_class.kind(:skill).roots_for("some_gem"))
         .to eq(["lib/some_gem/hyperdrive/skills", "skills"])

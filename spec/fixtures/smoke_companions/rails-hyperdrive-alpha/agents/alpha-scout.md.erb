@@ -1,0 +1,15 @@
+---
+name: alpha-scout
+description: Smoke-fixture subagent rendered from a template by the alpha companion gem.
+tools: Read, Grep
+---
+
+# Alpha Scout
+
+<%- if gem?("sqlite3") -%>
+Query the SQLite database (sqlite3 <%= gem_version("sqlite3") || "any version" %>) before reporting.
+<%- end -%>
+<%- if gem?("alba") -%>
+Serialize findings with Alba.
+<%- end -%>
+Rendered by hyperdrive at install time.

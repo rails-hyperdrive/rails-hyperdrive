@@ -14,7 +14,7 @@ A companion gem ships artifacts under:
 <gem-source>/commands/<name>.md                                     # command (flat file)
 ```
 
-Agents and commands install flat, to `.claude/agents/<name>.md` and `.claude/commands/<name>.md` — never into a per-gem subdirectory. Together with top-level `skills/` that gives a gem the same sibling geometry `.claude/` has, so a relative link like `../skills/layered-rails/workflows/review.md` in an agent body resolves identically in the gem checkout and in the installed app. Flat files only: no subdirectories, no supporting files, and no ERB.
+Agents and commands install flat, to `.claude/agents/<name>.md` and `.claude/commands/<name>.md` — never into a per-gem subdirectory. Together with top-level `skills/` that gives a gem the same sibling geometry `.claude/` has, so a relative link like `../skills/layered-rails/workflows/review.md` in an agent body resolves identically in the gem checkout and in the installed app. Flat files only: no subdirectories and no supporting files. A flat artifact may ship as a `*.md.erb` template ([below](#templated-guidelines-agents-and-commands)).
 
 `<gem_name>` is the gem's name exactly as published, dashes and all — Ruby's dash-to-slash require convention does not apply. A gem named `rails-hyperdrive-sidekiq` ships guidelines under `lib/rails-hyperdrive-sidekiq/hyperdrive/guidelines/`, **not** `lib/rails/hyperdrive/sidekiq/guidelines/`. A file at the dash-to-slash path is silently never discovered: guidelines have no override root and no fallback, so nothing can warn about it.
 
@@ -24,7 +24,7 @@ Top-level `skills/` is the recommended home for skill content: it is the public,
 
 Discovery walks the entire bundle, and many gemspecs package files via `git ls-files`, so an ordinary non-companion gem can ship a contributor-facing `skills/` directory by accident. A gem's artifacts are therefore only scanned when one of a closed set of signals is present:
 
-- artifacts under the `lib/<gem_name>/hyperdrive/` convention path — skills or guidelines;
+- artifacts under the `lib/<gem_name>/hyperdrive/` convention path — skills or guidelines, static or templated;
 - a `hyperdrive.yml` manifest at the gem root (below), whatever it contains — an unusable value inside it changes nothing about the opt-in;
 - one of the gemspec metadata keys `hyperdrive_targets` or `hyperdrive_manifest` — any non-empty value counts, even one discovery later rejects (a `..` segment, say), since declaring the key at all signals intent;
 - the app naming the gem in the `enabled:` list of `.hyperdrive/lock.yml`.
@@ -113,7 +113,7 @@ commands:                # per-command entries, keyed by filename
 
 `gem:` and `gems:` are exact aliases at every position they are read — top-level, every kind's entries, and `conditional:` entries — for every value shape. Use whichever reads naturally; this document writes `gem:` for a single scalar and `gems:` for lists and `any:`/`all:` maps. A map carrying both keys is a stylistic slip rather than an error: `gems:` wins, with a warning.
 
-Entries are keyed by path, never by the artifact's `name:`: a skill entry's key is the skill directory's path relative to its skills root (for a template/content-paired skill, the content dir's path), and a guideline, agent, or command entry's key is its filename — the filename as shipped, before any `command_prefix:` is applied. Only `skills:` entries take `conditional:`; the flat kinds have no supporting files to gate. Resolution is per artifact:
+Entries are keyed by path, never by the artifact's `name:`: a skill entry's key is the skill directory's path relative to its skills root (for a template/content-paired skill, the content dir's path), and a guideline, agent, or command entry's key is its filename — the filename as shipped, before any `command_prefix:` is applied (a `*.md.erb` artifact also answers to its rendered face; see [Templated guidelines, agents, and commands](#templated-guidelines-agents-and-commands)). Only `skills:` entries take `conditional:`; the flat kinds have no supporting files to gate. Resolution is per artifact:
 
 - **`gem`/`gems`**: the entry's own value when either key is present, else the top-level default, else `"*"` (ungated). An entry's value replaces the default gate **wholesale** — targets and their requirements travel together. A per-entry `gem: "*"` therefore un-gates an artifact against a gem-wide default.
 - **`hyperdrive_version`**: the entry's own value when the key is present, else the top-level default, else no fence. A per-entry `hyperdrive_version: ">= 0"` therefore un-fences an artifact against a gem-wide fence.
@@ -238,7 +238,7 @@ For a template-backed supporting file, either spelling is a valid key: the templ
 
 ### ERB-templated markdown
 
-A file named `*.md.erb` in a skill directory is rendered at install time and lands as plain `.md` (the `.erb` suffix is dropped). `SKILL.md.erb` defines a skill exactly like `SKILL.md`; its frontmatter is parsed from the rendered output. Hyperdrive provides four helpers, and they are the only API a template may rely on:
+A file named `*.md.erb` — in a skill directory, or in a guidelines, agents, or commands root — is rendered at install time and lands as plain `.md` (the `.erb` suffix is dropped). `SKILL.md.erb` defines a skill exactly like `SKILL.md`; its frontmatter is parsed from the rendered output. Hyperdrive provides four helpers, and they are the only API a template may rely on:
 
 - `gem?("name")` / `gem?("name", ">= 2.0")`: is the gem bundled (at a satisfying version)?
 - `any_gem?("a", "b", …)`: is any of these bundled?
@@ -254,7 +254,15 @@ Prefer `ActiveJob.perform_all_later` for bulk enqueues.
 <%- end -%>
 ```
 
-Rendering uses ERB's trim mode, so `<%- if gem?("alba") -%>` … `<%- end -%>` control lines leave no blank lines behind. A template that fails to render is skipped with a warning (the whole skill, when it's `SKILL.md.erb`); when a plain file and a template would land at the same path, the plain file wins with a warning. A `SKILL.md.erb` that fails to render on an installer its `hyperdrive_version:` fences out reports the fence instead, since that is the actionable half of the failure. `conditional:` keys name a template by its shipped `x.md.erb` name or its rendered `x.md` face, and gate it before rendering. Guidelines get no ERB support.
+Rendering uses ERB's trim mode, so `<%- if gem?("alba") -%>` … `<%- end -%>` control lines leave no blank lines behind. A template that fails to render is skipped with a warning (the whole skill, when it's `SKILL.md.erb`); when a plain file and a template would land at the same path, the plain file wins with a warning. A `SKILL.md.erb` that fails to render on an installer its `hyperdrive_version:` fences out reports the fence instead, since that is the actionable half of the failure. `conditional:` keys name a template by its shipped `x.md.erb` name or its rendered `x.md` face, and gate it before rendering.
+
+#### Templated guidelines, agents, and commands
+
+A flat artifact ships its template directly in the kind's own root — `lib/<gem_name>/hyperdrive/guidelines/jobs.md.erb`, `agents/reviewer.md.erb`, `commands/analyze.md.erb`. There is no separate template directory and no pairing: Claude Code plugins glob `*.md`, so a template beside your static files is invisible to them, and agents and commands are not skills.sh content in the first place. Everything else follows the rendered face — a guideline's frontmatter is parsed from the render and then stripped on install, and `commands/analyze.md.erb` is the command `analyze` (prefixed by `command_prefix:` like any other). A template that fails to render skips that one artifact.
+
+Two rules keep the two spellings unambiguous. A static file **beats** a template rendering to the same filename anywhere in the kind's roots — including across a convention root and an `agents_dir:`/`commands_dir:` override, since a flat artifact is identified by its filename — and the dropped template is reported. And a manifest entry may key the artifact either way, `reviewer.md.erb` or `reviewer.md`; both gate the same file, the shipped `.erb` spelling wins if you supply both, and `rake hyperdrive:manifest:check` fails on the ambiguity.
+
+Declare a gem-wide `hyperdrive_version: ">= 0.8"` when you ship templated flat artifacts. Installers before 0.8 never look for `*.md.erb` outside skill directories, so they see the artifact as absent rather than skipped; the gem-wide fence is what turns that silence into "upgrade rails-hyperdrive to install it" while they discover the rest of your gem.
 
 Use ERB sparingly: condition reference manuals via `conditional:` and wrap link-table rows that point at gated files, but keep "consider adopting gem X" recommendations unconditional. An all-wrapped `.md.erb` renders to an empty file; to omit a file entirely, gate it with `conditional:` instead.
 
