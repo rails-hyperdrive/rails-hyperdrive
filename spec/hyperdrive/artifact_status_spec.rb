@@ -128,6 +128,53 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
     end
   end
 
+  describe "agents and commands" do
+    def agent(name:, source: "rails-hyperdrive-x", body: nil)
+      Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact.new(
+        name: name, description: "d", target_gem: "*", versions: "*",
+        artifact_type: :agent, source_gem: source, path: "/x/agents/#{name}.md",
+        body: body || "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n", spec_version: "1.0.0"
+      )
+    end
+
+    def command(name:, source: "rails-hyperdrive-x", body: nil)
+      Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact.new(
+        name: name, description: nil, target_gem: "*", versions: "*",
+        artifact_type: :command, source_gem: source, path: "/x/commands/#{name}.md",
+        body: body || "# #{name}\n", spec_version: "1.0.0"
+      )
+    end
+
+    it "runs them through the same four states as guidelines" do
+      artifacts = [agent(name: "reviewer"), command(name: "analyze")]
+      expect(compare(artifacts).missing.map(&:path))
+        .to contain_exactly(".claude/agents/reviewer.md", ".claude/commands/analyze.md")
+
+      install(artifacts)
+      expect(compare(artifacts)).not_to be_stale
+      expect(compare(artifacts).installed.map(&:artifact)).to contain_exactly(:agent, :command)
+
+      status = compare([agent(name: "reviewer"), command(name: "analyze", body: "# v2\n")])
+      expect(status.outdated.map(&:path)).to eq([".claude/commands/analyze.md"])
+
+      expect(compare([]).orphaned.map(&:artifact)).to contain_exactly(:agent, :command)
+    end
+
+    it "offers no supporting-file entries" do
+      install([agent(name: "reviewer")])
+
+      expect(compare([agent(name: "reviewer")]).entries.map(&:artifact)).to eq([:agent])
+    end
+
+    it "is not reported as missing while disabled" do
+      lock_path = File.join(root, Rails::Hyperdrive::InstallLayout::LOCK_PATH)
+      FileUtils.mkdir_p(File.dirname(lock_path))
+      File.write(lock_path, { "disabled" => { "commands" => ["analyze"] } }.to_yaml)
+
+      expect(compare([command(name: "analyze")]).missing).to be_empty
+    end
+  end
+
   describe "a disabled artifact" do
     def disable(*names)
       lock_path = File.join(root, Rails::Hyperdrive::InstallLayout::LOCK_PATH)

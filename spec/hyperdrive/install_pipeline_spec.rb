@@ -29,6 +29,24 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     )
   end
 
+  def agent(name:, source: "rails-hyperdrive-x", body: nil, version: "1.0.0")
+    Artifact.new(
+      name: name, description: "d", target_gem: "*", versions: "*",
+      artifact_type: :agent, source_gem: source, path: "/x/agents/#{name}.md",
+      body: body || "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n",
+      spec_version: version
+    )
+  end
+
+  def command(name:, source: "rails-hyperdrive-x", body: nil, version: "1.0.0")
+    Artifact.new(
+      name: name, description: nil, target_gem: "*", versions: "*",
+      artifact_type: :command, source_gem: source, path: "/x/commands/#{name}.md",
+      body: body || "# #{name}\n\nDo the thing.\n",
+      spec_version: version
+    )
+  end
+
   def discovery_report(notices: [], warnings: [], skips: [], bundled_gems: [], skipped_gems: [])
     Rails::Hyperdrive::BundlerArtifactDiscovery::Report.new(
       notices: notices, warnings: warnings + skips, skips: skips,
@@ -388,6 +406,98 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     end
   end
 
+  describe "agents and commands" do
+    def lock_yaml = YAML.safe_load(read(".hyperdrive/lock.yml"))
+
+    it "installs both as flat files with their own lock kinds" do
+      run(artifacts: [agent(name: "reviewer"), command(name: "analyze")])
+
+      expect(read(".claude/agents/reviewer.md")).to include("name: reviewer")
+      expect(read(".claude/commands/analyze.md")).to eq("# analyze\n\nDo the thing.\n")
+      expect(lock_yaml["files"].map { |f| f["artifact"] }).to contain_exactly("agent", "command")
+    end
+
+    it "arms no eager chain" do
+      run(artifacts: [agent(name: "reviewer"), command(name: "analyze")])
+
+      expect(exist?(".claude/hyperdrive/index.md")).to be false
+      expect(exist?("CLAUDE.md")).to be false
+    end
+
+    it "leaves an unchanged install alone, rewrites an upgraded one, and reinstalls a deleted one" do
+      run(artifacts: [command(name: "analyze")])
+      expect(run(artifacts: [command(name: "analyze")]).unchanged).to eq([".claude/commands/analyze.md"])
+
+      result = run(artifacts: [command(name: "analyze", body: "# analyze v2\n", version: "2.0.0")])
+      expect(result.updated).to eq([".claude/commands/analyze.md"])
+      expect(read(".claude/commands/analyze.md")).to eq("# analyze v2\n")
+
+      FileUtils.rm(File.join(root, ".claude/commands/analyze.md"))
+      run(artifacts: [command(name: "analyze", body: "# analyze v2\n", version: "2.0.0")])
+      expect(read(".claude/commands/analyze.md")).to eq("# analyze v2\n")
+    end
+
+    it "preserves a locally-modified agent, and overwrites it only when asked" do
+      run(artifacts: [agent(name: "reviewer")])
+      File.write(File.join(root, ".claude/agents/reviewer.md"), "mine\n")
+      upgraded = agent(name: "reviewer", body: "---\nname: reviewer\ndescription: new\n---\n", version: "2.0.0")
+
+      expect(run(artifacts: [upgraded]).skipped).to eq([".claude/agents/reviewer.md"])
+      expect(read(".claude/agents/reviewer.md")).to eq("mine\n")
+
+      run(mode: :overwrite, artifacts: [upgraded])
+      expect(read(".claude/agents/reviewer.md")).to include("description: new")
+    end
+
+    it "delivers an upgrade to a sidecar in sidecar mode" do
+      run(artifacts: [agent(name: "reviewer")])
+      File.write(File.join(root, ".claude/agents/reviewer.md"), "mine\n")
+      upgraded = agent(name: "reviewer", body: "---\nname: reviewer\ndescription: new\n---\n", version: "2.0.0")
+
+      expect(run(mode: :sidecar, artifacts: [upgraded]).sidecars).to eq([".claude/agents/reviewer.md"])
+      expect(read(".claude/agents/reviewer.md")).to eq("mine\n")
+      expect(read(".claude/agents/reviewer.md.new")).to include("description: new")
+    end
+
+    it "merges an upgrade into a locally-modified command" do
+      v1 = command(name: "analyze", body: "# analyze\n\nline a\nline b\nline c\nline d\n")
+      run(artifacts: [v1])
+      File.write(File.join(root, ".claude/commands/analyze.md"), v1.body.sub("line a", "line a (mine)"))
+      allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return(v1.body)
+
+      v2 = command(name: "analyze", version: "2.0.0", body: v1.body.sub("line d", "line d (upstream)"))
+      expect(run(mode: :merge, artifacts: [v2]).merged).to eq([".claude/commands/analyze.md"])
+      expect(read(".claude/commands/analyze.md")).to include("line a (mine)", "line d (upstream)")
+    end
+
+    it "sweeps a destination the plan no longer claims" do
+      run(artifacts: [command(name: "analyze")], bundled_gems: ["rails-hyperdrive-x"])
+
+      result = run(artifacts: [command(name: "review")], bundled_gems: ["rails-hyperdrive-x"])
+
+      expect(result.removed).to include(".claude/commands/analyze.md")
+      expect(exist?(".claude/commands/analyze.md")).to be false
+      expect(exist?(".claude/commands/review.md")).to be true
+    end
+
+    it "removes a disabled agent only while it still matches the lock" do
+      run(artifacts: [agent(name: "reviewer")])
+      lock = File.join(root, ".hyperdrive/lock.yml")
+      data = YAML.safe_load(File.read(lock))
+      data["disabled"]["agents"] = ["reviewer"]
+      File.write(lock, data.to_yaml)
+
+      expect(run(artifacts: [agent(name: "reviewer")]).removed).to include(".claude/agents/reviewer.md")
+
+      run(artifacts: [agent(name: "reviewer")])
+      File.write(File.join(root, ".claude/agents/reviewer.md"), "mine\n")
+      data["disabled"]["agents"] = ["reviewer"]
+      File.write(lock, data.to_yaml)
+      run(artifacts: [agent(name: "reviewer")])
+      expect(read(".claude/agents/reviewer.md")).to eq("mine\n")
+    end
+  end
+
   describe "gitignored install destination" do
     before { system("git", "init", "--quiet", root, out: File::NULL, err: File::NULL) }
 
@@ -396,7 +506,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
       out = run_reporting(artifacts: [guideline(name: "auth-pundit")])
 
-      expect(out).to include(".claude/skills", ".claude/hyperdrive")
+      expect(out).to include(".claude/skills", ".claude/hyperdrive", ".claude/agents", ".claude/commands")
       expect(out).to match(/gitignored/)
       expect(out).to match(/unreviewed/)
     end
@@ -836,7 +946,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       run(artifacts: [guideline(name: "auth-pundit")], bundled_gems: [source])
       lock = File.join(root, ".hyperdrive/lock.yml")
       data = YAML.safe_load(File.read(lock))
-      data["version"] = 2
+      data["version"] = 3
       File.write(lock, data.to_yaml)
     end
 
@@ -856,7 +966,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       out = run_reporting(artifacts: [guideline(name: "auth-pundit")], bundled_gems: [source])
 
       expect(out.scan("was written by a newer rails-hyperdrive").size).to eq(1)
-      expect(out).to include("lock schema 2, this installer supports 1")
+      expect(out).to include("lock schema 3, this installer supports 2")
     end
   end
 

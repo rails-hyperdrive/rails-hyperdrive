@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Two new companion artifact kinds: agents and commands.** A companion gem can
+  now ship Claude Code subagents from `agents/*.md` (installed to
+  `.claude/agents/<name>.md`) and slash commands from `commands/*.md` (installed
+  to `.claude/commands/<name>.md`), alongside its skills and guidelines. Both
+  are flat single files that install byte-identical to what the gem ships, and
+  both ride the whole existing machine: gating, the `hyperdrive_version:` fence,
+  sha-based drift, `--overwrite`/`--sidecar`/`--merge`, `disabled:`, the stale
+  sweep, cross-source collision postfixing, and the additive top-up on
+  `bundle install`. Agents require `name` + `description` frontmatter like a
+  skill; a command's frontmatter is optional and never validated, and its
+  identity is its filename stem, so `commands/analyze.md` becomes `/analyze`.
+  Neither is wired into `CLAUDE.md` or `index.md` — Claude Code registers them
+  by file presence. Installing flat (no per-gem subdirectory) keeps the
+  `skills/`/`agents/`/`commands/` sibling geometry a gem ships, so relative
+  links between them resolve unchanged after install.
+- Manifest additions in `hyperdrive.yml`: `agents:` and `commands:` gating
+  sections keyed by filename, taking the same values `guidelines:` entries do;
+  `agents_dir:` and `commands_dir:` to name additional roots (resolved like
+  `skills_dir:`); and `command_prefix:`, an optional gem-wide scalar inside
+  `commands:` that installs every command of that gem as `<prefix>-<filename>`,
+  for a companion that also ships as a Claude Code plugin and wants its
+  `/name` namespaced. `rake hyperdrive:manifest:check` lints all of them.
+
 - `require "hyperdrive/skill_tasks"` is the require path for the companion-repo
   rake tasks (`hyperdrive:skills:render`, `hyperdrive:skills:check`,
   `hyperdrive:manifest:check`) — framework-neutral, since the tasks run in a
@@ -72,6 +95,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking (installer skew).** `.hyperdrive/lock.yml` is now written at schema
+  version 2. An installer older than this release refuses to run `init`, `sync`,
+  or the bundler-plugin top-up against a lock this one wrote, and names the
+  upgrade instead — so every machine working on an app that has synced with this
+  release needs it too. The bump exists because an older installer never
+  discovers agents or commands: it would read their lock entries as
+  destinations nothing claims any more and delete the installed files.
 - **Breaking (bundler plugin).** The `bundler-rails-hyperdrive` plugin gem is
   renamed `bundler-hyperdrive` — its directory, gem name, Gemfile directive
   (`plugin "bundler-hyperdrive"`), and release tag namespace

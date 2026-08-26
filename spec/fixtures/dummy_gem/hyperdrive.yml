@@ -12,3 +12,6 @@ guidelines:
   dummy-guideline.md:
     gems:
       - dummy_gem: "~> 1.0"
+commands:
+  gated.md:
+    gem: absent_gem

@@ -91,7 +91,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       initialize_app([guideline(name: "auth-pundit")])
       lock_path = File.join(root, ".hyperdrive/lock.yml")
       data = YAML.safe_load(File.read(lock_path))
-      data["version"] = 2
+      data["version"] = 3
       File.write(lock_path, data.to_yaml)
     end
 
@@ -106,7 +106,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(File).not_to exist(File.join(root, ".claude/hyperdrive/guidelines/jobs-sidekiq.md"))
       expect(File.read(File.join(root, ".hyperdrive/lock.yml"))).to eq(before_lock)
       expect(result.messages).to eq([
-        ".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 2, this installer supports 1); " \
+        ".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 3, this installer supports 2); " \
         "upgrade rails-hyperdrive"
       ])
     end
@@ -287,6 +287,32 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(result.installed).to eq([".claude/skills/jobs-sidekiq/SKILL.md"])
       expect(result.unwired).to be false
     end
+
+    it "tops up an agent and a command without wiring anything eager" do
+      bundle_ships([agent(name: "reviewer"), command(name: "analyze")])
+
+      result = described_class.run(root: root)
+
+      expect(result.installed).to contain_exactly(".claude/agents/reviewer.md", ".claude/commands/analyze.md")
+      expect(result.unwired).to be false
+      expect(File).not_to exist(File.join(root, "CLAUDE.md"))
+    end
+  end
+
+  def agent(name:, source: "rails-hyperdrive-x", version: "1.0.0")
+    Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact.new(
+      name: name, description: "d", target_gem: "*", versions: "*",
+      artifact_type: :agent, source_gem: source, path: "/x/agents/#{name}.md",
+      body: "---\nname: #{name}\ndescription: d\n---\n\n# #{name}\n", spec_version: version
+    )
+  end
+
+  def command(name:, source: "rails-hyperdrive-x", version: "1.0.0")
+    Rails::Hyperdrive::BundlerArtifactDiscovery::Artifact.new(
+      name: name, description: nil, target_gem: "*", versions: "*",
+      artifact_type: :command, source_gem: source, path: "/x/commands/#{name}.md",
+      body: "# #{name}\n", spec_version: version
+    )
   end
 
   def skill(name:, source: "rails-hyperdrive-x", version: "1.0.0")

@@ -4,11 +4,11 @@ module Rails
   module Hyperdrive
     # installed_at is volatile metadata, never an input to any comparison.
     class LockFile
-      SCHEMA_VERSION = 1
+      SCHEMA_VERSION = 2
       STATE_PRESENT  = "present".freeze
       STATE_REMOVED  = "removed-by-user".freeze
 
-      DISABLED_KEYS = { skill: "skills", guideline: "guidelines" }.freeze
+      DISABLED_KEYS = { skill: "skills", guideline: "guidelines", agent: "agents", command: "commands" }.freeze
 
       # In-memory form of one files: entry. On disk, source_gem and
       # source_version are a single "gem@version" string; the split/join lives

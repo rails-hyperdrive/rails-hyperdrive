@@ -1,6 +1,7 @@
 require "yaml"
 require "bundler"
 require "rails/hyperdrive/gem_manifest"
+require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/skill_template"
 require "rails/hyperdrive/version"
 
@@ -87,11 +88,11 @@ module Rails
             next
           end
           manifest = GemManifest.load(spec, warnings: report.warnings)
-          seen = { skill: [], guideline: [] }
-          each_artifact_path(spec, manifest: manifest, report: report) do |path, type, support_root, key|
-            seen[type] << key
-            gate = type == :skill ? manifest.skill_gate(key) : manifest.guideline_gate(key)
-            artifact = parse(path, source_spec: spec, type: type, resolved: resolved,
+          seen = Hash.new { |h, k| h[k] = [] }
+          each_artifact_path(spec, manifest: manifest, report: report) do |path, kind, support_root, key|
+            seen[kind.type] << key
+            gate = manifest.gate(kind.type, key)
+            artifact = parse(path, source_spec: spec, kind: kind, resolved: resolved,
               report: report, support_root: support_root, gate: gate, key: key, manifest: manifest)
             if artifact.is_a?(Artifact)
               candidates << artifact
@@ -110,29 +111,34 @@ module Rails
         end
       end
 
-      # Yields each candidate with its manifest join key: a skill's relpath
-      # from its skills root, a guideline's filename. Keys are collected before
-      # parsing, so a candidate later dropped (e.g. an ERB render failure)
-      # still counts as known to the manifest.
+      # Yields each candidate with its kind descriptor and its manifest join
+      # key: a directory-shaped kind's relpath from its root, a flat kind's
+      # filename. Keys are collected before parsing, so a candidate later
+      # dropped (e.g. an ERB render failure) still counts as known to the
+      # manifest.
       def each_artifact_path(spec, manifest:, report:)
-        skill_paths(spec, manifest: manifest, report: report)
-          .each { |path, support_root, rel| yield path, :skill, support_root, rel }
-        guideline_paths(spec).each { |p| yield p, :guideline, nil, File.basename(p) }
+        InstallLayout.content_kinds.each do |kind|
+          if kind.dir_shaped?
+            skill_paths(spec, manifest: manifest, report: report)
+              .each { |path, support_root, rel| yield path, kind, support_root, rel }
+          else
+            flat_paths(spec, kind, manifest: manifest).each { |p| yield p, kind, nil, File.basename(p) }
+          end
+        end
       end
 
       # The staleness signal for gating detached from content: an entry
-      # matching nothing means a renamed or removed skill dir/guideline.
+      # matching nothing means a renamed or removed artifact.
       def warn_unknown_manifest_keys(manifest, spec, seen, report)
-        (manifest.skill_keys - seen[:skill]).each do |key|
-          report.warn "#{spec.name}: manifest skills entry '#{key}' names no shipped skill directory"
-        end
-        (manifest.guideline_keys - seen[:guideline]).each do |key|
-          report.warn "#{spec.name}: manifest guidelines entry '#{key}' names no shipped guideline"
+        InstallLayout.content_kinds.each do |kind|
+          (manifest.section_keys(kind.type) - seen[kind.type]).each do |key|
+            report.warn "#{spec.name}: manifest #{kind.section} entry '#{key}' names no shipped #{kind.shipped_label}"
+          end
         end
       end
 
       def skill_paths(spec, manifest:, report: Report.new)
-        roots = skills_roots(spec, manifest)
+        roots = artifact_roots(spec, InstallLayout.kind(:skill), manifest)
 
         candidates = []
         seen = {}
@@ -150,17 +156,6 @@ module Rails
         end
 
         pair_with_templates(candidates, spec, manifest: manifest, report: report)
-      end
-
-      # The manifest's skills_dir: is searched in addition to the default
-      # roots, never instead of them.
-      def skills_roots(spec, manifest)
-        roots = [
-          File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive", "skills"),
-          File.join(spec.full_gem_path, "skills")
-        ]
-        roots << File.join(spec.full_gem_path, manifest.skills_dir) if manifest.skills_dir
-        roots
       end
 
       def templates_root(spec, manifest)
@@ -217,9 +212,21 @@ module Rails
           "supporting *.md.erb templates; static supporting files ship in the paired content directory"
       end
 
-      def guideline_paths(spec)
-        root = File.join(spec.full_gem_path, "lib", spec.name, "hyperdrive", "guidelines")
-        Dir.glob(File.join(root, "*.md"))
+      # One .md file per artifact, deduped by expanded path so overlapping roots
+      # yield each file once.
+      def flat_paths(spec, kind, manifest:)
+        artifact_roots(spec, kind, manifest)
+          .flat_map { |root| Dir.glob(File.join(root, "*.md")) }
+          .uniq { |path| File.expand_path(path) }
+      end
+
+      # The manifest's directory override is searched in addition to the kind's
+      # convention roots, never instead of them.
+      def artifact_roots(spec, kind, manifest)
+        roots = kind.roots_for(spec.name.to_s).map { |rel| File.join(spec.full_gem_path, rel) }
+        override = kind.dir_key && manifest.dir(kind.dir_key)
+        roots << File.join(spec.full_gem_path, override) if override
+        roots
       end
 
       # Many gemspecs package files via `git ls-files`, so a contributor-facing
@@ -257,7 +264,7 @@ module Rails
       # unknown to the parser and rides untouched in the installed body.
       # Returns the Artifact, :gate_miss when a well-formed gate simply does
       # not match the bundle, or nil for a hard skip.
-      def parse(path, source_spec:, type:, resolved:, report:, gate:, key:, manifest:, support_root: nil)
+      def parse(path, source_spec:, kind:, resolved:, report:, gate:, key:, manifest:, support_root: nil)
         support_root ||= File.dirname(path)
         body = File.read(path)
         if erb_template?(path)
@@ -267,34 +274,38 @@ module Rails
             # A template reaching for a helper this installer lacks raises
             # here, and the fence is the only thing the user can act on.
             if (required = unmet_fence(gate))
-              report.fence fence_message(type, key, source_spec, required)
+              report.fence fence_message(kind.type, key, source_spec, required)
             else
               report.skip "skip #{path}: ERB render failed (#{e.message})"
             end
             return nil
           end
         end
-        frontmatter, _rest = split_frontmatter(body)
-        unless frontmatter
-          report.skip "skip #{path}: missing or malformed frontmatter"
-          return nil
+
+        meta = {}
+        if kind.frontmatter == :required
+          frontmatter, _rest = split_frontmatter(body)
+          unless frontmatter
+            report.skip "skip #{path}: missing or malformed frontmatter"
+            return nil
+          end
+
+          # Date is permitted because unknown frontmatter keys are user content;
+          # a bare date value must not fail the parse.
+          meta = YAML.safe_load(frontmatter, permitted_classes: [Symbol, Date]) || {}
+          unless meta["name"] && meta["description"]
+            report.skip "skip #{path}: missing a required field (name, description)"
+            return nil
+          end
         end
 
-        # Date is permitted because unknown frontmatter keys are user content;
-        # a bare date value must not fail the parse.
-        meta        = YAML.safe_load(frontmatter, permitted_classes: [Symbol, Date]) || {}
-        name        = meta["name"]
+        name        = kind.identity == :frontmatter ? meta["name"] : prefixed_stem(path, kind, manifest)
         description = meta["description"]
-
-        unless name && description
-          report.skip "skip #{path}: missing a required field (name, description)"
-          return nil
-        end
 
         # The fence is decided before the bundle gate so a fenced-out artifact
         # reports the one thing the user can act on.
         if (required = unmet_fence(gate))
-          report.fence fence_message(type, name, source_spec, required)
+          report.fence fence_message(kind.type, name, source_spec, required)
           return nil
         end
 
@@ -307,10 +318,10 @@ module Rails
 
         Artifact.new(
           name: name.to_s,
-          description: description.to_s,
+          description: description&.to_s,
           target_gem: matched,
           versions: gate.versions,
-          artifact_type: type,
+          artifact_type: kind.type,
           source_gem: source_spec.name.to_s,
           path: path,
           body: body,
@@ -318,7 +329,7 @@ module Rails
           source_root: source_spec.full_gem_path.to_s,
           support_root: support_root,
           support_files:
-            if type == :skill
+            if kind.dir_shaped?
               skill_support_files(
                 path, support_root, gate.conditional,
                 source_spec: source_spec, manifest: manifest, resolved: resolved, report: report,
@@ -331,6 +342,15 @@ module Rails
       rescue Psych::Exception
         report.skip "skip #{path}: malformed YAML frontmatter"
         nil
+      end
+
+      # A kind identified by its filename may carry a gem-wide name prefix from
+      # the manifest; the manifest still keys its own entries by the shipped
+      # filename.
+      def prefixed_stem(path, kind, manifest)
+        stem = File.basename(path, ".md")
+        prefix = manifest.name_prefix(kind.type)
+        prefix ? "#{prefix}-#{stem}" : stem
       end
 
       def fence_message(type, label, source_spec, required)
@@ -522,7 +542,8 @@ module Rails
       # Guideline frontmatter is stripped because the installed file is
       # @-included eagerly into agent context, where it would be inert noise.
       def install_ready_body(artifact)
-        return artifact.body if artifact.skill?
+        kind = InstallLayout.kind(artifact.artifact_type)
+        return artifact.body unless kind&.install_body == :strip_frontmatter
 
         _frontmatter, rest = split_frontmatter(artifact.body)
         (rest || artifact.body).sub(/\A\n+/, "")
@@ -608,7 +629,7 @@ module Rails
       end
 
       private_class_method :each_artifact_path, :warn_unknown_manifest_keys,
-                           :skills_roots, :templates_root,
+                           :artifact_roots, :prefixed_stem, :templates_root,
                            :resolve_same_dir_tie, :pair_with_templates, :warn_template_extras,
                            :opted_in?, :metadata_present?, :notice_skills_sh_content,
                            :parse, :fence_message,

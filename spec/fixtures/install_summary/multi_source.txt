@@ -1,4 +1,4 @@
-  Installed 2 skills, 1 guideline
+  Installed 2 skills, 1 guideline, 0 agents, 0 commands
 
     rails-hyperdrive-sidekiq@1.0.0
       skill      sidekiq-idempotency (+2 files)

@@ -4,8 +4,8 @@ module Rails
   module Generators
     module Hyperdrive
       module InstallSummary
-        KIND_WIDTH = "guideline".length
-        KIND_ORDER = %w[skill guideline].freeze
+        KIND_ORDER = ::Rails::Hyperdrive::InstallLayout.content_kinds.map(&:lock_kind).freeze
+        KIND_WIDTH = KIND_ORDER.map(&:length).max
 
         module_function
 
@@ -38,7 +38,7 @@ module Rails
 
         def installed_counts(entries)
           counts = entries.group_by { |e| e.kind.to_s }.transform_values(&:size)
-          "Installed #{quantify(counts["skill"].to_i, "skill")}, #{quantify(counts["guideline"].to_i, "guideline")}"
+          "Installed #{KIND_ORDER.map { |kind| quantify(counts[kind].to_i, kind) }.join(", ")}"
         end
 
         def group_by_source(entries)

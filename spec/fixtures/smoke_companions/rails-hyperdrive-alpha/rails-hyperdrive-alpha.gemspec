@@ -10,9 +10,9 @@ Gem::Specification.new do |spec|
   spec.license     = "MIT"
   spec.required_ruby_version = ">= 3.2"
 
-  spec.files       = Dir["lib/**/*", "skills/**/*", "hyperdrive.yml"]
+  spec.files       = Dir["lib/**/*", "skills/**/*", "agents/**/*", "commands/**/*", "hyperdrive.yml"]
   spec.require_paths = ["lib"]
 
   spec.metadata["hyperdrive_targets"]   = "railties"
-  spec.metadata["hyperdrive_artifacts"] = "skill,guideline"
+  spec.metadata["hyperdrive_artifacts"] = "skill,guideline,agent,command"
 end

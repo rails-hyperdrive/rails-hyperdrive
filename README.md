@@ -84,12 +84,14 @@ The generated `.mcp.json` points at `http://localhost:3000<mount>/mcp`. If your 
 
 Plus two MCP resources: `hyperdrive://stack-profile` (JSON snapshot of your resolved stack) and `hyperdrive://skills/{name}` (the markdown body of each installed skill). The skill list is enumerated at server boot and the stack snapshot is memoized per process, so a newly installed skill or a changed bundle reaches these two only after a dev-server restart.
 
-### Two kinds of knowledge
+### Four kinds of knowledge
 
-Companion gems ship two artifact types, tuned for how agents consume context:
+Companion gems ship four artifact kinds, tuned for how agents consume context:
 
 - **Skills**: *lazy*. Loaded on demand via Claude Code's native description matcher. Procedural knowledge: "how to write an idempotent Sidekiq job". Installed to `.claude/skills/<name>/SKILL.md`, optionally with supporting files (references, examples, workflows) alongside.
 - **Guidelines**: *eager*. Always in context via a single `@`-include from `CLAUDE.md`. Declarative facts: "this app uses ActionPolicy, not Pundit". Installed to `.claude/hyperdrive/guidelines/<name>.md`.
+- **Agents**: Claude Code subagents, invoked by name or by task match. Installed to `.claude/agents/<name>.md`.
+- **Commands**: Claude Code slash commands. Installed to `.claude/commands/<name>.md`, so a file named `analyze.md` becomes `/analyze`.
 
 A companion gem declares in its manifest which gem each artifact targets and at which versions, so what lands in your app is what matches your `Gemfile.lock`, and nothing aimed at a library or version you don't run.
 
@@ -129,6 +131,8 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
 .claude/skills/<name>/
   SKILL.md                             # companion-shipped, installed verbatim (frontmatter included)
   <supporting files>                   # optional extras (references/, examples/, …), installed as shipped (*.md.erb rendered)
+.claude/agents/<name>.md               # companion-shipped subagent, installed verbatim
+.claude/commands/<name>.md             # companion-shipped slash command, installed verbatim
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
 
@@ -150,6 +154,10 @@ disabled:
     - sidekiq-idempotency
   guidelines:
     - jobs-sidekiq
+  agents:
+    - sidekiq-reviewer
+  commands:
+    - analyze
 ```
 
 A disabled artifact is never installed, and one already on disk is removed on the next `hyperdrive:init` or `hyperdrive:sync`, but **only if you haven't edited it**. A locally modified file is reported and left alone, for you to delete when you're ready. Disabling a skill removes its shipped supporting files under the same per-file rule; files you created yourself in the skill directory survive and keep the directory alive. Disabling a guideline also drops its line from `index.md`, so it leaves eager context along with the file.
@@ -183,12 +191,14 @@ Ship markdown, declare what it targets, publish. That's the whole contract:
 
 ```
 skills/<name>/SKILL.md                                 # skill (dir-per-skill, may ship supporting files)
+agents/<name>.md                                       # agent (flat file)
+commands/<name>.md                                     # command (flat file)
 lib/<gem_name>/hyperdrive/guidelines/<name>.md         # guideline (flat file)
 ```
 
 `<gem_name>` is your gem's name exactly as published, dashes and all — `rails-hyperdrive-sidekiq` ships guidelines under `lib/rails-hyperdrive-sidekiq/hyperdrive/guidelines/`, not `lib/rails/hyperdrive/sidekiq/`.
 
-Top-level `skills/` is the recommended home for skill content: it is the tool-agnostic face of your gem, readable by skills.sh and plain git-clone consumers as well as hyperdrive, and it is scanned by default once your gem has opted in (below). `lib/<gem_name>/hyperdrive/` is the hyperdrive-specific root: guidelines, and ERB skill templates (`SKILL.md.erb`, which must stay out of `skills/` so raw ERB never reaches generic consumers). Plain skills shipped under it remain scanned as well.
+Top-level `skills/`, `agents/`, and `commands/` are the tool-agnostic face of your gem — the same sibling layout `.claude/` has, so relative links between them keep resolving once installed. They are readable by skills.sh and plain git-clone consumers as well as hyperdrive, and are scanned once your gem has opted in (below). `lib/<gem_name>/hyperdrive/` is the hyperdrive-specific root: guidelines, and ERB skill templates (`SKILL.md.erb`, which must stay out of `skills/` so raw ERB never reaches generic consumers). Plain skills shipped under it remain scanned as well.
 
 Frontmatter is pure skills.sh: only `name` and `description` are read, so a skill repo's content integrates without modification:
 
@@ -198,6 +208,8 @@ name: jobs-sidekiq                # kebab-case; determines the install path
 description: Background job conventions for Sidekiq.
 ---
 ```
+
+Agents follow the same contract. Commands are the exception: their frontmatter is optional and never validated, and their identity is the filename stem.
 
 Gating (which bundles an artifact installs into) lives in a `hyperdrive.yml` manifest at the gem root (or at the path named by a `hyperdrive_manifest` gemspec metadata key), never in the content. Every key is optional; no manifest (or an empty one) means everything installs universally:
 
@@ -211,6 +223,13 @@ skills:                     # per-skill overrides, keyed by skill dir relative t
     hyperdrive_version: ">= 0.7"   # require a minimum rails-hyperdrive for this artifact
 guidelines:                 # per-guideline overrides, keyed by filename
   jobs.md:
+    gem: sidekiq
+agents:                     # per-agent overrides, keyed by filename
+  sidekiq-reviewer.md:
+    gem: sidekiq
+commands:                   # per-command overrides, keyed by filename
+  command_prefix: sidekiq      # optional; every command installs as <prefix>-<filename>
+  analyze.md:
     gem: sidekiq
 ```
 

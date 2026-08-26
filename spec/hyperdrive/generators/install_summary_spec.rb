@@ -62,7 +62,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallSummary do
       ])
 
       expect(lines).to eq([
-        "  Installed 2 skills, 0 guidelines",
+        "  Installed 2 skills, 0 guidelines, 0 agents, 0 commands",
         "",
         "    rails-hyperdrive-a@1.0.0",
         "      skill      dup--rails-hyperdrive-a",
@@ -92,7 +92,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallSummary do
       ])
 
       expect(lines).to eq([
-        "  Installed 1 skill, 0 guidelines",
+        "  Installed 1 skill, 0 guidelines, 0 agents, 0 commands",
         "",
         "    rails-hyperdrive-a@1.0.0",
         "      skill      sk (+2 files)"
@@ -118,12 +118,41 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallSummary do
     end
   end
 
+  describe "agents and commands" do
+    def agent(name, source:, version: "1.0.0")
+      entry(path: ".claude/agents/#{name}.md", kind: "agent", source_gem: source, source_version: version)
+    end
+
+    def command(name, source:, version: "1.0.0")
+      entry(path: ".claude/commands/#{name}.md", kind: "command", source_gem: source, source_version: version)
+    end
+
+    it "lists them after skills and guidelines, named by their installed filename" do
+      lines = described_class.lines([
+        command("analyze", source: "gem_a"),
+        agent("reviewer", source: "gem_a"),
+        guideline("auth", source: "gem_a"),
+        skill("jobs", source: "gem_a")
+      ])
+
+      expect(lines).to eq([
+        "  Installed 1 skill, 1 guideline, 1 agent, 1 command",
+        "",
+        "    gem_a@1.0.0",
+        "      skill      jobs",
+        "      guideline  auth",
+        "      agent      reviewer",
+        "      command    analyze"
+      ])
+    end
+  end
+
   describe "the counts line" do
     it "singularizes and pluralizes each noun" do
       expect(described_class.lines([skill("sk", source: "a")]).first)
-        .to eq("  Installed 1 skill, 0 guidelines")
+        .to eq("  Installed 1 skill, 0 guidelines, 0 agents, 0 commands")
       expect(described_class.lines([guideline("g1", source: "a"), guideline("g2", source: "a")]).first)
-        .to eq("  Installed 0 skills, 2 guidelines")
+        .to eq("  Installed 0 skills, 2 guidelines, 0 agents, 0 commands")
     end
   end
 

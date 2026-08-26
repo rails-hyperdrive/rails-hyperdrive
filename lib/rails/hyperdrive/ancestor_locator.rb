@@ -1,6 +1,7 @@
 require "bundler"
 require "rails/hyperdrive/bundler_artifact_discovery"
 require "rails/hyperdrive/drift_verdict"
+require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/skill_template"
 
 module Rails
@@ -49,19 +50,15 @@ module Rails
       end
 
       def install_ready(body, kind:, final_name:)
-        case kind.to_s
-        when "skill"
-          ready = BundlerArtifactDiscovery.install_ready_body(
-            BundlerArtifactDiscovery::Artifact.new(artifact_type: :skill, body: body)
-          )
-          final_name ? ready.sub(/^name:\s*.+$/, "name: #{final_name}") : ready
-        when "guideline"
-          BundlerArtifactDiscovery.install_ready_body(
-            BundlerArtifactDiscovery::Artifact.new(artifact_type: :guideline, body: body)
-          )
-        else
-          body
-        end
+        type = InstallLayout::ARTIFACT_TYPES[kind.to_s]
+        descriptor = type && InstallLayout.kind(type)
+        return body unless descriptor
+
+        ready = BundlerArtifactDiscovery.install_ready_body(
+          BundlerArtifactDiscovery::Artifact.new(artifact_type: type, body: body)
+        )
+        return ready unless final_name && descriptor.collision_rewrites_name
+        ready.sub(/^name:\s*.+$/, "name: #{final_name}")
       end
 
       def resolved_bundle

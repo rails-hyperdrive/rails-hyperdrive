@@ -151,7 +151,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
       stub_discovery([guideline(name: "auth-pundit")])
       runner.install(mode: :preserve)
 
-      expect(runner.summary_lines.first).to eq("  Installed 0 skills, 1 guideline")
+      expect(runner.summary_lines.first).to eq("  Installed 0 skills, 1 guideline, 0 agents, 0 commands")
     end
   end
 end
