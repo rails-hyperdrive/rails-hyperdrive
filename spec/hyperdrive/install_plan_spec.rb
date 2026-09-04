@@ -1,4 +1,5 @@
 require "spec_helper"
+require "rails/hyperdrive/config_file"
 require "rails/hyperdrive/install_plan"
 
 RSpec.describe Rails::Hyperdrive::InstallPlan do
@@ -157,9 +158,9 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
   end
 
   describe "a disabled name" do
-    def lock(skills: [], guidelines: [], agents: [], commands: [])
+    def config(skills: [], guidelines: [], agents: [], commands: [])
       lists = { skill: skills, guideline: guidelines, agent: agents, command: commands }
-      instance_double(Rails::Hyperdrive::LockFile).tap do |double|
+      instance_double(Rails::Hyperdrive::ConfigFile).tap do |double|
         allow(double).to receive(:disabled?) { |type, name| lists.fetch(type, []).include?(name) }
       end
     end
@@ -167,7 +168,7 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     it "is left out of the plan and reported as disabled at its canonical path" do
       result = described_class.build(
         [skill(name: "jobs", source: "gem_a"), guideline(name: "auth", source: "gem_a")],
-        lock: lock(skills: ["jobs"])
+        config: config(skills: ["jobs"])
       )
 
       expect(result.entries.map(&:final_name)).to eq(["auth"])
@@ -176,7 +177,7 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     end
 
     it "only disables the artifact type it is listed under" do
-      result = described_class.build([skill(name: "jobs", source: "gem_a")], lock: lock(guidelines: ["jobs"]))
+      result = described_class.build([skill(name: "jobs", source: "gem_a")], config: config(guidelines: ["jobs"]))
 
       expect(result.entries.map(&:final_name)).to eq(["jobs"])
       expect(result.disabled).to be_empty
@@ -185,7 +186,7 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     it "drops every variant of a collision, postfixed, when the shipped name is listed" do
       result = described_class.build(
         [skill(name: "jobs", source: "gem_a"), skill(name: "jobs", source: "gem_b")],
-        lock: lock(skills: ["jobs"])
+        config: config(skills: ["jobs"])
       )
 
       expect(result.entries).to be_empty
@@ -195,7 +196,7 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     it "drops one variant of a collision when the postfixed name is listed" do
       result = described_class.build(
         [skill(name: "jobs", source: "gem_a"), skill(name: "jobs", source: "gem_b")],
-        lock: lock(skills: ["jobs--gem_a"])
+        config: config(skills: ["jobs--gem_a"])
       )
 
       expect(result.entries.map(&:dest)).to eq([".claude/skills/jobs--gem_b/SKILL.md"])
@@ -203,27 +204,27 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     end
 
     it "drops the named source's artifact when the postfixed name outlives the collision" do
-      result = described_class.build([skill(name: "jobs", source: "gem_a")], lock: lock(skills: ["jobs--gem_a"]))
+      result = described_class.build([skill(name: "jobs", source: "gem_a")], config: config(skills: ["jobs--gem_a"]))
 
       expect(result.entries).to be_empty
       expect(result.disabled.map(&:dest)).to eq([".claude/skills/jobs/SKILL.md"])
     end
 
     it "leaves another source's artifact of the same name alone" do
-      result = described_class.build([skill(name: "jobs", source: "gem_b")], lock: lock(skills: ["jobs--gem_a"]))
+      result = described_class.build([skill(name: "jobs", source: "gem_b")], config: config(skills: ["jobs--gem_a"]))
 
       expect(result.entries.map(&:dest)).to eq([".claude/skills/jobs/SKILL.md"])
       expect(result.disabled).to be_empty
     end
 
-    it "reports no casualties when no lock is given" do
+    it "reports no casualties when no config is given" do
       result = described_class.build([skill(name: "jobs", source: "gem_a")])
 
       expect(result.disabled).to be_empty
     end
 
     it "matches an installed path back to the name that disables it" do
-      disabled = lock(skills: ["jobs"], guidelines: ["auth"])
+      disabled = config(skills: ["jobs"], guidelines: ["auth"])
 
       expect(described_class.disabled_dest?(disabled, :skill, ".claude/skills/jobs/SKILL.md")).to be true
       expect(described_class.disabled_dest?(disabled, :skill, ".claude/skills/jobs--gem_a/SKILL.md")).to be true
@@ -232,7 +233,7 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     end
 
     it "matches a canonical dest against the postfixed name once the installing gem is known" do
-      disabled = lock(skills: ["jobs--gem_a"])
+      disabled = config(skills: ["jobs--gem_a"])
       dest = ".claude/skills/jobs/SKILL.md"
 
       expect(described_class.disabled_dest?(disabled, :skill, dest)).to be false
@@ -246,7 +247,7 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     it "honors the base and the postfixed name for agents and commands alike" do
       result = described_class.build(
         [agent(name: "reviewer", source: "gem_a"), command(name: "analyze", source: "gem_a")],
-        lock: lock(agents: ["reviewer"], commands: ["analyze--gem_a"])
+        config: config(agents: ["reviewer"], commands: ["analyze--gem_a"])
       )
 
       expect(result.entries).to be_empty
@@ -255,7 +256,7 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     end
 
     it "matches an installed agent or command path back to the name that disables it" do
-      disabled = lock(agents: ["reviewer"], commands: ["analyze--gem_a"])
+      disabled = config(agents: ["reviewer"], commands: ["analyze--gem_a"])
 
       expect(described_class.disabled_dest?(disabled, :agent, ".claude/agents/reviewer.md")).to be true
       expect(described_class.disabled_dest?(disabled, :agent, ".claude/agents/reviewer--gem_b.md")).to be true
@@ -266,7 +267,7 @@ RSpec.describe Rails::Hyperdrive::InstallPlan do
     end
 
     it "disables a supporting file through its owning skill's name" do
-      disabled = lock(skills: ["jobs"])
+      disabled = config(skills: ["jobs"])
 
       expect(described_class.disabled_dest?(disabled, :skill_support, ".claude/skills/jobs/references/deep.md")).to be true
       expect(described_class.disabled_dest?(disabled, :skill_support, ".claude/skills/jobs--gem_a/references/deep.md")).to be true

@@ -2,6 +2,7 @@ require "rails/generators"
 require "rails/generators/base"
 require "json"
 require "rails/hyperdrive/companion_discovery"
+require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/mcp_server"
 require "generators/hyperdrive/content_sync_support"
 require "generators/hyperdrive/gitignore_support"
@@ -22,12 +23,30 @@ module Rails
         GEMFILE = "Gemfile".freeze
         BUNDLER_PLUGIN = "bundler-hyperdrive".freeze
 
+        CONFIG_TEMPLATE = <<~YAML.freeze
+          # rails-hyperdrive settings. This file is yours: hyperdrive:init creates it
+          # once, and no hyperdrive command writes to it afterwards.
+          #
+          # disabled: artifacts never to install, by name, per kind. Naming a
+          #   collision-postfixed variant (foo--gem_a) opts out that one source only.
+          #   A disabled artifact already on disk is removed on the next init/sync
+          #   unless you edited it.
+          # enabled: gems to scan as hyperdrive companions even though they do not
+          #   opt in themselves; disabled: still wins per artifact.
+          disabled:
+            skills: []
+            guidelines: []
+            agents: []
+            commands: []
+          enabled: []
+        YAML
+
         # No templates are rendered; source_root exists so Rails resolves the
         # sibling USAGE file for `--help`.
         source_root File.expand_path("templates", __dir__)
 
         class_option :mount_at,      type: :string,  default: DEFAULT_MOUNT_AT, desc: "Engine mount path."
-        class_option :skip_content,  type: :boolean, default: false, desc: "Skip all .claude content, CLAUDE.md, and the lockfile; leave the .mcp.json, .gitignore, Gemfile, and mount steps."
+        class_option :skip_content,  type: :boolean, default: false, desc: "Skip all .claude content, CLAUDE.md, the config file, and the lockfile; leave the .mcp.json, .gitignore, Gemfile, and mount steps."
         class_option :skip_mcp,      type: :boolean, default: false, desc: "Skip MCP setup entirely; write no .mcp.json entry and no engine mount."
         class_option :dry_run,       type: :boolean, default: false, desc: "Show what would change; write nothing."
 
@@ -99,6 +118,19 @@ module Rails
 
           snippet = "  mount Rails::Hyperdrive::Engine => \"#{mount_path}\" if Rails.env.development?\n"
           inject_into_file routes_file, snippet, after: /Rails\.application\.routes\.draw do\s*\n/
+        end
+
+        # The settings are the user's, so an existing file is never rewritten or
+        # reformatted.
+        def bootstrap_config
+          return if options[:skip_content]
+
+          path = ::Rails::Hyperdrive::InstallLayout::CONFIG_PATH
+          if File.exist?(::Rails.root.join(path))
+            say_status :identical, "#{path} (already present)", :blue
+          else
+            create_file path, CONFIG_TEMPLATE
+          end
         end
 
         # `--skip-content` writes no lockfile either: the lock is a manifest of

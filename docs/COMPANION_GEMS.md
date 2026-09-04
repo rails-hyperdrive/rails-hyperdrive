@@ -27,7 +27,7 @@ Discovery walks the entire bundle, and many gemspecs package files via `git ls-f
 - artifacts under the `lib/<gem_name>/hyperdrive/` convention path — skills or guidelines, static or templated;
 - a `hyperdrive.yml` manifest at the gem root (below), whatever it contains — an unusable value inside it changes nothing about the opt-in;
 - one of the gemspec metadata keys `hyperdrive_targets` or `hyperdrive_manifest` — any non-empty value counts, even one discovery later rejects (a `..` segment, say), since declaring the key at all signals intent;
-- the app naming the gem in the `enabled:` list of `.hyperdrive/lock.yml`.
+- the app naming the gem in the `enabled:` list of `.hyperdrive/config.yml`.
 
 `hyperdrive_artifacts` is deliberately not in that set: it is a presentational hint read by `hyperdrive:discover` (below) and never an opt-in signal. Neither are top-level `agents/` and `commands/` directories: they are too generic a name to read as companion intent, so a gem shipping only those needs one of the signals above before either is scanned.
 

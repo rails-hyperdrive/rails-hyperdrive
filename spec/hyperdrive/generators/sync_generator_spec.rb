@@ -71,6 +71,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       run_generator([])
       expect(File).not_to exist(path(".mcp.json"))
       expect(File).not_to exist(path(".gitignore"))
+      expect(File).not_to exist(path(".hyperdrive/config.yml"))
       expect(File.read(path("config/routes.rb"))).not_to include("Rails::Hyperdrive::Engine")
     end
 
@@ -229,7 +230,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
       run_generator([])
       lock = YAML.safe_load(File.read(path(".hyperdrive/lock.yml")))
-      lock["version"] = 3
+      lock["version"] = 4
       File.write(path(".hyperdrive/lock.yml"), lock.to_yaml)
     end
 
@@ -240,7 +241,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
         err = capture(:stderr) { run_generator([flag].reject(&:empty?)) }
 
         expect(err).to include(".hyperdrive/lock.yml was written by a newer rails-hyperdrive")
-          .and include("lock schema 3, this installer supports 2")
+          .and include("lock schema 4, this installer supports 3")
           .and include("upgrade rails-hyperdrive")
         expect(File.read(path(".hyperdrive/lock.yml"))).to eq(before_lock)
       end

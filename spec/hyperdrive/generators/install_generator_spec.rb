@@ -386,10 +386,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
 
     describe "disabling the owning skill" do
       def disable_skill
-        lock_path = path(".hyperdrive/lock.yml")
-        data = YAML.safe_load(File.read(lock_path))
-        (data["disabled"] ||= {})["skills"] = ["jobs-sidekiq"]
-        File.write(lock_path, data.to_yaml)
+        File.write(path(".hyperdrive/config.yml"), { "disabled" => { "skills" => ["jobs-sidekiq"] } }.to_yaml)
       end
 
       before do
@@ -535,27 +532,29 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
   describe "a lock written by a newer installer" do
     it "still bootstraps, but refuses the content sync and leaves the lock byte-identical" do
       FileUtils.mkdir_p(path(".hyperdrive"))
-      File.write(path(".hyperdrive/lock.yml"), "version: 3\nfiles: []\n")
+      File.write(path(".hyperdrive/lock.yml"), "version: 4\nfiles: []\n")
       stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
 
       err = capture(:stderr) { run_generator([]) }
 
       expect(err).to include("was written by a newer rails-hyperdrive")
-      expect(File.read(path(".hyperdrive/lock.yml"))).to eq("version: 3\nfiles: []\n")
+      expect(File.read(path(".hyperdrive/lock.yml"))).to eq("version: 4\nfiles: []\n")
       expect(File).not_to exist(path(".claude/hyperdrive/guidelines/auth-pundit.md"))
       expect(File).to exist(path(".mcp.json"))
       expect(File.read(path("config/routes.rb"))).to include("Rails::Hyperdrive::Engine")
     end
   end
 
-  describe "per-artifact opt-out (disabled: in lock.yml)" do
+  describe "per-artifact opt-out (disabled: in config.yml)" do
     def lock_path = path(".hyperdrive/lock.yml")
+    def config_path = path(".hyperdrive/config.yml")
 
     def disable(key, *names)
-      FileUtils.mkdir_p(File.dirname(lock_path))
-      data = File.exist?(lock_path) ? YAML.safe_load(File.read(lock_path)) : {}
+      FileUtils.mkdir_p(File.dirname(config_path))
+      data = File.exist?(config_path) ? YAML.safe_load(File.read(config_path)) : {}
+      data = {} unless data.is_a?(Hash)
       (data["disabled"] ||= {})[key] = names
-      File.write(lock_path, data.to_yaml)
+      File.write(config_path, data.to_yaml)
     end
 
     it "never installs a skill disabled before the first run" do
@@ -668,13 +667,15 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       expect(File).to exist(path(".claude/skills/jobs-sidekiq/SKILL.md"))
     end
 
-    it "carries the list forward across runs" do
+    it "leaves the list where the user wrote it, run after run" do
       stub_discovery([skill_artifact(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
       run_generator([])
       disable("skills", "jobs-sidekiq")
+      before = File.read(config_path)
       run_generator([])
       run_generator([])
-      expect(YAML.safe_load(File.read(lock_path)).dig("disabled", "skills")).to eq(["jobs-sidekiq"])
+      expect(File.read(config_path)).to eq(before)
+      expect(YAML.safe_load(File.read(lock_path))).not_to have_key("disabled")
     end
 
     it "writes nothing under --dry-run" do
@@ -782,11 +783,11 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       expect(out).to match(/unreviewed/)
     end
 
-    it "warns when the lockfile is gitignored" do
+    it "warns when the lockfile and the config are gitignored" do
       File.write(path(".gitignore"), ".hyperdrive/\n")
       out = run_generator([])
 
-      expect(out).to match(%r{\.hyperdrive/lock\.yml is gitignored})
+      expect(out).to match(%r{\.hyperdrive/lock\.yml, \.hyperdrive/config\.yml are gitignored})
     end
 
     it "stays quiet when the destinations are git-tracked" do
@@ -822,6 +823,43 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
     end
   end
 
+  describe "the settings file" do
+    def config_path = path(".hyperdrive/config.yml")
+
+    it "is created with empty sections and an explanatory header" do
+      out = run_generator([])
+
+      expect(out).to include(".hyperdrive/config.yml")
+      expect(File.read(config_path))
+        .to eq(Rails::Generators::Hyperdrive::InstallGenerator::CONFIG_TEMPLATE)
+      document = YAML.safe_load(File.read(config_path))
+      expect(document["disabled"]).to eq("skills" => [], "guidelines" => [], "agents" => [], "commands" => [])
+      expect(document["enabled"]).to eq([])
+    end
+
+    it "leaves an existing file byte-identical" do
+      run_generator([])
+      File.write(config_path, "enabled:\n  - some_gem\n")
+
+      out = run_generator([])
+
+      expect(File.read(config_path)).to eq("enabled:\n  - some_gem\n")
+      expect(out).to include(".hyperdrive/config.yml (already present)")
+    end
+
+    it "is skipped under --skip-content" do
+      run_generator(["--skip-content"])
+
+      expect(File).not_to exist(config_path)
+    end
+
+    it "is not written under --dry-run" do
+      run_generator(["--dry-run"])
+
+      expect(File).not_to exist(config_path)
+    end
+  end
+
   describe "flags" do
     it "honors --dry-run by writing no files" do
       run_generator(["--dry-run"])
@@ -835,6 +873,7 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       expect(File).to exist(path(".mcp.json"))
       expect(File).not_to exist(path(".claude/hyperdrive/index.md"))
       expect(File).not_to exist(path("CLAUDE.md"))
+      expect(File).not_to exist(path(".hyperdrive/config.yml"))
       expect(File).not_to exist(path(".hyperdrive/lock.yml"))
     end
 

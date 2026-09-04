@@ -67,13 +67,11 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
       expect(runner.discover_artifacts.map(&:name)).to eq(["g1"])
     end
 
-    it "forwards the lock's enabled: list to discovery" do
+    it "forwards the config's enabled: list to discovery" do
       FileUtils.mkdir_p(File.join(root, ".hyperdrive"))
-      File.write(File.join(root, ".hyperdrive", "lock.yml"), <<~YAML)
-        version: 1
+      File.write(File.join(root, ".hyperdrive", "config.yml"), <<~YAML)
         enabled:
           - some_gem
-        files: []
       YAML
       expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
         .to receive(:discover)

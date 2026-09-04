@@ -376,11 +376,11 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
   describe "artifacts dropped by the disabled list" do
     def disable(key, *names)
-      lock = File.join(root, ".hyperdrive/lock.yml")
-      FileUtils.mkdir_p(File.dirname(lock))
-      data = File.exist?(lock) ? YAML.safe_load(File.read(lock)) : {}
+      config = File.join(root, ".hyperdrive/config.yml")
+      FileUtils.mkdir_p(File.dirname(config))
+      data = File.exist?(config) ? YAML.safe_load(File.read(config)) : {}
       (data["disabled"] ||= {})[key] = names
-      File.write(lock, data.to_yaml)
+      File.write(config, data.to_yaml)
     end
 
     it "reports each one against the file that lists it" do
@@ -388,7 +388,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
       out = run_reporting(artifacts: [skill(name: "jobs"), guideline(name: "auth-pundit")])
 
-      expect(out).to include("skill 'jobs' (listed in .hyperdrive/lock.yml)")
+      expect(out).to include("skill 'jobs' (listed in .hyperdrive/config.yml)")
       expect(exist?(".claude/skills/jobs/SKILL.md")).to be false
       expect(exist?(".claude/hyperdrive/guidelines/auth-pundit.md")).to be true
     end
@@ -428,6 +428,74 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
         expect(out).to include(".claude/skills/jobs/SKILL.md (disabled but locally modified; delete it by hand)")
         expect(read(".hyperdrive/lock.yml")).to include(".claude/skills/jobs/SKILL.md")
       end
+    end
+  end
+
+  describe "settings the installer cannot read" do
+    def write_config(body)
+      FileUtils.mkdir_p(File.join(root, ".hyperdrive"))
+      File.write(File.join(root, ".hyperdrive/config.yml"), body)
+    end
+
+    def leave_settings_in_lock
+      run(artifacts: [guideline(name: "auth-pundit")])
+      lock = File.join(root, ".hyperdrive/lock.yml")
+      data = YAML.safe_load(File.read(lock))
+      data["disabled"] = { "guidelines" => ["auth-pundit"] }
+      File.write(lock, data.to_yaml)
+    end
+
+    it "warns about a malformed config and installs everything anyway" do
+      write_config("disabled: nonsense\n")
+
+      out = run_reporting(artifacts: [guideline(name: "auth-pundit")])
+
+      expect(out).to include(".hyperdrive/config.yml disabled: must be a map of kind to list; ignoring it")
+      expect(exist?(".claude/hyperdrive/guidelines/auth-pundit.md")).to be true
+    end
+
+    it "stays quiet for a config it can read" do
+      write_config("disabled:\n  skills: []\nenabled: []\n")
+
+      expect(run_reporting(artifacts: [guideline(name: "auth-pundit")])).not_to include(".hyperdrive/config.yml")
+    end
+
+    %i[preserve overwrite sidecar merge].each do |mode|
+      it "names where settings still sitting in the lock moved to, in #{mode} mode" do
+        leave_settings_in_lock
+
+        out = run_reporting(mode: mode, artifacts: [guideline(name: "auth-pundit")])
+
+        expect(out).to include(
+          ".hyperdrive/lock.yml carries disabled:/enabled:; those settings now live in " \
+          ".hyperdrive/config.yml and are ignored here"
+        )
+      end
+    end
+
+    it "says nothing in additive mode" do
+      leave_settings_in_lock
+      write_config("enabled: nonsense\n")
+
+      out = run_reporting(mode: :additive, artifacts: [guideline(name: "auth-pundit")])
+
+      expect(out).not_to include("carries disabled:/enabled:")
+      expect(out).not_to include(".hyperdrive/config.yml enabled:")
+    end
+
+    it "ignores the lock's own lists and drops them on rewrite" do
+      leave_settings_in_lock
+
+      run(artifacts: [guideline(name: "auth-pundit")])
+
+      expect(exist?(".claude/hyperdrive/guidelines/auth-pundit.md")).to be true
+      expect(YAML.safe_load(read(".hyperdrive/lock.yml"))).not_to have_key("disabled")
+    end
+
+    it "never writes a config of its own" do
+      run(artifacts: [guideline(name: "auth-pundit")])
+
+      expect(exist?(".hyperdrive/config.yml")).to be false
     end
   end
 
@@ -507,19 +575,19 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
     it "removes a disabled agent only while it still matches the lock" do
       run(artifacts: [agent(name: "reviewer")])
-      lock = File.join(root, ".hyperdrive/lock.yml")
-      data = YAML.safe_load(File.read(lock))
-      data["disabled"]["agents"] = ["reviewer"]
-      File.write(lock, data.to_yaml)
+      config = File.join(root, ".hyperdrive/config.yml")
+      File.write(config, { "disabled" => { "agents" => ["reviewer"] } }.to_yaml)
 
       expect(run(artifacts: [agent(name: "reviewer")]).removed).to include(".claude/agents/reviewer.md")
 
+      File.delete(config)
       run(artifacts: [agent(name: "reviewer")])
       File.write(File.join(root, ".claude/agents/reviewer.md"), "mine\n")
-      data["disabled"]["agents"] = ["reviewer"]
-      File.write(lock, data.to_yaml)
+      File.write(config, { "disabled" => { "agents" => ["reviewer"] } }.to_yaml)
+
       run(artifacts: [agent(name: "reviewer")])
       expect(read(".claude/agents/reviewer.md")).to eq("mine\n")
+      expect(lock_yaml["files"].map { |f| f["path"] }).to include(".claude/agents/reviewer.md")
     end
   end
 
@@ -971,7 +1039,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       run(artifacts: [guideline(name: "auth-pundit")], bundled_gems: [source])
       lock = File.join(root, ".hyperdrive/lock.yml")
       data = YAML.safe_load(File.read(lock))
-      data["version"] = 3
+      data["version"] = 4
       File.write(lock, data.to_yaml)
     end
 
@@ -991,7 +1059,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       out = run_reporting(artifacts: [guideline(name: "auth-pundit")], bundled_gems: [source])
 
       expect(out.scan("was written by a newer rails-hyperdrive").size).to eq(1)
-      expect(out).to include("lock schema 3, this installer supports 2")
+      expect(out).to include("lock schema 4, this installer supports 3")
     end
   end
 
@@ -1160,7 +1228,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
   end
 
   describe "discovery notices" do
-    let(:notice) { "gem 'foo' ships 2 skills.sh skill(s); add \"foo\" to enabled: in .hyperdrive/lock.yml" }
+    let(:notice) { "gem 'foo' ships 2 skills.sh skill(s); add \"foo\" to enabled: in .hyperdrive/config.yml" }
 
     it "prints each notice in preserve mode" do
       out = run_reporting(notices: [notice])

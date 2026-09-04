@@ -1,14 +1,13 @@
 require "yaml"
+require "rails/hyperdrive/install_layout"
 
 module Rails
   module Hyperdrive
     # installed_at is volatile metadata, never an input to any comparison.
     class LockFile
-      SCHEMA_VERSION = 2
+      SCHEMA_VERSION = 3
       STATE_PRESENT  = "present".freeze
       STATE_REMOVED  = "removed-by-user".freeze
-
-      DISABLED_KEYS = { skill: "skills", guideline: "guidelines", agent: "agents", command: "commands" }.freeze
 
       # In-memory form of one files: entry. On disk, source_gem and
       # source_version are a single "gem@version" string; the split/join lives
@@ -39,8 +38,7 @@ module Rails
         @claude_md_state = nil # nil = no lock has been written yet
         @files = {}            # path(String) => Entry
         @document = {}         # raw parsed YAML, kept so unknown keys survive
-        @disabled = empty_disabled
-        @enabled = []
+        @legacy_settings = false
         @schema_version = nil
       end
 
@@ -54,8 +52,7 @@ module Rails
         @schema_version = data["version"]
         claude_md = data["claude_md"]
         @claude_md_state = claude_md["state"] if claude_md.is_a?(Hash)
-        @disabled = parse_disabled(data["disabled"])
-        @enabled = parse_enabled(data["enabled"])
+        @legacy_settings = data.key?("disabled") || data.key?("enabled")
         Array(data["files"]).each do |raw|
           next unless raw.is_a?(Hash)
           entry = build_entry(raw)
@@ -79,6 +76,15 @@ module Rails
           "this installer supports #{SCHEMA_VERSION}); upgrade rails-hyperdrive"
       end
 
+      def legacy_settings?
+        @legacy_settings
+      end
+
+      def legacy_settings_message(display_path)
+        "#{display_path} carries disabled:/enabled:; those settings now live in " \
+          "#{InstallLayout::CONFIG_PATH} and are ignored here"
+      end
+
       def entry(file_path)
         @files[file_path.to_s]
       end
@@ -91,21 +97,10 @@ module Rails
         @files.values.each(&block)
       end
 
-      def disabled?(type, name)
-        Array(@disabled[type.to_sym]).include?(name.to_s)
-      end
-
-      # Hand-editable list of gems the app opts into as companions.
-      def enabled_gems
-        @enabled
-      end
-
       # Adopt the state that is not derived from installed content, so
       # rewriting the file preserves it.
-      def carry_settings(other)
+      def carry_document(other)
         @document = other.document.dup
-        @disabled = other.disabled_lists.dup
-        @enabled = other.enabled_gems.dup
         self
       end
 
@@ -132,14 +127,16 @@ module Rails
         document = @document.merge(
           "version"   => SCHEMA_VERSION,
           "claude_md" => carried.merge("state" => @claude_md_state),
-          "disabled"  => DISABLED_KEYS.each_with_object({}) { |(type, key), h| h[key] = @disabled[type] },
-          "enabled"   => @enabled,
           "files"     => @files.values.sort_by(&:path).map { |e| serialize_entry(e) }
         )
         # A nil state means no import line is being managed. Recording one anyway
         # would make the next run read the absent line as a deletion the user
         # made, and never add it back.
         document.delete("claude_md") if @claude_md_state.nil?
+        # Every other unknown key round-trips; these two must not, or a lock
+        # would keep asserting settings nothing reads.
+        document.delete("disabled")
+        document.delete("enabled")
         document.to_yaml
       end
 
@@ -149,29 +146,7 @@ module Rails
         @document
       end
 
-      def disabled_lists
-        @disabled
-      end
-
       private
-
-      def empty_disabled
-        DISABLED_KEYS.keys.each_with_object({}) { |type, h| h[type] = [] }
-      end
-
-      def parse_disabled(raw)
-        return empty_disabled unless raw.is_a?(Hash)
-
-        DISABLED_KEYS.each_with_object({}) do |(type, key), h|
-          h[type] = Array(raw[key]).map { |name| name.to_s.strip }.reject(&:empty?).uniq
-        end
-      end
-
-      def parse_enabled(raw)
-        return [] unless raw.is_a?(Array)
-
-        raw.map { |name| name.to_s.strip }.reject(&:empty?).uniq
-      end
 
       def build_entry(raw)
         source_gem, source_version = split_source(raw["source"])

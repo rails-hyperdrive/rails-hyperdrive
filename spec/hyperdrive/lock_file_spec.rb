@@ -54,15 +54,9 @@ RSpec.describe Rails::Hyperdrive::LockFile do
 
     expect(lock.to_yaml).to eq(<<~YAML)
       ---
-      version: 2
+      version: 3
       claude_md:
         state: present
-      disabled:
-        skills: []
-        guidelines: []
-        agents: []
-        commands: []
-      enabled: []
       files:
       - path: ".claude/hyperdrive/guidelines/jobs-sidekiq.md"
         artifact: guideline
@@ -186,7 +180,7 @@ RSpec.describe Rails::Hyperdrive::LockFile do
         path = File.join(dir, "lock.yml")
         File.write(path, "version: 1\nclaude_md:\n  state: present\nfiles: []\n")
 
-        rewritten = described_class.new(path).carry_settings(described_class.load(path))
+        rewritten = described_class.new(path).carry_document(described_class.load(path))
         expect(YAML.safe_load(rewritten.to_yaml)).not_to have_key("claude_md")
       end
     end
@@ -200,121 +194,64 @@ RSpec.describe Rails::Hyperdrive::LockFile do
     end
   end
 
-  describe "the disabled list" do
-    it "serializes an empty list for every artifact kind" do
-      yaml = YAML.safe_load(described_class.new("/no/such/lock.yml").to_yaml)
-      expect(yaml["disabled"]).to eq("skills" => [], "guidelines" => [], "agents" => [], "commands" => [])
+  describe "settings left behind by an older lock" do
+    def write_lock(dir, body)
+      File.join(dir, "lock.yml").tap { |path| File.write(path, body) }
     end
 
-    it "reads a hand-written list and reports names as disabled" do
+    it "reports them and names where they moved" do
       Dir.mktmpdir do |dir|
-        path = File.join(dir, "lock.yml")
-        File.write(path, <<~YAML)
-          version: 1
-          claude_md:
-            state: present
+        path = write_lock(dir, "version: 2\ndisabled:\n  skills:\n    - vcr\nfiles: []\n")
+
+        lock = described_class.load(path)
+        expect(lock.legacy_settings?).to be(true)
+        expect(lock.legacy_settings_message(".hyperdrive/lock.yml"))
+          .to eq(".hyperdrive/lock.yml carries disabled:/enabled:; those settings now live in " \
+                 ".hyperdrive/config.yml and are ignored here")
+      end
+    end
+
+    it "reports an enabled: list too" do
+      Dir.mktmpdir do |dir|
+        path = write_lock(dir, "version: 2\nenabled:\n  - some_gem\nfiles: []\n")
+        expect(described_class.load(path).legacy_settings?).to be(true)
+      end
+    end
+
+    it "reports nothing for a lock carrying neither key" do
+      Dir.mktmpdir do |dir|
+        path = write_lock(dir, "version: 2\nfiles: []\n")
+        expect(described_class.load(path).legacy_settings?).to be(false)
+      end
+      expect(described_class.load("/no/such/lock.yml").legacy_settings?).to be(false)
+    end
+
+    it "drops them on rewrite while other unknown keys still round-trip" do
+      Dir.mktmpdir do |dir|
+        path = write_lock(dir, <<~YAML)
+          version: 2
           disabled:
             skills:
-              - vcr-cassettes
-            guidelines:
-              - service-objects
+              - vcr
+          enabled:
+            - some_gem
+          future_key:
+            kept: yes
           files: []
         YAML
 
-        lock = described_class.load(path)
-        expect(lock.disabled?(:skill, "vcr-cassettes")).to be(true)
-        expect(lock.disabled?(:guideline, "service-objects")).to be(true)
-        expect(lock.disabled?(:skill, "service-objects")).to be(false)
-        expect(lock.disabled?(:guideline, "vcr-cassettes")).to be(false)
+        rewritten = described_class.new(path).carry_document(described_class.load(path))
+        document = YAML.safe_load(rewritten.to_yaml)
+        expect(document).not_to have_key("disabled")
+        expect(document).not_to have_key("enabled")
+        expect(document["future_key"]).to eq("kept" => true)
       end
     end
 
-    it "reads and re-serializes the agent and command lists" do
-      Dir.mktmpdir do |dir|
-        path = File.join(dir, "lock.yml")
-        File.write(path, "disabled:\n  agents:\n    - reviewer\n  commands:\n    - analyze--gem_a\n")
-
-        lock = described_class.load(path)
-        expect(lock.disabled?(:agent, "reviewer")).to be(true)
-        expect(lock.disabled?(:command, "analyze--gem_a")).to be(true)
-        expect(lock.disabled?(:command, "reviewer")).to be(false)
-
-        rewritten = YAML.safe_load(described_class.new(path).carry_settings(lock).to_yaml)
-        expect(rewritten["disabled"]).to include("agents" => ["reviewer"], "commands" => ["analyze--gem_a"])
-      end
-    end
-
-    it "survives a read/write round-trip" do
-      Dir.mktmpdir do |dir|
-        path = File.join(dir, "lock.yml")
-        File.write(path, "disabled:\n  skills:\n    - vcr-cassettes\n")
-
-        rewritten = described_class.new(path).carry_settings(described_class.load(path))
-        File.write(path, rewritten.to_yaml)
-
-        expect(described_class.load(path).disabled?(:skill, "vcr-cassettes")).to be(true)
-      end
-    end
-
-    it "ignores blank entries and reads a bare name as a one-entry list" do
-      Dir.mktmpdir do |dir|
-        path = File.join(dir, "lock.yml")
-        File.write(path, "disabled:\n  skills:\n    - ''\n    - '  spaced  '\n  guidelines: service-objects\n")
-
-        lock = described_class.load(path)
-        expect(lock.disabled?(:skill, "spaced")).to be(true)
-        expect(lock.disabled?(:skill, "")).to be(false)
-        expect(lock.disabled?(:guideline, "service-objects")).to be(true)
-      end
-    end
-
-    it "tolerates a disabled key that is not a mapping" do
-      Dir.mktmpdir do |dir|
-        path = File.join(dir, "lock.yml")
-        File.write(path, "disabled: nonsense\n")
-
-        lock = described_class.load(path)
-        expect(lock.disabled?(:skill, "anything")).to be(false)
-        expect(lock.disabled?(:guideline, "anything")).to be(false)
-      end
-    end
-  end
-
-  describe "the enabled list" do
-    it "defaults to an empty list and always serializes it" do
-      lock = described_class.new("/no/such/lock.yml")
-      expect(lock.enabled_gems).to eq([])
-      expect(YAML.safe_load(lock.to_yaml)["enabled"]).to eq([])
-    end
-
-    it "reads a hand-written flat list of gem names" do
-      Dir.mktmpdir do |dir|
-        path = File.join(dir, "lock.yml")
-        File.write(path, "version: 1\nenabled:\n  - some_gem\n  - '  spaced  '\n  - ''\nfiles: []\n")
-
-        expect(described_class.load(path).enabled_gems).to eq(%w[some_gem spaced])
-      end
-    end
-
-    it "tolerates an enabled key that is not a list" do
-      Dir.mktmpdir do |dir|
-        path = File.join(dir, "lock.yml")
-        File.write(path, "enabled: nonsense\n")
-
-        expect(described_class.load(path).enabled_gems).to eq([])
-      end
-    end
-
-    it "survives a read/write round-trip" do
-      Dir.mktmpdir do |dir|
-        path = File.join(dir, "lock.yml")
-        File.write(path, "enabled:\n  - some_gem\n")
-
-        rewritten = described_class.new(path).carry_settings(described_class.load(path))
-        File.write(path, rewritten.to_yaml)
-
-        expect(described_class.load(path).enabled_gems).to eq(["some_gem"])
-      end
+    it "never emits either key for a lock that never had them" do
+      document = YAML.safe_load(described_class.new("/no/such/lock.yml").to_yaml)
+      expect(document).not_to have_key("disabled")
+      expect(document).not_to have_key("enabled")
     end
   end
 
@@ -328,25 +265,26 @@ RSpec.describe Rails::Hyperdrive::LockFile do
     end
 
     it "reads a lock written by a newer installer as ahead" do
-      load_with("version: 3\n") do |lock|
+      load_with("version: 4\n") do |lock|
         expect(lock.schema_ahead?).to be(true)
-        expect(lock.schema_version).to eq(3)
+        expect(lock.schema_version).to eq(4)
         expect(lock.schema_ahead_message(".hyperdrive/lock.yml"))
-          .to eq(".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 3, " \
-                 "this installer supports 2); upgrade rails-hyperdrive")
+          .to eq(".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 4, " \
+                 "this installer supports 3); upgrade rails-hyperdrive")
       end
     end
 
     it "still reads the rest of a schema-ahead lock, so the guard can report it" do
       Dir.mktmpdir do |dir|
         path = File.join(dir, "lock.yml")
-        File.write(path, "version: 3\ndisabled:\n  skills:\n    - vcr\nfiles: []\n")
+        File.write(path, "version: 4\nclaude_md:\n  state: present\nfiles: []\n")
 
-        expect(described_class.load(path).disabled?(:skill, "vcr")).to be(true)
+        expect(described_class.load(path).claude_md_state).to eq("present")
       end
     end
 
     it "is not ahead at the supported version, an older one, a missing one, or a non-numeric one" do
+      load_with("version: 3\n") { |lock| expect(lock.schema_ahead?).to be(false) }
       load_with("version: 2\n") { |lock| expect(lock.schema_ahead?).to be(false) }
       load_with("version: 1\n") { |lock| expect(lock.schema_ahead?).to be(false) }
       load_with("") { |lock| expect(lock.schema_ahead?).to be(false) }
@@ -363,7 +301,7 @@ RSpec.describe Rails::Hyperdrive::LockFile do
       path = File.join(dir, "lock.yml")
       File.write(path, "version: 1\nfuture_key:\n  kept: yes\nfiles: []\n")
 
-      rewritten = described_class.new(path).carry_settings(described_class.load(path))
+      rewritten = described_class.new(path).carry_document(described_class.load(path))
       File.write(path, rewritten.to_yaml)
 
       expect(YAML.safe_load(File.read(path))["future_key"]).to eq("kept" => true)

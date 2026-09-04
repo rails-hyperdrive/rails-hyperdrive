@@ -236,6 +236,7 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
   describe "per-artifact opt-out" do
     let(:app_dir) { Smoke.copy_fixture("minimal") }
     let(:lock_path) { File.join(app_dir, ".hyperdrive/lock.yml") }
+    let(:config_path) { File.join(app_dir, ".hyperdrive/config.yml") }
     let(:skill_dir) { File.join(app_dir, ".claude/skills/alpha-skill") }
     let(:guide_path) { File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-guide.md") }
 
@@ -248,9 +249,9 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
     end
 
     def rewrite_disabled(skills:, guidelines:)
-      lock = YAML.safe_load(File.read(lock_path))
-      lock["disabled"] = { "skills" => skills, "guidelines" => guidelines }
-      File.write(lock_path, lock.to_yaml)
+      config = YAML.safe_load(File.read(config_path))
+      config["disabled"] = { "skills" => skills, "guidelines" => guidelines, "agents" => [], "commands" => [] }
+      File.write(config_path, config.to_yaml)
     end
 
     it "uninstalls disabled artifacts, keeps them gone, and restores them when re-enabled" do
@@ -269,9 +270,10 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(File.exist?(File.join(app_dir, ".claude/hyperdrive/index.md"))).to be(false)
       expect(File.exist?(File.join(app_dir, "CLAUDE.md"))).to be(false)
 
-      expect(YAML.safe_load(File.read(lock_path))["disabled"])
+      expect(YAML.safe_load(File.read(config_path))["disabled"])
         .to eq("skills" => ["alpha-skill"], "guidelines" => ["alpha-guide", "alpha-stack-guide"],
           "agents" => [], "commands" => [])
+      expect(YAML.safe_load(File.read(lock_path))).not_to have_key("disabled")
 
       out2, status2 = Smoke.run_hyperdrive_init!(app_dir)
       expect(status2.success?).to be(true), out2

@@ -53,7 +53,7 @@ module Rails
       # disables every variant and a postfixed name disables just one. The
       # postfixed form is honored whether or not a collision exists today, so
       # the opt-out survives a collision appearing or resolving.
-      def build(artifacts, lock: nil)
+      def build(artifacts, config: nil)
         result = Result.new(entries: [], disabled: [])
         artifacts.group_by { |a| [a.artifact_type, a.name] }.each do |(type, name), group|
           collision = group.size > 1
@@ -66,8 +66,8 @@ module Rails
               dest: InstallLayout.dest_for(type, final_name),
               collision: collision
             )
-            dropped = lock && (lock.disabled?(type, name) ||
-                               lock.disabled?(type, InstallLayout.postfixed_name(name, artifact.source_gem)))
+            dropped = config && (config.disabled?(type, name) ||
+                                 config.disabled?(type, InstallLayout.postfixed_name(name, artifact.source_gem)))
             (dropped ? result.disabled : result.entries) << entry
           end
         end
@@ -77,13 +77,13 @@ module Rails
       # A supporting file is disabled through its owning skill's name. Given the
       # installing gem, a canonically-installed file also answers to the
       # postfixed name that disabled it while it was one of several variants.
-      def disabled_dest?(lock, type, dest, source_gem: nil)
+      def disabled_dest?(config, type, dest, source_gem: nil)
         name = InstallLayout.installed_name(type, dest)
         return false unless name
         lookup = type == :skill_support ? :skill : type
         base = InstallLayout.base_name(name)
-        return true if lock.disabled?(lookup, name) || lock.disabled?(lookup, base)
-        !source_gem.nil? && lock.disabled?(lookup, InstallLayout.postfixed_name(base, source_gem))
+        return true if config.disabled?(lookup, name) || config.disabled?(lookup, base)
+        !source_gem.nil? && config.disabled?(lookup, InstallLayout.postfixed_name(base, source_gem))
       end
     end
   end

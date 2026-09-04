@@ -91,7 +91,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       initialize_app([guideline(name: "auth-pundit")])
       lock_path = File.join(root, ".hyperdrive/lock.yml")
       data = YAML.safe_load(File.read(lock_path))
-      data["version"] = 3
+      data["version"] = 4
       File.write(lock_path, data.to_yaml)
     end
 
@@ -106,7 +106,7 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(File).not_to exist(File.join(root, ".claude/hyperdrive/guidelines/jobs-sidekiq.md"))
       expect(File.read(File.join(root, ".hyperdrive/lock.yml"))).to eq(before_lock)
       expect(result.messages).to eq([
-        ".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 3, this installer supports 2); " \
+        ".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 4, this installer supports 3); " \
         "upgrade rails-hyperdrive"
       ])
     end
@@ -118,16 +118,52 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
     end
   end
 
-  it "forwards the lock's enabled: list to discovery" do
+  it "forwards the config's enabled: list to discovery" do
     initialize_app([])
-    lock_path = File.join(root, ".hyperdrive/lock.yml")
-    data = YAML.safe_load(File.read(lock_path))
-    data["enabled"] = ["some_gem"]
-    File.write(lock_path, data.to_yaml)
+    write_config("enabled" => ["some_gem"])
     expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
       .to receive(:discover).with(hash_including(enabled_gems: ["some_gem"])).and_return([])
 
     described_class.run(root: root)
+  end
+
+  describe "settings the installer cannot read" do
+    before { initialize_app([guideline(name: "auth-pundit")]) }
+
+    it "runs anyway and reports a malformed config before anything else" do
+      write_config("enabled: nonsense\n")
+      bundle_ships([guideline(name: "auth-pundit"), guideline(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+
+      result = described_class.run(root: root)
+
+      expect(result).to be_ran
+      expect(result.installed).to eq([".claude/hyperdrive/guidelines/jobs-sidekiq.md"])
+      expect(result.messages.first)
+        .to eq(".hyperdrive/config.yml enabled: must be a list of gem names; ignoring it")
+    end
+
+    it "reports settings still sitting in the lock" do
+      lock_path = File.join(root, ".hyperdrive/lock.yml")
+      data = YAML.safe_load(File.read(lock_path))
+      data["disabled"] = { "guidelines" => ["auth-pundit"] }
+      File.write(lock_path, data.to_yaml)
+      bundle_ships([guideline(name: "auth-pundit")])
+
+      result = described_class.run(root: root)
+
+      expect(result.messages).to include(
+        ".hyperdrive/lock.yml carries disabled:/enabled:; those settings now live in " \
+        ".hyperdrive/config.yml and are ignored here"
+      )
+    end
+
+    it "writes no config of its own" do
+      bundle_ships([guideline(name: "auth-pundit"), guideline(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+
+      described_class.run(root: root)
+
+      expect(File).not_to exist(File.join(root, ".hyperdrive/config.yml"))
+    end
   end
 
   describe "installing what the lockfile does not record" do
@@ -325,10 +361,13 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
   end
 
   def disable(*names)
-    lock_path = File.join(root, Rails::Hyperdrive::InstallLayout::LOCK_PATH)
-    data = YAML.safe_load(File.read(lock_path))
-    (data["disabled"] ||= {})["guidelines"] = names
-    File.write(lock_path, data.to_yaml)
+    write_config("disabled" => { "guidelines" => names })
+  end
+
+  def write_config(document)
+    path = File.join(root, Rails::Hyperdrive::InstallLayout::CONFIG_PATH)
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, document.is_a?(String) ? document : document.to_yaml)
   end
 
   def with_env(vars)

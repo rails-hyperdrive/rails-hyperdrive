@@ -11,6 +11,7 @@ module Rails
       COMMANDS_DIR = ".claude/commands".freeze
       INDEX_PATH = "#{HYPERDRIVE_DIR}/index.md".freeze
       LOCK_PATH = ".hyperdrive/lock.yml".freeze
+      CONFIG_PATH = ".hyperdrive/config.yml".freeze
 
       DEFAULT_TARGET = :claude
 

@@ -167,9 +167,9 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
     end
 
     it "is not reported as missing while disabled" do
-      lock_path = File.join(root, Rails::Hyperdrive::InstallLayout::LOCK_PATH)
-      FileUtils.mkdir_p(File.dirname(lock_path))
-      File.write(lock_path, { "disabled" => { "commands" => ["analyze"] } }.to_yaml)
+      config_path = File.join(root, Rails::Hyperdrive::InstallLayout::CONFIG_PATH)
+      FileUtils.mkdir_p(File.dirname(config_path))
+      File.write(config_path, { "disabled" => { "commands" => ["analyze"] } }.to_yaml)
 
       expect(compare([command(name: "analyze")]).missing).to be_empty
     end
@@ -177,11 +177,11 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
 
   describe "a disabled artifact" do
     def disable(*names)
-      lock_path = File.join(root, Rails::Hyperdrive::InstallLayout::LOCK_PATH)
-      FileUtils.mkdir_p(File.dirname(lock_path))
-      data = File.exist?(lock_path) ? YAML.safe_load(File.read(lock_path)) : {}
+      config_path = File.join(root, Rails::Hyperdrive::InstallLayout::CONFIG_PATH)
+      FileUtils.mkdir_p(File.dirname(config_path))
+      data = File.exist?(config_path) ? YAML.safe_load(File.read(config_path)) : {}
       (data["disabled"] ||= {})["guidelines"] = names
-      File.write(lock_path, data.to_yaml)
+      File.write(config_path, data.to_yaml)
     end
 
     it "is not reported as missing" do

@@ -3,6 +3,7 @@ require "time"
 require "rails/hyperdrive/ancestor_locator"
 require "rails/hyperdrive/bundler_artifact_discovery"
 require "rails/hyperdrive/claude_md_import"
+require "rails/hyperdrive/config_file"
 require "rails/hyperdrive/drift_verdict"
 require "rails/hyperdrive/three_way_merge"
 require "rails/hyperdrive/eager_footprint"
@@ -16,7 +17,8 @@ module Rails
     # The application root is explicit and no Rails constant is touched, so any
     # process that can see the bundle can run this.
     class InstallPipeline
-      ARTIFACT_DESTINATIONS = (InstallLayout.dest_roots + [InstallLayout::LOCK_PATH]).freeze
+      ARTIFACT_DESTINATIONS =
+        (InstallLayout.dest_roots + [InstallLayout::LOCK_PATH, InstallLayout::CONFIG_PATH]).freeze
 
       WARN_LINES = 150
       WARN_TOKENS = 1_500
@@ -26,7 +28,8 @@ module Rails
       Result = Struct.new(:installed, :updated, :unchanged, :skipped, :orphaned, :removed, :merged, :sidecars,
         keyword_init: true)
 
-      def initialize(root:, shell:, artifacts:, mode: :preserve, report: BundlerArtifactDiscovery::Report.new)
+      def initialize(root:, shell:, artifacts:, mode: :preserve, report: BundlerArtifactDiscovery::Report.new,
+                     config: nil)
         raise ArgumentError, "unknown mode #{mode.inspect}" unless MODES.include?(mode)
 
         @root = File.expand_path(root.to_s)
@@ -34,6 +37,7 @@ module Rails
         @artifacts = artifacts
         @mode = mode
         @report = report
+        @config = config
         @bundled_gems = Array(report.bundled_gems).map(&:to_s)
         @skipped_gems = Array(report.skipped_gems).map(&:to_s)
         @result = Result.new(
@@ -44,7 +48,8 @@ module Rails
       def call
         return halt_schema_ahead if old_lock.schema_ahead?
 
-        @new_lock = LockFile.new(abs(InstallLayout::LOCK_PATH)).carry_settings(old_lock)
+        report_settings_warnings
+        @new_lock = LockFile.new(abs(InstallLayout::LOCK_PATH)).carry_document(old_lock)
         @plan = plan
 
         report_collisions
@@ -82,7 +87,19 @@ module Rails
       end
 
       def build_result
-        @build_result ||= InstallPlan.build(@artifacts, lock: old_lock)
+        @build_result ||= InstallPlan.build(@artifacts, config: config)
+      end
+
+      def config
+        @config ||= ConfigFile.load(abs(InstallLayout::CONFIG_PATH))
+      end
+
+      def report_settings_warnings
+        return if additive?
+
+        config.warnings.each { |warning| @shell.say_status :warn, warning, :yellow }
+        return unless old_lock.legacy_settings?
+        @shell.say_status :warn, old_lock.legacy_settings_message(InstallLayout::LOCK_PATH), :yellow
       end
 
       def old_lock
@@ -120,7 +137,7 @@ module Rails
 
       def report_disabled
         build_result.disabled.each do |entry|
-          @shell.say_status :disabled, "#{entry.type} '#{entry.final_name}' (listed in #{InstallLayout::LOCK_PATH})", :blue
+          @shell.say_status :disabled, "#{entry.type} '#{entry.final_name}' (listed in #{InstallLayout::CONFIG_PATH})", :blue
         end
       end
 
@@ -426,7 +443,7 @@ module Rails
           type = InstallLayout::ARTIFACT_TYPES[entry.kind]
           next unless type
           next if @new_lock.entry(entry.path)
-          next unless InstallPlan.disabled_dest?(old_lock, type, entry.path, source_gem: entry.source_gem)
+          next unless InstallPlan.disabled_dest?(config, type, entry.path, source_gem: entry.source_gem)
 
           remove_or_carry(entry) { "disabled but locally modified; delete it by hand" }
         end

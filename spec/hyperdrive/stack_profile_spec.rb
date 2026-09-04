@@ -2,7 +2,7 @@ require "spec_helper"
 require "tmpdir"
 require "rails/hyperdrive/stack_profile"
 require "rails/hyperdrive/bundler_artifact_discovery"
-require "rails/hyperdrive/lock_file"
+require "rails/hyperdrive/config_file"
 
 RSpec.describe Rails::Hyperdrive::StackProfile do
   let(:lockfile) { File.expand_path("../fixtures/gemfile_lock/standard.lock", __dir__) }
@@ -55,18 +55,18 @@ RSpec.describe Rails::Hyperdrive::StackProfile do
     )
   end
 
-  it "forwards the app lock's enabled: list to skill discovery" do
+  it "forwards the app config's enabled: list to skill discovery" do
     Dir.mktmpdir do |root|
       FileUtils.mkdir_p(File.join(root, ".hyperdrive"))
-      File.write(File.join(root, ".hyperdrive/lock.yml"), "enabled:\n- opted_gem\n")
+      File.write(File.join(root, ".hyperdrive/config.yml"), "enabled:\n- opted_gem\n")
       expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
         .to receive(:discover).with(enabled_gems: ["opted_gem"]).and_return([])
       described_class.from_lockfile(lockfile, app_root: root)
     end
   end
 
-  it "discovers with no enabled gems when the lock cannot be read" do
-    allow(Rails::Hyperdrive::LockFile).to receive(:load).and_raise(StandardError, "corrupt")
+  it "discovers with no enabled gems when the config cannot be read" do
+    allow(Rails::Hyperdrive::ConfigFile).to receive(:load).and_raise(StandardError, "corrupt")
     expect(Rails::Hyperdrive::BundlerArtifactDiscovery)
       .to receive(:discover).with(enabled_gems: []).and_return([])
     described_class.from_lockfile(lockfile, app_root: "/anywhere")
