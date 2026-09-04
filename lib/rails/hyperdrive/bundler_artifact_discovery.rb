@@ -308,7 +308,7 @@ module Rails
 
         count = found.map { |p| File.dirname(p) }.uniq.size
         report.notices << "gem '#{spec.name}' ships #{count} skills.sh skill(s); add \"#{spec.name}\" to enabled: " \
-                          "in .hyperdrive/lock.yml and re-run bin/rails hyperdrive:sync to install them"
+                          "in #{InstallLayout::CONFIG_PATH} and re-run bin/rails hyperdrive:sync to install them"
       end
 
       # Frontmatter's schema is exactly name and description; any other key is

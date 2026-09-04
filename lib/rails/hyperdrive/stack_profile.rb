@@ -147,7 +147,7 @@ module Rails
 
       def enabled_gems
         require "rails/hyperdrive/install_layout"
-        require "rails/hyperdrive/lock_file"
+        require "rails/hyperdrive/config_file"
         root =
           if @app_root
             @app_root.to_s
@@ -156,8 +156,8 @@ module Rails
           end
         return [] unless root
 
-        ::Rails::Hyperdrive::LockFile.load(
-          File.join(root, ::Rails::Hyperdrive::InstallLayout::LOCK_PATH)
+        ::Rails::Hyperdrive::ConfigFile.load(
+          File.join(root, ::Rails::Hyperdrive::InstallLayout::CONFIG_PATH)
         ).enabled_gems
       rescue StandardError
         []

@@ -26,8 +26,8 @@ Description:
     records the delivered upstream, so the same version is never re-offered.
 
     Touches no bootstrap artifact: .mcp.json, the engine mount, the Gemfile
-    plugin directive, and .gitignore belong to hyperdrive:init and are left
-    alone.
+    plugin directive, .gitignore, and .hyperdrive/config.yml belong to
+    hyperdrive:init and are left alone.
 
 Examples:
     bin/rails hyperdrive:sync

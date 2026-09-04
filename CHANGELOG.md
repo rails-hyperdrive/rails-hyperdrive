@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`.hyperdrive/config.yml`, a settings file that belongs to you.** The
+  hand-edited `disabled:` (per kind) and `enabled:` (companion opt-in) lists now
+  live there instead of in `.hyperdrive/lock.yml`. `hyperdrive:init` creates the
+  file with empty sections and an explanatory header if it is not already there,
+  and no hyperdrive command ever writes to it again — the relationship is
+  `Gemfile` to `Gemfile.lock`: the config holds your choices, the lock holds
+  state. Reads are fail-open: a missing file is an empty config, and anything
+  malformed warns and is ignored rather than failing a run. A gitignored config
+  now draws the same warning a gitignored lock does.
+
+### Changed
+
+- **BREAKING — `disabled:`/`enabled:` in `.hyperdrive/lock.yml` are no longer
+  read, and there is no migration.** `init`, `sync`, and `bundle install` print
+  one warning naming the lock keys, and the next lock write drops them. Re-declare
+  those settings in `.hyperdrive/config.yml`, or every artifact you had disabled
+  installs again.
+- The lock schema version is now **3**. An installer older than this release
+  halts on a schema-3 lock instead of reading the absent `disabled:` list as
+  empty and reinstalling every artifact you opted out of.
+
 ## [0.8.0] - 2026-08-26
 
 ### Added

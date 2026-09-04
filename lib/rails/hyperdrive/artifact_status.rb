@@ -1,3 +1,4 @@
+require "rails/hyperdrive/config_file"
 require "rails/hyperdrive/drift_verdict"
 require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_plan"
@@ -28,16 +29,17 @@ module Rails
         end
       end
 
-      def self.compare(root:, artifacts:, bundled_gems: [])
-        new(root: root, artifacts: artifacts, bundled_gems: bundled_gems).tap(&:compare)
+      def self.compare(root:, artifacts:, bundled_gems: [], config: nil)
+        new(root: root, artifacts: artifacts, bundled_gems: bundled_gems, config: config).tap(&:compare)
       end
 
       attr_reader :entries
 
-      def initialize(root:, artifacts:, bundled_gems: [])
+      def initialize(root:, artifacts:, bundled_gems: [], config: nil)
         @root = File.expand_path(root.to_s)
         @artifacts = artifacts
         @bundled_gems = Array(bundled_gems).map(&:to_s)
+        @config = config
         @entries = []
       end
 
@@ -45,7 +47,7 @@ module Rails
         lock = LockFile.load(File.join(@root, InstallLayout::LOCK_PATH))
         offered = {}
 
-        InstallPlan.build(@artifacts, lock: lock).entries.each do |plan_entry|
+        InstallPlan.build(@artifacts, config: config).entries.each do |plan_entry|
           offered[plan_entry.dest] = [DriftVerdict.body_sha(plan_entry.install_ready_body), plan_entry.source_label, plan_entry.type]
           plan_entry.support_files.each do |file|
             offered[file[:dest]] = [DriftVerdict.body_sha(file[:body]), plan_entry.source_label, :skill_support]
@@ -71,7 +73,7 @@ module Rails
           # A disabled artifact left on disk was reported at install time; the
           # bundle still ships it, so it is not an orphan.
           type = InstallLayout::ARTIFACT_TYPES[locked.kind]
-          next if type && InstallPlan.disabled_dest?(lock, type, locked.path, source_gem: locked.source_gem)
+          next if type && InstallPlan.disabled_dest?(config, type, locked.path, source_gem: locked.source_gem)
 
           @entries << Entry.new(
             path: locked.path, state: :orphaned, artifact: locked.kind&.to_sym,
@@ -89,6 +91,12 @@ module Rails
 
       def stale?
         !missing.empty? || !outdated.empty? || !orphaned.empty?
+      end
+
+      private
+
+      def config
+        @config ||= ConfigFile.load(File.join(@root, InstallLayout::CONFIG_PATH))
       end
     end
   end

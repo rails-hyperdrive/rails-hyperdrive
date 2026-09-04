@@ -1,6 +1,7 @@
 require "bundler"
 require "rails/hyperdrive/artifact_status"
 require "rails/hyperdrive/bundler_artifact_discovery"
+require "rails/hyperdrive/config_file"
 require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_pipeline"
 require "rails/hyperdrive/install_shell"
@@ -14,7 +15,7 @@ module Rails
       DEVELOPMENT = "development".freeze
 
       Result = Struct.new(:installed, :outdated, :orphaned, :unwired, :advisories, :fence_warnings,
-        :halted, :skipped, :error, keyword_init: true) do
+        :config_warnings, :halted, :skipped, :error, keyword_init: true) do
         def ran?
           skipped.nil?
         end
@@ -27,7 +28,7 @@ module Rails
           return [] unless ran?
           return [halted] if halted
 
-          lines = []
+          lines = Array(config_warnings).dup
           unless Array(installed).empty?
             lines << "installed #{installed.size} artifact(s):"
             installed.each { |path| lines << "  #{path}" }
@@ -57,9 +58,14 @@ module Rails
         lock = LockFile.load(File.join(root, InstallLayout::LOCK_PATH))
         return halted(lock.schema_ahead_message(InstallLayout::LOCK_PATH)) if lock.schema_ahead?
 
+        config = ConfigFile.load(File.join(root, InstallLayout::CONFIG_PATH))
+        config_warnings = config.warnings.dup
+        config_warnings << lock.legacy_settings_message(InstallLayout::LOCK_PATH) if lock.legacy_settings?
+
         report = BundlerArtifactDiscovery::Report.new
-        artifacts = BundlerArtifactDiscovery.discover(enabled_gems: lock.enabled_gems, report: report)
-        status = ArtifactStatus.compare(root: root, artifacts: artifacts, bundled_gems: report.bundled_gems)
+        artifacts = BundlerArtifactDiscovery.discover(enabled_gems: config.enabled_gems, report: report)
+        status = ArtifactStatus.compare(root: root, artifacts: artifacts, bundled_gems: report.bundled_gems,
+          config: config)
 
         installed = []
         unwired = false
@@ -70,7 +76,8 @@ module Rails
             shell: InstallShell.new(root: root, io: io),
             artifacts: artifacts,
             mode: :additive,
-            report: report
+            report: report,
+            config: config
           )
           installed = pipeline.call.installed
           # This runs from a bundle install, which must not edit CLAUDE.md, so a
@@ -80,7 +87,8 @@ module Rails
         end
 
         Result.new(installed: installed, outdated: status.outdated, orphaned: status.orphaned,
-          unwired: unwired, advisories: report.advisories, fence_warnings: report.fence_warnings)
+          unwired: unwired, advisories: report.advisories, fence_warnings: report.fence_warnings,
+          config_warnings: config_warnings)
       rescue StandardError => e
         skip(:error, e)
       end
@@ -106,12 +114,13 @@ module Rails
 
       def skip(reason, error = nil)
         Result.new(installed: [], outdated: [], orphaned: [], advisories: [], fence_warnings: [],
-          skipped: reason, error: error)
+          config_warnings: [], skipped: reason, error: error)
       end
 
       # A completed run that installed nothing and has a reason to print.
       def halted(reason)
-        Result.new(installed: [], outdated: [], orphaned: [], advisories: [], fence_warnings: [], halted: reason)
+        Result.new(installed: [], outdated: [], orphaned: [], advisories: [], fence_warnings: [],
+          config_warnings: [], halted: reason)
       end
     end
   end

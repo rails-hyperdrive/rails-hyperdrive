@@ -39,6 +39,7 @@ $ bin/rails hyperdrive:init
 
   create  .mcp.json
   insert  config/routes.rb
+  create  .hyperdrive/config.yml
   create  .claude/hyperdrive/guidelines/jobs-sidekiq.md
   create  .claude/skills/sidekiq-idempotency/SKILL.md
   create  .claude/hyperdrive/index.md
@@ -133,6 +134,7 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
   <supporting files>                   # optional extras (references/, examples/, …), installed as shipped (*.md.erb rendered)
 .claude/agents/<name>.md               # companion-shipped subagent, installed verbatim
 .claude/commands/<name>.md             # companion-shipped slash command, installed verbatim
+.hyperdrive/config.yml                 # yours to edit: disabled:/enabled: settings
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
 
@@ -146,7 +148,7 @@ Installed files are yours to modify. The lockfile hash tells the installer wheth
 
 ### Turning off a single artifact
 
-A companion gem you want for one skill but not another doesn't have to be all-or-nothing. Add the artifact's name to the `disabled:` list in `.hyperdrive/lock.yml`. It is written empty on every install, so the shape is already there:
+A companion gem you want for one skill but not another doesn't have to be all-or-nothing. Add the artifact's name to the `disabled:` list in `.hyperdrive/config.yml` — `hyperdrive:init` creates that file with empty sections, so the shape is already there:
 
 ```yaml
 disabled:
@@ -162,20 +164,20 @@ disabled:
 
 A disabled artifact is never installed, and one already on disk is removed on the next `hyperdrive:init` or `hyperdrive:sync`, but **only if you haven't edited it**. A locally modified file is reported and left alone, for you to delete when you're ready. Disabling a skill removes its shipped supporting files under the same per-file rule; files you created yourself in the skill directory survive and keep the directory alive. Disabling a guideline also drops its line from `index.md`, so it leaves eager context along with the file.
 
-The list is yours to edit; the generator only reads it and carries it forward. Delete a name to get the artifact back on the next run. When two companion gems ship the same artifact name, both install under a `<name>--<source-gem>` suffix: the plain name disables both, the suffixed name disables one.
+The list is yours to edit; the generator only reads it. Delete a name to get the artifact back on the next run. When two companion gems ship the same artifact name, both install under a `<name>--<source-gem>` suffix: the plain name disables both, the suffixed name disables one.
 
 To skip installed content wholesale instead, pass `--skip-content` to `hyperdrive:init`.
 
 ### Opting into a gem's bundled skills
 
-Ordinary gems (not built as hyperdrive companions) sometimes ship a top-level `skills/` directory of skills.sh-style skills. Those are never installed automatically: `hyperdrive:init` and `hyperdrive:sync` only report them, e.g. `gem 'foo' ships 2 skills.sh skill(s)`. To install them, name the gem in the `enabled:` list in `.hyperdrive/lock.yml` and re-run `hyperdrive:sync`:
+Ordinary gems (not built as hyperdrive companions) sometimes ship a top-level `skills/` directory of skills.sh-style skills. Those are never installed automatically: `hyperdrive:init` and `hyperdrive:sync` only report them, e.g. `gem 'foo' ships 2 skills.sh skill(s)`. To install them, name the gem in the `enabled:` list in `.hyperdrive/config.yml` and re-run `hyperdrive:sync`:
 
 ```yaml
 enabled:
   - foo
 ```
 
-An enabled gem is treated as a companion from then on: its skills install through the normal pipeline (including on `bundle install`), and `disabled:` still wins for any individual artifact. The list is hand-edited like `disabled:` and survives every rewrite of the lockfile.
+An enabled gem is treated as a companion from then on: its skills install through the normal pipeline (including on `bundle install`), and `disabled:` still wins for any individual artifact. The list is hand-edited like `disabled:`; `.hyperdrive/config.yml` is yours alone, and no hyperdrive command writes to it after `hyperdrive:init` creates it.
 
 ---
 

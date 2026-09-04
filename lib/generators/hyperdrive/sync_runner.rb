@@ -1,6 +1,7 @@
 require "thor"
 require "rails/hyperdrive"
 require "rails/hyperdrive/bundler_artifact_discovery"
+require "rails/hyperdrive/config_file"
 require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_pipeline"
 require "rails/hyperdrive/lock_file"
@@ -43,7 +44,8 @@ module Rails
             shell: @shell,
             artifacts: discover_artifacts,
             mode: mode,
-            report: report
+            report: report,
+            config: config
           )
           @pipeline.call
         end
@@ -80,8 +82,14 @@ module Rails
           )
         end
 
+        def config
+          @config ||= ::Rails::Hyperdrive::ConfigFile.load(
+            File.join(root, ::Rails::Hyperdrive::InstallLayout::CONFIG_PATH)
+          )
+        end
+
         def enabled_gems
-          lock.enabled_gems
+          config.enabled_gems
         end
 
         def lock_entries
