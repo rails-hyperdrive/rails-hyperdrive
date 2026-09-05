@@ -63,6 +63,7 @@ module Rails
         carry_orphans
         eager_guidelines = write_index_md(guidelines)
         write_claude_md(guidelines)
+        clear_resolved_ancestors
         write_lock
         print_warnings
         print_notices
@@ -258,68 +259,111 @@ module Rails
       # Reconciliation for a locally-modified destination in :sidecar/:merge
       # mode. The lock records the newest upstream *delivered* — installed
       # live, merged in, or written as a sidecar — never the live file's own
-      # hash, so the same upstream version is offered exactly once.
+      # hash, so the same upstream version is offered exactly once. While a
+      # sidecar is pending the entry also records the *ancestor*: the upstream
+      # the live file's own edits descend from, which a later run needs as the
+      # merge base.
       def reconcile_edited(write, old, source_relpath:, final_name:)
         dest = write[:dest]
         sidecar = InstallLayout.sidecar_path(dest)
+        pending = File.exist?(abs(sidecar))
+        pristine = pending && delivered_sidecar?(sidecar, delivered_shas(write, old))
 
         if old && old.source_sha == write[:gem_sha]
-          skip_edited(write, old)
-          if File.exist?(abs(sidecar))
-            @shell.say_status :warn, "#{sidecar} (unresolved sidecar; reconcile it with #{dest}, then delete it)", :yellow
-          end
-          return
+          return retry_pending(write, old, sidecar, pending: pending, pristine: pristine, final_name: final_name)
         end
 
         # An edited sidecar is user work: leave it, and leave the lock at the
         # old upstream so this delivery is re-offered once the user clears it.
-        if File.exist?(abs(sidecar)) && !delivered_sidecar?(sidecar, delivered_shas(write, old))
+        if pending && !pristine
           @result.skipped << dest
           @shell.say_status :warn, "#{sidecar} (sidecar locally modified; resolve or delete it)", :yellow
           @new_lock.carry(old) if old
           return
         end
 
-        reason = nil
-        ancestor = nil
-        pending = File.exist?(abs(sidecar))
-        if merge_mode?
-          if pending
-            # A pending sidecar means the last delivered upstream never reached
-            # the live file, so the reconstructable ancestor is stale; merging
-            # over it would silently revert that delivery.
-            reason = "previous delivery still unresolved"
-          else
-            merged, reason, ancestor = attempt_merge(write, old, source_relpath: source_relpath, final_name: final_name)
-            if merged
-              write_merged(write, merged)
-              sweep_sidecar(write, old)
-              return
-            end
-          end
-        elsif !pending
-          ancestor = locate_ancestor(write, old, source_relpath: source_relpath, final_name: final_name)
-        end
-
-        write_sidecar(write, reason, ancestor: ancestor, previous_source: old&.source_label)
+        deliver(write, old, pending: pending, source_relpath: source_relpath, final_name: final_name)
       end
 
-      def attempt_merge(write, old, source_relpath:, final_name:)
-        return [nil, "no previous install recorded", nil] unless old
+      # Nothing new to deliver: the pending sidecar is still the standing
+      # offer, so --merge attempts to complete it rather than re-offering it.
+      def retry_pending(write, old, sidecar, pending:, pristine:, final_name:)
+        reason = nil
+        if merge_mode? && pristine
+          ancestor = AncestorLocator.locate_recorded_ancestor(old, final_name: final_name)
+          merged, reason = ancestor ? merge_bodies(write, ancestor) : [nil, "ancestor unavailable"]
+          if merged
+            write_merged(write, merged)
+            sweep_sidecar(write, old)
+            return
+          end
+        end
 
-        ancestor = locate_ancestor(write, old, source_relpath: source_relpath, final_name: final_name)
-        return [nil, "#{old.source_label} not found in installed gems", nil] unless ancestor
+        skip_edited(write, old)
+        return unless pending
 
+        message = "#{sidecar} (unresolved sidecar; reconcile it with #{write[:dest]}, then delete it"
+        message += "; #{reason}" if reason
+        @shell.say_status :warn, "#{message})", :yellow
+      end
+
+      # The ancestor is the live file's own base, so a delivery landing on top
+      # of a pending one keeps the ancestor already recorded.
+      def deliver(write, old, pending:, source_relpath:, final_name:)
+        if pending
+          record = recorded_ancestor(old)
+          ancestor = AncestorLocator.locate_recorded_ancestor(old, final_name: final_name)
+          previous_source = old&.ancestor_label
+          reason = "ancestor unavailable" if merge_mode? && ancestor.nil?
+        else
+          record = fresh_ancestor(old, source_relpath)
+          ancestor = locate_ancestor(write, old, source_relpath: source_relpath, final_name: final_name)
+          previous_source = old&.source_label
+          reason = fresh_merge_reason(old, ancestor) if merge_mode?
+        end
+
+        if merge_mode? && ancestor
+          merged, reason = merge_bodies(write, ancestor)
+          if merged
+            write_merged(write, merged)
+            sweep_sidecar(write, old)
+            return
+          end
+        end
+
+        write_sidecar(write, reason, ancestor: ancestor, previous_source: previous_source, ancestor_record: record)
+      end
+
+      def fresh_merge_reason(old, ancestor)
+        return "no previous install recorded" unless old
+        return "#{old.source_label} not found in installed gems" unless ancestor
+        nil
+      end
+
+      # A fresh delivery always reads the ancestor off the entry's own source,
+      # never off ancestor keys left over from a window that already closed.
+      def fresh_ancestor(old, source_relpath)
+        return nil unless old && source_relpath
+        { gem: old.source_gem, version: old.source_version, sha: old.source_sha, relpath: source_relpath }
+      end
+
+      def recorded_ancestor(old)
+        return nil unless old&.ancestor?
+        { gem: old.ancestor_gem, version: old.ancestor_version, sha: old.ancestor_sha,
+          relpath: old.ancestor_relpath }
+      end
+
+      def merge_bodies(write, ancestor)
         ours = live_body(write)
         if ours.nil? || [ours, ancestor, write[:body]].any? { |b| ThreeWayMerge.binary?(b) }
-          return [nil, "binary content", ancestor]
+          return [nil, "binary content"]
         end
 
         outcome = ThreeWayMerge.merge(ours: ours, base: ancestor, theirs: write[:body])
         case outcome.status
-        when :clean      then [outcome.body, nil, ancestor]
-        when :conflicted then [nil, "conflicting edits", ancestor]
-        else                  [nil, "git merge-file unavailable", ancestor]
+        when :clean      then [outcome.body, nil]
+        when :conflicted then [nil, "conflicting edits"]
+        else                  [nil, "git merge-file unavailable"]
         end
       end
 
@@ -351,14 +395,14 @@ module Rails
       # The sidecar is byte-identical to what a live install of the new
       # upstream would write, so `mv <dest>.new <dest>` accepts it wholesale
       # and the lock already verifies it.
-      def write_sidecar(write, reason, ancestor: nil, previous_source: nil)
+      def write_sidecar(write, reason, ancestor: nil, previous_source: nil, ancestor_record: nil)
         sidecar = InstallLayout.sidecar_path(write[:dest])
         @shell.create_file sidecar, write[:body]
         @result.sidecars << Sidecar.new(dest: write[:dest], ancestor: ancestor, previous_source: previous_source)
         message = "#{write[:dest]} (locally modified; new upstream delivered to #{sidecar}"
         message += "; #{reason}" if reason
         @shell.say_status :sidecar, "#{message})", :yellow
-        upsert_lock(write, Time.now.utc)
+        upsert_lock(write, Time.now.utc, ancestor: ancestor_record)
       end
 
       # Only a machine-pristine sidecar — one still hashing to a delivered
@@ -418,15 +462,31 @@ module Rails
         )
       end
 
-      def upsert_lock(write, installed_at)
+      def upsert_lock(write, installed_at, ancestor: nil)
         @new_lock.upsert(
           path: write[:dest],
           kind: write[:artifact_kind],
           source_gem: write[:source_gem],
           source_version: write[:version],
           source_sha: write[:gem_sha],
-          installed_at: installed_at.iso8601
+          installed_at: installed_at.iso8601,
+          ancestor_gem: ancestor && ancestor[:gem],
+          ancestor_version: ancestor && ancestor[:version],
+          ancestor_sha: ancestor && ancestor[:sha],
+          ancestor_relpath: ancestor && ancestor[:relpath]
         )
+      end
+
+      # Deleting <dest>.new is the only resolution signal, so a recorded
+      # ancestor stays until the run that finds the sidecar gone drops it.
+      def clear_resolved_ancestors
+        return if additive?
+
+        @new_lock.each_entry do |entry|
+          next unless entry.ancestor?
+          next if File.exist?(abs(InstallLayout.sidecar_path(entry.path)))
+          @new_lock.clear_ancestor(entry.path)
+        end
       end
 
       # The pipeline's only delete path, so it is gated on the file still

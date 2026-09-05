@@ -202,4 +202,61 @@ RSpec.describe Rails::Hyperdrive::AncestorLocator do
       gem_paths: [home]
     )).to be_nil
   end
+
+  describe ".locate_recorded_ancestor" do
+    def pending_entry(path:, kind:, sha:, relpath:, gem_name: "rails-hyperdrive-x", version: "1.0.0")
+      Rails::Hyperdrive::LockFile::Entry.new(
+        path: path, kind: kind, source_gem: gem_name, source_version: "9.9.9", source_sha: "pending",
+        installed_at: "2026-01-01T00:00:00Z",
+        ancestor_gem: gem_name, ancestor_version: version, ancestor_sha: sha, ancestor_relpath: relpath
+      )
+    end
+
+    it "rebuilds from the entry's ancestor keys rather than its source" do
+      ship(guideline_relpath, guideline_shipped)
+
+      body = described_class.locate_recorded_ancestor(
+        pending_entry(path: ".claude/hyperdrive/guidelines/auth.md", kind: "guideline",
+          sha: sha(guideline_ready), relpath: guideline_relpath),
+        gem_paths: [home]
+      )
+
+      expect(body).to eq(guideline_ready)
+    end
+
+    it "derives a postfixed skill's final name from its destination" do
+      relpath = "lib/rails-hyperdrive-x/hyperdrive/skills/jobs/SKILL.md"
+      ship(relpath, "---\nname: jobs\ndescription: d\n---\n\n# jobs\n")
+      installed = "---\nname: jobs--rails-hyperdrive-x\ndescription: d\n---\n\n# jobs\n"
+
+      body = described_class.locate_recorded_ancestor(
+        pending_entry(path: ".claude/skills/jobs--rails-hyperdrive-x/SKILL.md", kind: "skill",
+          sha: sha(installed), relpath: relpath),
+        gem_paths: [home]
+      )
+
+      expect(body).to eq(installed)
+    end
+
+    it "derives a postfixed agent's final name from its destination" do
+      relpath = "agents/reviewer.md"
+      ship(relpath, "---\nname: reviewer\ndescription: d\n---\n\n# Reviewer\n")
+      installed = "---\nname: reviewer--rails-hyperdrive-x\ndescription: d\n---\n\n# Reviewer\n"
+
+      body = described_class.locate_recorded_ancestor(
+        pending_entry(path: ".claude/agents/reviewer--rails-hyperdrive-x.md", kind: "agent",
+          sha: sha(installed), relpath: relpath),
+        gem_paths: [home]
+      )
+
+      expect(body).to eq(installed)
+    end
+
+    it "returns nil for an entry with no recorded ancestor" do
+      expect(described_class.locate_recorded_ancestor(nil, gem_paths: [home])).to be_nil
+      expect(described_class.locate_recorded_ancestor(
+        lock_entry(kind: "guideline", sha: sha(guideline_ready)), gem_paths: [home]
+      )).to be_nil
+    end
+  end
 end

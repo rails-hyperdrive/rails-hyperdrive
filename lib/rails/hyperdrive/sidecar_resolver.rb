@@ -1,6 +1,7 @@
 require "open3"
 require "shellwords"
 require "tmpdir"
+require "rails/hyperdrive/ancestor_locator"
 require "rails/hyperdrive/drift_verdict"
 require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/resolve_prompt"
@@ -52,8 +53,10 @@ module Rails
             sidecar: sidecar,
             kind: entry.kind.to_s,
             source: entry.source_label.to_s,
-            previous_source: delivered&.previous_source,
-            ancestor: delivered&.ancestor,
+            # A sidecar left over from an earlier run has no struct, so the
+            # base comes back from the ancestor the lock recorded with it.
+            previous_source: delivered&.previous_source || entry.ancestor_label,
+            ancestor: delivered&.ancestor || AncestorLocator.locate_recorded_ancestor(entry),
             delivered: !delivered.nil?
           )
         end

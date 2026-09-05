@@ -2,6 +2,7 @@ require "bundler"
 require "rails/hyperdrive/bundler_artifact_discovery"
 require "rails/hyperdrive/drift_verdict"
 require "rails/hyperdrive/install_layout"
+require "rails/hyperdrive/lock_file"
 require "rails/hyperdrive/skill_template"
 
 module Rails
@@ -30,6 +31,40 @@ module Rails
           next
         end
         nil
+      rescue StandardError
+        nil
+      end
+
+      # The sha gate runs against the ancestor an entry records while its
+      # sidecar is pending, not against the entry's own source, which by then
+      # names the pending delivery.
+      def locate_recorded_ancestor(lock_entry, final_name: nil, gem_paths: Gem.path, resolved: nil)
+        return nil unless lock_entry&.ancestor?
+
+        locate(
+          kind: lock_entry.kind,
+          relpath: lock_entry.ancestor_relpath,
+          lock_entry: LockFile::Entry.new(
+            source_gem: lock_entry.ancestor_gem,
+            source_version: lock_entry.ancestor_version,
+            source_sha: lock_entry.ancestor_sha
+          ),
+          final_name: final_name || final_name_from_dest(lock_entry),
+          gem_paths: gem_paths,
+          resolved: resolved
+        )
+      rescue StandardError
+        nil
+      end
+
+      # Only the kinds whose frontmatter carries the name need one, and for
+      # those the dest was built from it.
+      def final_name_from_dest(lock_entry)
+        type = InstallLayout::ARTIFACT_TYPES[lock_entry.kind.to_s]
+        descriptor = type && InstallLayout.kind(type)
+        return nil unless descriptor&.collision_rewrites_name
+
+        descriptor.installed_name(lock_entry.path.to_s)
       rescue StandardError
         nil
       end
@@ -67,7 +102,7 @@ module Rails
         nil
       end
 
-      private_class_method :read_candidate, :install_ready, :resolved_bundle
+      private_class_method :final_name_from_dest, :read_candidate, :install_ready, :resolved_bundle
     end
   end
 end
