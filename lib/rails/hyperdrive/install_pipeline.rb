@@ -28,6 +28,8 @@ module Rails
       Result = Struct.new(:installed, :updated, :unchanged, :skipped, :orphaned, :removed, :merged, :sidecars,
         keyword_init: true)
 
+      Sidecar = Struct.new(:dest, :ancestor, :previous_source, keyword_init: true)
+
       def initialize(root:, shell:, artifacts:, mode: :preserve, report: BundlerArtifactDiscovery::Report.new,
                      config: nil)
         raise ArgumentError, "unknown mode #{mode.inspect}" unless MODES.include?(mode)
@@ -279,44 +281,56 @@ module Rails
         end
 
         reason = nil
+        ancestor = nil
+        pending = File.exist?(abs(sidecar))
         if merge_mode?
-          if File.exist?(abs(sidecar))
+          if pending
             # A pending sidecar means the last delivered upstream never reached
             # the live file, so the reconstructable ancestor is stale; merging
             # over it would silently revert that delivery.
             reason = "previous delivery still unresolved"
           else
-            merged, reason = attempt_merge(write, old, source_relpath: source_relpath, final_name: final_name)
+            merged, reason, ancestor = attempt_merge(write, old, source_relpath: source_relpath, final_name: final_name)
             if merged
               write_merged(write, merged)
               sweep_sidecar(write, old)
               return
             end
           end
+        elsif !pending
+          ancestor = locate_ancestor(write, old, source_relpath: source_relpath, final_name: final_name)
         end
 
-        write_sidecar(write, reason)
+        write_sidecar(write, reason, ancestor: ancestor, previous_source: old&.source_label)
       end
 
       def attempt_merge(write, old, source_relpath:, final_name:)
-        return [nil, "no previous install recorded"] unless old
+        return [nil, "no previous install recorded", nil] unless old
 
-        ancestor = AncestorLocator.locate(
-          kind: write[:artifact_kind], relpath: source_relpath, lock_entry: old, final_name: final_name
-        )
-        return [nil, "#{old.source_label} not found in installed gems"] unless ancestor
+        ancestor = locate_ancestor(write, old, source_relpath: source_relpath, final_name: final_name)
+        return [nil, "#{old.source_label} not found in installed gems", nil] unless ancestor
 
         ours = live_body(write)
         if ours.nil? || [ours, ancestor, write[:body]].any? { |b| ThreeWayMerge.binary?(b) }
-          return [nil, "binary content"]
+          return [nil, "binary content", ancestor]
         end
 
         outcome = ThreeWayMerge.merge(ours: ours, base: ancestor, theirs: write[:body])
         case outcome.status
-        when :clean      then [outcome.body, nil]
-        when :conflicted then [nil, "conflicting edits"]
-        else                  [nil, "git merge-file unavailable"]
+        when :clean      then [outcome.body, nil, ancestor]
+        when :conflicted then [nil, "conflicting edits", ancestor]
+        else                  [nil, "git merge-file unavailable", ancestor]
         end
+      end
+
+      # Reconstruction is sha-gated against the lock entry recorded before this
+      # run, so it must happen before the new upstream is locked.
+      def locate_ancestor(write, old, source_relpath:, final_name:)
+        return nil unless old
+
+        AncestorLocator.locate(
+          kind: write[:artifact_kind], relpath: source_relpath, lock_entry: old, final_name: final_name
+        )
       end
 
       def live_body(write)
@@ -337,10 +351,10 @@ module Rails
       # The sidecar is byte-identical to what a live install of the new
       # upstream would write, so `mv <dest>.new <dest>` accepts it wholesale
       # and the lock already verifies it.
-      def write_sidecar(write, reason)
+      def write_sidecar(write, reason, ancestor: nil, previous_source: nil)
         sidecar = InstallLayout.sidecar_path(write[:dest])
         @shell.create_file sidecar, write[:body]
-        @result.sidecars << write[:dest]
+        @result.sidecars << Sidecar.new(dest: write[:dest], ancestor: ancestor, previous_source: previous_source)
         message = "#{write[:dest]} (locally modified; new upstream delivered to #{sidecar}"
         message += "; #{reason}" if reason
         @shell.say_status :sidecar, "#{message})", :yellow

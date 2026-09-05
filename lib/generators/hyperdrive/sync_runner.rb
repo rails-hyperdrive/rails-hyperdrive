@@ -5,6 +5,7 @@ require "rails/hyperdrive/config_file"
 require "rails/hyperdrive/install_layout"
 require "rails/hyperdrive/install_pipeline"
 require "rails/hyperdrive/lock_file"
+require "rails/hyperdrive/sidecar_resolver"
 require "generators/hyperdrive/install_summary"
 
 module Rails
@@ -14,6 +15,16 @@ module Rails
       # `install` forces the ones it needs, so no call order can install with a
       # half-built input set.
       class SyncRunner
+        RESOLVER_HELP = <<~MSG.freeze
+          --resolve needs a resolver command; add one to %<config>s:
+
+            resolve:
+              command: <your tool> $PROMPT
+
+          Placeholders: $LOCAL $REMOTE $BASE $MERGED $SOURCE $PREVIOUS_SOURCE $KIND $PROMPT
+          (also exported as HYPERDRIVE_* environment variables). Exit 0 marks the sidecar resolved.
+        MSG
+
         def initialize(shell:, root: nil)
           @shell = shell
           @root = root&.to_s
@@ -47,14 +58,46 @@ module Rails
             report: report,
             config: config
           )
-          @pipeline.call
+          @result = @pipeline.call
+        end
+
+        # Raised before any content write, so --resolve with nothing to run
+        # fails without half-syncing the app.
+        def verify_resolver!
+          return if config.resolve_command
+
+          raise Thor::Error,
+            "hyperdrive: " + format(RESOLVER_HELP, config: ::Rails::Hyperdrive::InstallLayout::CONFIG_PATH)
+        end
+
+        def resolve_sidecars(dry_run: false)
+          @resolve_outcome = ::Rails::Hyperdrive::SidecarResolver.new(
+            root: root,
+            shell: @shell,
+            command: config.resolve_command,
+            lock: @pipeline.lock,
+            sidecars: Array(@result&.sidecars),
+            prompt_path: config.resolve_prompt,
+            dry_run: dry_run
+          ).call
         end
 
         def summary_lines
-          InstallSummary.lines(lock_entries)
+          InstallSummary.lines(lock_entries) + resolve_lines
         end
 
         private
+
+        def resolve_lines
+          outcome = @resolve_outcome
+          return [] unless outcome
+
+          parts = { "resolved" => outcome.resolved.size, "unresolved" => outcome.unresolved.size,
+                    "skipped" => outcome.skipped.size }.reject { |_label, count| count.zero? }
+          return ["", "  No sidecars to resolve"] if parts.empty?
+
+          ["", "  Sidecars: #{parts.map { |label, count| "#{count} #{label}" }.join(", ")}"]
+        end
 
         # Raised from install, so it stops the run before any content write —
         # a dry run included.

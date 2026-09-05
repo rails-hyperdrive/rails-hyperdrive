@@ -66,7 +66,7 @@ RSpec.describe Rails::Command::HyperdriveCommand do
 
     it "mirrors each generator's own flags" do
       expect(declared("init")).to contain_exactly("mount_at", "skip_content", "skip_mcp", "dry_run")
-      expect(declared("sync")).to contain_exactly("overwrite", "merge", "sidecar", "dry_run")
+      expect(declared("sync")).to contain_exactly("overwrite", "merge", "sidecar", "dry_run", "resolve")
       expect(declared("discover")).to contain_exactly("refresh")
     end
 

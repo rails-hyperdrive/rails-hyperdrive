@@ -116,6 +116,47 @@ A sidecar is inert (Claude Code loads only `SKILL.md` and the `index.md` `@`-lin
 
 The sidecar pair is also how an AI coding agent reconciles for you, with no extra machinery: run `bin/rails hyperdrive:sync --sidecar`, have the agent merge the live/`.new` pair semantically (it has both full texts), then delete the sidecar.
 
+**`--resolve`: hand the sidecars to a tool.** `--resolve` automates that last step, `git mergetool` style. It delivers to sidecars on its own (add `--merge` to let git merge what it can first), hands every unresolved `<file>.new` to a command you configure, and deletes the sidecar when that command exits 0. The gem ships no command of its own, so nothing runs that you did not name:
+
+```yaml
+# .hyperdrive/config.yml
+resolve:
+  command: claude -p --permission-mode acceptEdits $PROMPT
+```
+
+```sh
+bin/rails hyperdrive:sync --resolve           # every edited file goes to your tool
+bin/rails hyperdrive:sync --merge --resolve   # git merges what it can, your tool takes the rest
+git diff                                      # then you review
+```
+
+The command is split with shell word rules and run with no shell, from the app root. Each argument gets these placeholders substituted, and every one is also exported as an environment variable (`$LOCAL` → `HYPERDRIVE_LOCAL`, and so on), so a wrapper script needs no argument parsing:
+
+| Placeholder | Value |
+|---|---|
+| `$LOCAL` | The live file, with your edits |
+| `$REMOTE` | The sidecar: the new upstream body |
+| `$BASE` | The common ancestor — available only for a delivery made on this run, and only when the previously installed gem version is still on disk; otherwise the argument is dropped |
+| `$MERGED` | The live file again: the file your command must write |
+| `$SOURCE` | `<gem>@<version>` of the new upstream |
+| `$PREVIOUS_SOURCE` | `<gem>@<version>` of the version you last received, when there was one |
+| `$KIND` | `skill`, `guideline`, `agent`, `command`, or `skill_support` |
+| `$PROMPT` | Ready-made instructions for an agent, naming the paths above |
+
+`$BASE` is a temporary file outside the app, removed as soon as the command returns, so a tool that is confined to the project directory needs it granted explicitly:
+
+```sh
+#!/usr/bin/env bash
+# bin/hyperdrive-resolve, used as `command: bin/hyperdrive-resolve`
+args=(-p --permission-mode acceptEdits)
+[ -n "$HYPERDRIVE_BASE" ] && args+=(--add-dir "$(dirname "$HYPERDRIVE_BASE")")
+exec claude "${args[@]}" "$HYPERDRIVE_PROMPT"
+```
+
+Replace the shipped prompt with your own ERB template — same placeholders, as lower-case locals (`local`, `remote`, `base`, `merged`, `source`, `previous_source`, `kind`) — with `resolve.prompt: .hyperdrive/resolve-prompt.md.erb`.
+
+Exit 0 is a promise: the sidecar is deleted on the strength of it, whether or not `$MERGED` was written. Any other exit — including a command that is not on your PATH — leaves the live file, the sidecar, and the lockfile exactly as they were, with the reason printed, so a failed resolve is just an ordinary unresolved sidecar. `--resolve` runs only on an explicit `hyperdrive:sync`, never during `bundle install`. `--dry-run` prints what it would hand off and runs nothing. A sidecar you edited yourself is never handed to the command.
+
 **`bin/rails hyperdrive:discover`: find what you're missing.** Queries rubygems for companion gems published for your stack that you haven't installed yet, and prints the `bundle add` lines to run. It is read-only, caches results for 24h (`--refresh` re-queries), and never touches your Gemfile or makes network calls unless you invoke it.
 
 ---

@@ -1,0 +1,47 @@
+You are resolving one file for the rails-hyperdrive installer.
+
+The file is a rails-hyperdrive-managed file of kind `<%= kind %>`; the new
+upstream version is shipped by <%= source %>.<% if previous_source && !previous_source.empty? %> The version the project
+last received came from <%= previous_source %>.<% end %> The project has edited its copy
+locally, so the local edits and the new upstream version have to be reconciled
+by hand.
+
+Inputs:
+
+- LOCAL:  <%= local %>
+  The project's current copy, including its local edits.
+- REMOTE: <%= remote %>
+  The new upstream copy, exactly as <%= source %> ships it. It contains none of
+  the local edits.
+<% if base -%>
+- BASE:   <%= base %>
+  The common ancestor: the upstream copy the local edits were made on top of.
+  Anything that differs between BASE and LOCAL is a local edit; anything that
+  differs between BASE and REMOTE is an upstream change.
+<% else -%>
+- BASE:   not available. There is no common ancestor to compare against, so
+  decide which differences are local edits by reading LOCAL and REMOTE.
+<% end -%>
+
+Write the reconciled file to:
+
+- MERGED: <%= merged %>
+  This is the same path as LOCAL, so you are editing the project's copy in
+  place.
+
+Rules:
+
+- Take every upstream change from REMOTE.
+- Keep every local customisation from LOCAL.
+- Where an upstream change and a local edit touch the same thing, keep the
+  local intent and express it in terms of the new upstream text.
+- Write a complete, valid file. No conflict markers, no commentary about the
+  merge, no placeholders, and nothing invented that appears in neither input.
+<% if kind == "skill" || kind == "agent" -%>
+- Keep the YAML frontmatter valid, and leave the `name:` line exactly as REMOTE
+  has it.
+<% end -%>
+- If you are not confident the result is correct, change nothing and exit with a
+  non-zero status.
+
+Exit 0 only when MERGED holds the reconciled file.

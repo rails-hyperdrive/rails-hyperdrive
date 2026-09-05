@@ -25,6 +25,13 @@ Description:
     upstream wholesale. Either way the next sync is quiet: the lock already
     records the delivered upstream, so the same version is never re-offered.
 
+    --resolve does that step for you, git-mergetool style: after delivery it
+    hands every unresolved <file>.new to the command in resolve.command in
+    .hyperdrive/config.yml and deletes the sidecar when that command exits 0.
+    On its own it delivers to sidecars; with --merge, git merges first and the
+    command takes the rest. With no command configured it stops before syncing
+    anything. A sidecar you edited yourself is never handed off.
+
     Touches no bootstrap artifact: .mcp.json, the engine mount, the Gemfile
     plugin directive, .gitignore, and .hyperdrive/config.yml belong to
     hyperdrive:init and are left alone.
@@ -34,4 +41,6 @@ Examples:
     bin/rails hyperdrive:sync --merge
     bin/rails hyperdrive:sync --sidecar
     bin/rails hyperdrive:sync --overwrite
+    bin/rails hyperdrive:sync --resolve
+    bin/rails hyperdrive:sync --merge --resolve
     bin/rails hyperdrive:sync --dry-run

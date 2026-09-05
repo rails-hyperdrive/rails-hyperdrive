@@ -547,7 +547,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       File.write(File.join(root, ".claude/agents/reviewer.md"), "mine\n")
       upgraded = agent(name: "reviewer", body: "---\nname: reviewer\ndescription: new\n---\n", version: "2.0.0")
 
-      expect(run(mode: :sidecar, artifacts: [upgraded]).sidecars).to eq([".claude/agents/reviewer.md"])
+      expect(run(mode: :sidecar, artifacts: [upgraded]).sidecars.map(&:dest)).to eq([".claude/agents/reviewer.md"])
       expect(read(".claude/agents/reviewer.md")).to eq("mine\n")
       expect(read(".claude/agents/reviewer.md.new")).to include("description: new")
     end
@@ -755,7 +755,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       expect(read(gpath)).to eq(live_before)
       expect(read(sidecar)).to start_with("# auth-pundit")
       expect(read(sidecar)).to include("UPGRADED rule.")
-      expect(result.sidecars).to eq([gpath])
+      expect(result.sidecars.map(&:dest)).to eq([gpath])
       expect(lock_source(gpath)).to eq("rails-hyperdrive-x@2.0.0")
     end
 
@@ -820,8 +820,45 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
       expect(read(hand)).to eq("my own notes\n")
       expect(read("#{hand}.new")).to include("# hand-made")
-      expect(result.sidecars).to include(hand)
+      expect(result.sidecars.map(&:dest)).to include(hand)
       expect(lock_source(hand)).to eq("rails-hyperdrive-x@2.0.0")
+    end
+
+    describe "what the sidecar entry carries for a resolver" do
+      it "carries the reconstructed ancestor and the previous source for a fresh delivery" do
+        allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return("# auth-pundit\n\nrule.\n")
+
+        entry = run(mode: :sidecar, artifacts: [v2]).sidecars.first
+
+        expect(entry.dest).to eq(gpath)
+        expect(entry.ancestor).to eq("# auth-pundit\n\nrule.\n")
+        expect(entry.previous_source).to eq("rails-hyperdrive-x@1.0.0")
+      end
+
+      it "carries no ancestor when none can be reconstructed" do
+        allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return(nil)
+
+        expect(run(mode: :sidecar, artifacts: [v2]).sidecars.first.ancestor).to be_nil
+      end
+
+      # Refreshing over a pending sidecar leaves the old lock sha pointing at
+      # an upstream the live file never received, so there is no ancestor.
+      it "carries no ancestor when it refreshes a pending sidecar" do
+        allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return("# auth-pundit\n\nrule.\n")
+        run(mode: :sidecar, artifacts: [v2])
+        v3 = guideline(name: "auth-pundit", version: "3.0.0", body: v2_body.sub("UPGRADED", "V3"))
+
+        expect(run(mode: :sidecar, artifacts: [v3]).sidecars.first.ancestor).to be_nil
+      end
+
+      it "carries the ancestor a degraded merge already reconstructed" do
+        allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return("wholly unrelated\n")
+
+        entry = run(mode: :merge, artifacts: [v2]).sidecars.first
+
+        expect(entry.ancestor).to eq("wholly unrelated\n")
+        expect(entry.previous_source).to eq("rails-hyperdrive-x@1.0.0")
+      end
     end
 
     it "delivers a skill_support sidecar as raw bytes" do
@@ -833,7 +870,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       result = run(mode: :sidecar, artifacts: [s2])
 
       expect(read(".claude/skills/jobs/references/deep.md.new")).to eq("# Deep v2\n")
-      expect(result.sidecars).to include(".claude/skills/jobs/references/deep.md")
+      expect(result.sidecars.map(&:dest)).to include(".claude/skills/jobs/references/deep.md")
     end
   end
 

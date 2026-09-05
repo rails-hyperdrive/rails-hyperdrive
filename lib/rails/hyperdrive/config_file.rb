@@ -9,7 +9,7 @@ module Rails
     class ConfigFile
       DISABLED_KEYS = { skill: "skills", guideline: "guidelines", agent: "agents", command: "commands" }.freeze
 
-      attr_reader :path, :warnings
+      attr_reader :path, :warnings, :resolve_command, :resolve_prompt
 
       def self.load(path)
         new(path).tap(&:read)
@@ -35,6 +35,7 @@ module Rails
 
         read_disabled(data["disabled"])
         read_enabled(data["enabled"])
+        read_resolve(data["resolve"])
         self
       rescue StandardError => e
         warn_and_empty("could not be parsed (#{first_line(e.message)}); reading it as empty")
@@ -65,6 +66,39 @@ module Rails
         end
       end
 
+      def read_resolve(raw)
+        return if raw.nil?
+        return report("resolve: must be a map; ignoring it") unless raw.is_a?(Hash)
+
+        @resolve_command = read_resolve_command(raw["command"])
+        @resolve_prompt = read_resolve_prompt(raw["prompt"])
+      end
+
+      def read_resolve_command(value)
+        return nil if value.nil?
+        return value.strip if value.is_a?(String) && !value.strip.empty?
+
+        report("resolve: command: must be a non-empty string; ignoring it")
+        nil
+      end
+
+      # The prompt is read relative to the app root; a path that escapes it is
+      # refused.
+      def read_resolve_prompt(value)
+        return nil if value.nil?
+        unless value.is_a?(String) && !value.strip.empty?
+          report("resolve: prompt: must be a non-empty string; ignoring it")
+          return nil
+        end
+
+        prompt = value.strip
+        if prompt.split("/").include?("..") || prompt.start_with?("/")
+          report("resolve: prompt: must be a path inside the app; ignoring it")
+          return nil
+        end
+        prompt
+      end
+
       def read_enabled(raw)
         return if raw.nil?
         return report("enabled: must be a list of gem names; ignoring it") unless raw.is_a?(Array)
@@ -80,6 +114,8 @@ module Rails
         report(message)
         @disabled = empty_disabled
         @enabled = []
+        @resolve_command = nil
+        @resolve_prompt = nil
         self
       end
 

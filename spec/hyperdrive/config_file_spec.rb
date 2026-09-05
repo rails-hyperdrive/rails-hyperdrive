@@ -171,6 +171,71 @@ RSpec.describe Rails::Hyperdrive::ConfigFile do
     end
   end
 
+  describe "resolve:" do
+    it "reads the command and the prompt path" do
+      with_config("resolve:\n  command: my-tool $PROMPT\n  prompt: .hyperdrive/mine.md.erb\n") do |config|
+        expect(config.resolve_command).to eq("my-tool $PROMPT")
+        expect(config.resolve_prompt).to eq(".hyperdrive/mine.md.erb")
+        expect(config.warnings).to be_empty
+      end
+    end
+
+    it "reads an absent command as nil without warning" do
+      with_config("resolve:\n  prompt: .hyperdrive/mine.md.erb\n") do |config|
+        expect(config.resolve_command).to be_nil
+        expect(config.warnings).to be_empty
+      end
+    end
+
+    it "warns and ignores a non-map resolve:" do
+      with_config("resolve: my-tool\n") do |config|
+        expect(config.warnings).to eq([".hyperdrive/config.yml resolve: must be a map; ignoring it"])
+        expect(config.resolve_command).to be_nil
+        expect(config.resolve_prompt).to be_nil
+      end
+    end
+
+    it "warns and ignores a command that is not a non-empty string" do
+      with_config("resolve:\n  command: \"   \"\n") do |config|
+        expect(config.warnings)
+          .to eq([".hyperdrive/config.yml resolve: command: must be a non-empty string; ignoring it"])
+        expect(config.resolve_command).to be_nil
+      end
+
+      with_config("resolve:\n  command:\n    - my-tool\n") do |config|
+        expect(config.warnings)
+          .to eq([".hyperdrive/config.yml resolve: command: must be a non-empty string; ignoring it"])
+        expect(config.resolve_command).to be_nil
+      end
+    end
+
+    it "warns and ignores a prompt path that leaves the app" do
+      ["../outside.md.erb", "/etc/passwd"].each do |prompt|
+        with_config("resolve:\n  command: my-tool\n  prompt: #{prompt}\n") do |config|
+          expect(config.warnings)
+            .to eq([".hyperdrive/config.yml resolve: prompt: must be a path inside the app; ignoring it"])
+          expect(config.resolve_prompt).to be_nil
+          expect(config.resolve_command).to eq("my-tool")
+        end
+      end
+    end
+
+    it "warns and ignores a blank prompt" do
+      with_config("resolve:\n  prompt: \"\"\n") do |config|
+        expect(config.warnings)
+          .to eq([".hyperdrive/config.yml resolve: prompt: must be a non-empty string; ignoring it"])
+        expect(config.resolve_prompt).to be_nil
+      end
+    end
+
+    it "ignores unknown sub-keys silently" do
+      with_config("resolve:\n  command: my-tool\n  timeout: 30\n") do |config|
+        expect(config.warnings).to be_empty
+        expect(config.resolve_command).to eq("my-tool")
+      end
+    end
+  end
+
   it "ignores unknown top-level keys silently" do
     with_config("future_key:\n  kept: yes\nenabled:\n  - some_gem\n") do |config|
       expect(config.warnings).to be_empty
