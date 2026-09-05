@@ -13,7 +13,7 @@ Description:
       - maintains the .claude/hyperdrive/index.md aggregator and injects one
         @-include line into CLAUDE.md — both only while a companion gem ships
         a guideline, and both removed when the last one goes
-      - creates .hyperdrive/config.yml (your disabled:/enabled: settings) if
+      - creates .hyperdrive/config.yml (your disabled:/enabled:/resolve: settings) if
         it is not there yet, and never touches it again
       - tracks everything in .hyperdrive/lock.yml
 
@@ -22,8 +22,8 @@ Description:
 
     Re-running re-syncs content and leaves locally-modified files untouched
     (skip + warn). Routine content refresh is bin/rails hyperdrive:sync
-    (see its --merge, --sidecar, and --overwrite flags for reconciling
-    locally-modified files).
+    (see its --merge, --sidecar, --overwrite, and --resolve flags for
+    reconciling locally-modified files).
 
 Examples:
     bin/rails hyperdrive:init
