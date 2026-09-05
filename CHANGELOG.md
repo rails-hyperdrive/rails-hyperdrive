@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A pending sidecar now remembers what your edits were based on.** While
+  `<file>.new` is waiting, `.hyperdrive/lock.yml` also records the upstream the
+  live file was edited on top of. `hyperdrive:sync --merge` uses it to attempt a
+  real three-way merge over a file that already has a sidecar — including one
+  where the same upstream is still on offer — instead of refusing outright, and
+  `--resolve` can hand its tool a `$BASE` (and a `$PREVIOUS_SOURCE`) on every
+  retry, not just on the run that wrote the sidecar. The keys are written on
+  delivery, kept put when a newer upstream refreshes the sidecar, and dropped by
+  the first run that finds the sidecar gone; deleting `<file>.new` is still the
+  only thing that marks a delivery resolved.
+
 - **`hyperdrive:sync --resolve`, a `git mergetool` for sidecars.** It delivers
   to sidecars on its own (or after `--merge` has taken what git can), hands every
   unresolved `<file>.new` to the command you name in `resolve.command` in

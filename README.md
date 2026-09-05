@@ -112,7 +112,7 @@ With no companion gems, `hyperdrive:init` sets up just the server plumbing (`.mc
 | `--sidecar` | Untouched; the new upstream body is written next to it as `<file>.new` | Kept, byte-for-byte |
 | `--overwrite` | Restored to the gem-shipped content | Discarded |
 
-A sidecar is inert (Claude Code loads only `SKILL.md` and the `index.md` `@`-lines, never a `.new` file), and it shows up in `git status` as your prompt to resolve. Resolve it by folding what you want into the live file and deleting the `.new`, or `mv <file>.new <file>` to accept the upstream wholesale. Either way the lockfile already records that delivery, so the next sync doesn't re-offer the same version (and a leftover sidecar you haven't touched is cleaned up once the live file catches up). `--merge` needs the previously installed gem version still present on disk to reconstruct the merge ancestor; when it isn't (CI, after `gem cleanup`), it degrades to the sidecar with a note saying why. A clean merge is textually non-overlapping, not semantically correct: git merges two contradictory edits cleanly when unchanged lines sit between them, so `git diff` after a `--merge` run is a review step, not a formality.
+A sidecar is inert (Claude Code loads only `SKILL.md` and the `index.md` `@`-lines, never a `.new` file), and it shows up in `git status` as your prompt to resolve. Resolve it by folding what you want into the live file and deleting the `.new`, or `mv <file>.new <file>` to accept the upstream wholesale. Either way the lockfile already records that delivery, so the next sync doesn't re-offer the same version (and a leftover sidecar you haven't touched is cleaned up once the live file catches up). `--merge` needs the previously installed gem version still present on disk to reconstruct the merge ancestor; when it isn't (CI, after `gem cleanup`), it degrades to the sidecar with a note saying why. A file that already has a sidecar is not out of reach: while one is pending the lockfile also records the version your edits were based on, so a later `--merge` still has a proper base to give git — including for the delivery already waiting in the `.new`. A clean merge is textually non-overlapping, not semantically correct: git merges two contradictory edits cleanly when unchanged lines sit between them, so `git diff` after a `--merge` run is a review step, not a formality.
 
 The sidecar pair is also how an AI coding agent reconciles for you, with no extra machinery: run `bin/rails hyperdrive:sync --sidecar`, have the agent merge the live/`.new` pair semantically (it has both full texts), then delete the sidecar.
 
@@ -136,10 +136,10 @@ The command is split with shell word rules and run with no shell, from the app r
 |---|---|
 | `$LOCAL` | The live file, with your edits |
 | `$REMOTE` | The sidecar: the new upstream body |
-| `$BASE` | The common ancestor — available only for a delivery made on this run, and only when the previously installed gem version is still on disk; otherwise the argument is dropped |
+| `$BASE` | The common ancestor — available whenever the lock records the pending delivery's ancestor and that gem version is still on disk; otherwise the argument is dropped |
 | `$MERGED` | The live file again: the file your command must write |
 | `$SOURCE` | `<gem>@<version>` of the new upstream |
-| `$PREVIOUS_SOURCE` | `<gem>@<version>` of the version you last received, when there was one |
+| `$PREVIOUS_SOURCE` | `<gem>@<version>` your copy is based on — `$BASE`'s source — when the lockfile records one |
 | `$KIND` | `skill`, `guideline`, `agent`, `command`, or `skill_support` |
 | `$PROMPT` | Ready-made instructions for an agent, naming the paths above |
 

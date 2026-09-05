@@ -28,17 +28,20 @@ RSpec.describe Rails::Hyperdrive::SidecarResolver do
     file
   end
 
-  def install_sidecar(body: upstream_body, locked: nil)
+  def install_sidecar(body: upstream_body, locked: nil, ancestor: false)
     write(dest, live_body)
     write(sidecar, body)
-    write(".hyperdrive/lock.yml", {
-      "version" => Rails::Hyperdrive::LockFile::SCHEMA_VERSION,
-      "files" => [{
-        "path" => dest, "artifact" => "guideline", "source" => "rails-hyperdrive-pundit@2.0.0",
-        "source_sha" => Rails::Hyperdrive::DriftVerdict.body_sha(locked || body),
-        "installed_at" => "2026-01-01T00:00:00Z"
-      }]
-    }.to_yaml)
+    entry = {
+      "path" => dest, "artifact" => "guideline", "source" => "rails-hyperdrive-pundit@2.0.0",
+      "source_sha" => Rails::Hyperdrive::DriftVerdict.body_sha(locked || body),
+      "installed_at" => "2026-01-01T00:00:00Z"
+    }
+    if ancestor
+      entry.merge!("ancestor_source" => "rails-hyperdrive-pundit@1.0.0", "ancestor_sha" => "aa11",
+        "ancestor_relpath" => "lib/x/hyperdrive/guidelines/auth-pundit.md")
+    end
+    write(".hyperdrive/lock.yml",
+      { "version" => Rails::Hyperdrive::LockFile::SCHEMA_VERSION, "files" => [entry] }.to_yaml)
   end
 
   def lock
@@ -200,6 +203,18 @@ RSpec.describe Rails::Hyperdrive::SidecarResolver do
       expect(base).not_to start_with(File.realpath(root))
       expect(dump["env"]["HYPERDRIVE_BASE"]).to eq(base)
       expect(File).not_to exist(base)
+    end
+
+    it "rebuilds the base a leftover sidecar's lock entry recorded" do
+      allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return("# auth-pundit\n\nrule.\n")
+      install_sidecar(ancestor: true)
+
+      resolve(command: "bin/dump $BASE")
+
+      base = dump["argv"].first
+      expect(base).to start_with(Dir.tmpdir)
+      expect(dump["env"]["HYPERDRIVE_BASE"]).to eq(base)
+      expect(dump["env"]["HYPERDRIVE_PREVIOUS_SOURCE"]).to eq("rails-hyperdrive-pundit@1.0.0")
     end
 
     it "drops the token and the variable for a leftover sidecar with no ancestor" do

@@ -12,9 +12,24 @@ module Rails
       # In-memory form of one files: entry. On disk, source_gem and
       # source_version are a single "gem@version" string; the split/join lives
       # in this file only.
-      Entry = Struct.new(:path, :kind, :source_gem, :source_version, :source_sha, :installed_at, keyword_init: true) do
+      Entry = Struct.new(
+        :path, :kind, :source_gem, :source_version, :source_sha, :installed_at,
+        :ancestor_gem, :ancestor_version, :ancestor_sha, :ancestor_relpath,
+        keyword_init: true
+      ) do
         def source_label
           source_version ? "#{source_gem}@#{source_version}" : source_gem
+        end
+
+        # The upstream the live file's edits descend from, recorded only while
+        # a sidecar delivery is pending.
+        def ancestor_label
+          return nil unless ancestor_gem
+          ancestor_version ? "#{ancestor_gem}@#{ancestor_version}" : ancestor_gem
+        end
+
+        def ancestor?
+          !ancestor_gem.nil? && !ancestor_sha.nil?
         end
       end
 
@@ -104,15 +119,34 @@ module Rails
         self
       end
 
-      def upsert(path:, kind:, source_gem:, source_version:, source_sha:, installed_at:)
+      def upsert(path:, kind:, source_gem:, source_version:, source_sha:, installed_at:,
+                 ancestor_gem: nil, ancestor_version: nil, ancestor_sha: nil, ancestor_relpath: nil)
         @files[path.to_s] = Entry.new(
           path: path.to_s,
           kind: kind.to_s,
           source_gem: source_gem.to_s,
           source_version: source_version.to_s,
           source_sha: source_sha.to_s,
-          installed_at: installed_at.to_s
+          installed_at: installed_at.to_s,
+          ancestor_gem: ancestor_gem,
+          ancestor_version: ancestor_version,
+          ancestor_sha: ancestor_sha,
+          ancestor_relpath: ancestor_relpath
         )
+      end
+
+      # Replaces the entry rather than mutating it, so an entry carried from a
+      # lock read earlier in the run keeps the values that run compared against.
+      def clear_ancestor(file_path)
+        entry = @files[file_path.to_s]
+        return unless entry&.ancestor_gem || entry&.ancestor_sha || entry&.ancestor_relpath
+
+        @files[entry.path] = entry.dup.tap do |cleared|
+          cleared.ancestor_gem = nil
+          cleared.ancestor_version = nil
+          cleared.ancestor_sha = nil
+          cleared.ancestor_relpath = nil
+        end
       end
 
       def carry(entry)
@@ -150,13 +184,18 @@ module Rails
 
       def build_entry(raw)
         source_gem, source_version = split_source(raw["source"])
+        ancestor_gem, ancestor_version = split_source(raw["ancestor_source"])
         Entry.new(
           path: raw["path"],
           kind: raw["artifact"],
           source_gem: source_gem,
           source_version: source_version,
           source_sha: raw["source_sha"],
-          installed_at: raw["installed_at"]
+          installed_at: raw["installed_at"],
+          ancestor_gem: ancestor_gem,
+          ancestor_version: ancestor_version,
+          ancestor_sha: raw["ancestor_sha"],
+          ancestor_relpath: raw["ancestor_relpath"]
         )
       end
 
@@ -170,13 +209,19 @@ module Rails
       end
 
       def serialize_entry(entry)
-        {
+        raw = {
           "path"         => entry.path,
           "artifact"     => entry.kind,
           "source"       => entry.source_label,
-          "source_sha"   => entry.source_sha,
-          "installed_at" => entry.installed_at
+          "source_sha"   => entry.source_sha
         }
+        # installed_at is re-added after the optional keys so their absence
+        # leaves an entry's key order untouched.
+        raw["ancestor_source"] = entry.ancestor_label if entry.ancestor_label
+        raw["ancestor_sha"] = entry.ancestor_sha if entry.ancestor_sha
+        raw["ancestor_relpath"] = entry.ancestor_relpath if entry.ancestor_relpath
+        raw["installed_at"] = entry.installed_at
+        raw
       end
     end
   end

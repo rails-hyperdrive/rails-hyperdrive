@@ -11,12 +11,12 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
   after { FileUtils.remove_entry(root) if File.directory?(root) }
 
-  def guideline(name:, source: "rails-hyperdrive-x", body: nil, version: "1.0.0")
+  def guideline(name:, source: "rails-hyperdrive-x", body: nil, version: "1.0.0", source_root: "/x")
     Artifact.new(
       name: name, description: "d", target_gem: "*", versions: "*",
       artifact_type: :guideline, source_gem: source, path: "/x/#{name}.md",
       body: body || "---\nname: #{name}\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n# #{name}\n\nrule.\n",
-      spec_version: version
+      spec_version: version, source_root: source_root
     )
   end
 
@@ -80,6 +80,10 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
   def read(rel) = File.read(File.join(root, rel))
   def exist?(rel) = File.exist?(File.join(root, rel))
+
+  def lock_entry(rel)
+    YAML.safe_load(read(".hyperdrive/lock.yml"))["files"].find { |f| f["path"] == rel }
+  end
 
   describe "running without a booted Rails application" do
     before { allow(::Rails).to receive(:root).and_return(nil) }
@@ -841,12 +845,21 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
         expect(run(mode: :sidecar, artifacts: [v2]).sidecars.first.ancestor).to be_nil
       end
 
-      # Refreshing over a pending sidecar leaves the old lock sha pointing at
-      # an upstream the live file never received, so there is no ancestor.
-      it "carries no ancestor when it refreshes a pending sidecar" do
+      it "rebuilds the recorded ancestor when it refreshes a pending sidecar" do
         allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return("# auth-pundit\n\nrule.\n")
         run(mode: :sidecar, artifacts: [v2])
         v3 = guideline(name: "auth-pundit", version: "3.0.0", body: v2_body.sub("UPGRADED", "V3"))
+
+        entry = run(mode: :sidecar, artifacts: [v3]).sidecars.first
+
+        expect(entry.ancestor).to eq("# auth-pundit\n\nrule.\n")
+        expect(entry.previous_source).to eq("rails-hyperdrive-x@1.0.0")
+      end
+
+      it "carries no ancestor when a refresh cannot rebuild the recorded one" do
+        run(mode: :sidecar, artifacts: [v2])
+        v3 = guideline(name: "auth-pundit", version: "3.0.0", body: v2_body.sub("UPGRADED", "V3"))
+        allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return(nil)
 
         expect(run(mode: :sidecar, artifacts: [v3]).sidecars.first.ancestor).to be_nil
       end
@@ -858,6 +871,76 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
         expect(entry.ancestor).to eq("wholly unrelated\n")
         expect(entry.previous_source).to eq("rails-hyperdrive-x@1.0.0")
+      end
+    end
+
+    describe "the ancestor a pending delivery records" do
+      let(:v1_sha) { Digest::SHA256.hexdigest("# auth-pundit\n\nrule.\n") }
+      let(:v3) { guideline(name: "auth-pundit", version: "3.0.0", body: v2_body.sub("UPGRADED", "V3")) }
+
+      it "records the upstream the live file was edited on top of" do
+        run(mode: :sidecar, artifacts: [v2])
+
+        entry = lock_entry(gpath)
+        expect(entry["ancestor_source"]).to eq("rails-hyperdrive-x@1.0.0")
+        expect(entry["ancestor_sha"]).to eq(v1_sha)
+        expect(entry["ancestor_relpath"]).to eq("auth-pundit.md")
+      end
+
+      it "keeps the ancestor put when a newer upstream refreshes the sidecar" do
+        run(mode: :sidecar, artifacts: [v2])
+
+        run(mode: :sidecar, artifacts: [v3])
+
+        expect(lock_entry(gpath)["ancestor_source"]).to eq("rails-hyperdrive-x@1.0.0")
+        expect(lock_entry(gpath)["ancestor_sha"]).to eq(v1_sha)
+      end
+
+      it "survives a preserve-mode run while the sidecar is still pending" do
+        run(mode: :sidecar, artifacts: [v2])
+
+        run(artifacts: [v2])
+
+        expect(lock_entry(gpath)["ancestor_source"]).to eq("rails-hyperdrive-x@1.0.0")
+        expect(lock_entry(gpath)["ancestor_relpath"]).to eq("auth-pundit.md")
+      end
+
+      it "drops the ancestor on the next run that finds the sidecar gone" do
+        run(mode: :sidecar, artifacts: [v2])
+        File.delete(File.join(root, sidecar))
+
+        run(artifacts: [v2])
+
+        expect(lock_entry(gpath).keys).not_to include("ancestor_source", "ancestor_sha", "ancestor_relpath")
+      end
+
+      it "records a fresh delivery from the entry's own source, never from keys left over" do
+        run(mode: :sidecar, artifacts: [v2])
+        File.delete(File.join(root, sidecar))
+
+        run(mode: :sidecar, artifacts: [v3])
+
+        expect(lock_entry(gpath)["ancestor_source"]).to eq("rails-hyperdrive-x@2.0.0")
+      end
+
+      it "records nothing when it adopts a file the lock never recorded" do
+        hand = ".claude/hyperdrive/guidelines/hand-made.md"
+        FileUtils.mkdir_p(File.dirname(File.join(root, hand)))
+        File.write(File.join(root, hand), "my own notes\n")
+
+        run(mode: :sidecar, artifacts: [guideline(name: "auth-pundit"), guideline(name: "hand-made", version: "2.0.0")])
+
+        expect(lock_entry(hand)).not_to have_key("ancestor_source")
+      end
+
+      it "is carried verbatim and never cleared in additive mode" do
+        run(mode: :sidecar, artifacts: [v2])
+        File.delete(File.join(root, sidecar))
+
+        run(mode: :additive, artifacts: [v2])
+
+        expect(lock_entry(gpath)["ancestor_source"]).to eq("rails-hyperdrive-x@1.0.0")
+        expect(lock_entry(gpath)["ancestor_relpath"]).to eq("auth-pundit.md")
       end
     end
 
@@ -1010,24 +1093,89 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       expect(read("#{gpath}.new")).to include("line d (upstream)")
     end
 
-    it "refreshes the sidecar instead of merging while a previous delivery is unresolved" do
-      run(mode: :sidecar, artifacts: [v2])
-      v3 = guideline(name: "auth-pundit", version: "3.0.0",
-        body: "---\nname: auth-pundit\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n" \
-              "#{v1_ready.sub("line d", "line d (upstream)").sub("line b", "line b (v3)")}")
-      expect(Rails::Hyperdrive::AncestorLocator).not_to receive(:locate)
+    describe "over a pending sidecar" do
+      let(:v3) do
+        guideline(name: "auth-pundit", version: "3.0.0",
+          body: "---\nname: auth-pundit\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n" \
+                "#{v1_ready.sub("line d", "line d (upstream v3)")}")
+      end
 
-      out = run_reporting(mode: :merge, artifacts: [v3])
+      it "merges a newer upstream over the recorded ancestor and sweeps the sidecar" do
+        run(mode: :sidecar, artifacts: [v2])
+        allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return(v1_ready)
 
-      expect(out).to include("previous delivery still unresolved")
-      live = read(gpath)
-      expect(live).to include("line a (mine)")
-      expect(live).not_to include("(upstream)")
-      sidecar = read("#{gpath}.new")
-      expect(sidecar).to include("line d (upstream)")
-      expect(sidecar).to include("line b (v3)")
-      lock = YAML.safe_load(read(".hyperdrive/lock.yml"))
-      expect(lock["files"].find { |f| f["path"] == gpath }["source"]).to eq("rails-hyperdrive-x@3.0.0")
+        result = run(mode: :merge, artifacts: [v3])
+
+        live = read(gpath)
+        expect(live).to include("line a (mine)")
+        expect(live).to include("line d (upstream v3)")
+        expect(live).not_to include("<<<<<<<")
+        expect(result.merged).to eq([gpath])
+        expect(exist?("#{gpath}.new")).to be false
+        entry = lock_entry(gpath)
+        expect(entry["source"]).to eq("rails-hyperdrive-x@3.0.0")
+        expect(entry).not_to have_key("ancestor_source")
+      end
+
+      it "retries a pending delivery that carries no newer upstream" do
+        run(mode: :sidecar, artifacts: [v2])
+        allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return(v1_ready)
+
+        result = run(mode: :merge, artifacts: [v2])
+
+        live = read(gpath)
+        expect(live).to include("line a (mine)")
+        expect(live).to include("line d (upstream)")
+        expect(result.merged).to eq([gpath])
+        expect(exist?("#{gpath}.new")).to be false
+        expect(lock_entry(gpath)).not_to have_key("ancestor_source")
+      end
+
+      it "refreshes the sidecar when the recorded ancestor cannot be rebuilt" do
+        run(mode: :sidecar, artifacts: [v2])
+        allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return(nil)
+
+        out = run_reporting(mode: :merge, artifacts: [v3])
+
+        expect(out).to include("ancestor unavailable")
+        expect(read(gpath)).not_to include("(upstream)")
+        expect(read("#{gpath}.new")).to include("line d (upstream v3)")
+        entry = lock_entry(gpath)
+        expect(entry["source"]).to eq("rails-hyperdrive-x@3.0.0")
+        expect(entry["ancestor_source"]).to eq("rails-hyperdrive-x@1.0.0")
+      end
+
+      it "refreshes the sidecar on conflicting edits, keeping the recorded ancestor" do
+        run(mode: :sidecar, artifacts: [v2])
+        conflicting = guideline(name: "auth-pundit", version: "3.0.0",
+          body: "---\nname: auth-pundit\ndescription: d\ngem: \"*\"\nversions: \"*\"\n---\n\n" \
+                "#{v1_ready.sub("line a", "line a (upstream v3)")}")
+        allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return(v1_ready)
+
+        out = run_reporting(mode: :merge, artifacts: [conflicting])
+
+        expect(out).to include("conflicting edits")
+        expect(read(gpath)).to include("line a (mine)")
+        expect(read(gpath)).not_to include("<<<<<<<")
+        expect(read("#{gpath}.new")).to include("line a (upstream v3)")
+        entry = lock_entry(gpath)
+        expect(entry["source"]).to eq("rails-hyperdrive-x@3.0.0")
+        expect(entry["ancestor_source"]).to eq("rails-hyperdrive-x@1.0.0")
+      end
+
+      it "keeps the skip path when an equal-sha retry conflicts" do
+        run(mode: :sidecar, artifacts: [v2])
+        allow(Rails::Hyperdrive::AncestorLocator)
+          .to receive(:locate).and_return(v1_ready.sub("line a", "line a (base moved)"))
+
+        out = run_reporting(mode: :merge, artifacts: [v2])
+
+        expect(out).to include("unresolved sidecar")
+        expect(out).to include("conflicting edits")
+        expect(read(gpath)).not_to include("<<<<<<<")
+        expect(read("#{gpath}.new")).to include("line d (upstream)")
+        expect(lock_entry(gpath)["source"]).to eq("rails-hyperdrive-x@2.0.0")
+      end
     end
 
     it "degrades to a sidecar when git is unavailable" do

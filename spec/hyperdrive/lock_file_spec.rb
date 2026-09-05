@@ -91,6 +91,83 @@ RSpec.describe Rails::Hyperdrive::LockFile do
     end
   end
 
+  describe "the ancestor a pending sidecar records" do
+    def upsert_with_ancestor(lock)
+      lock.upsert(
+        path: ".claude/skills/vcr/SKILL.md",
+        kind: "skill",
+        source_gem: "gem-a",
+        source_version: "2.0.0",
+        source_sha: "ff00",
+        installed_at: "2026-05-29T14:22:09Z",
+        ancestor_gem: "gem-a",
+        ancestor_version: "1.0.0",
+        ancestor_sha: "aa11",
+        ancestor_relpath: "skills/vcr/SKILL.md"
+      )
+    end
+
+    it "round-trips the three keys" do
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "lock.yml")
+        lock = described_class.new(path)
+        upsert_with_ancestor(lock)
+        File.write(path, lock.to_yaml)
+
+        entry = described_class.load(path).entry(".claude/skills/vcr/SKILL.md")
+        expect(entry.ancestor_gem).to eq("gem-a")
+        expect(entry.ancestor_version).to eq("1.0.0")
+        expect(entry.ancestor_label).to eq("gem-a@1.0.0")
+        expect(entry.ancestor_sha).to eq("aa11")
+        expect(entry.ancestor_relpath).to eq("skills/vcr/SKILL.md")
+        expect(entry.ancestor?).to be true
+      end
+    end
+
+    it "serializes them between the source sha and installed_at" do
+      lock = described_class.new("/no/such/lock.yml")
+      upsert_with_ancestor(lock)
+
+      expect(lock.to_yaml).to eq(<<~YAML)
+        ---
+        version: 3
+        files:
+        - path: ".claude/skills/vcr/SKILL.md"
+          artifact: skill
+          source: gem-a@2.0.0
+          source_sha: ff00
+          ancestor_source: gem-a@1.0.0
+          ancestor_sha: aa11
+          ancestor_relpath: skills/vcr/SKILL.md
+          installed_at: '2026-05-29T14:22:09Z'
+      YAML
+    end
+
+    it "omits them entirely for an entry with no pending delivery" do
+      lock = described_class.new("/no/such/lock.yml")
+      lock.upsert(
+        path: ".claude/skills/vcr/SKILL.md", kind: "skill", source_gem: "gem-a",
+        source_version: "2.0.0", source_sha: "ff00", installed_at: "2026-05-29T14:22:09Z"
+      )
+
+      expect(lock.to_yaml).not_to include("ancestor")
+      expect(lock.entry(".claude/skills/vcr/SKILL.md").ancestor?).to be false
+      expect(lock.entry(".claude/skills/vcr/SKILL.md").ancestor_label).to be_nil
+    end
+
+    it "clears them without touching the entry the run compared against" do
+      lock = described_class.new("/no/such/lock.yml")
+      upsert_with_ancestor(lock)
+      before = lock.entry(".claude/skills/vcr/SKILL.md")
+
+      lock.clear_ancestor(".claude/skills/vcr/SKILL.md")
+
+      expect(before.ancestor_sha).to eq("aa11")
+      expect(lock.entry(".claude/skills/vcr/SKILL.md").ancestor?).to be false
+      expect(lock.to_yaml).not_to include("ancestor")
+    end
+  end
+
   it "loads a hand-written lock file into Entries" do
     Dir.mktmpdir do |dir|
       path = File.join(dir, "lock.yml")
