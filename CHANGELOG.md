@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`hyperdrive:sync --resolve`, a `git mergetool` for sidecars.** It delivers
+  to sidecars on its own (or after `--merge` has taken what git can), hands every
+  unresolved `<file>.new` to the command you name in `resolve.command` in
+  `.hyperdrive/config.yml`, and deletes the sidecar when that command exits 0; any other exit leaves the live file, the
+  sidecar, and the lockfile untouched with the reason printed. No command ships
+  with the gem, and `--resolve` without one configured stops before syncing
+  anything. The command receives `$LOCAL`, `$REMOTE`, `$BASE`, `$MERGED`,
+  `$SOURCE`, `$PREVIOUS_SOURCE`, `$KIND`, and `$PROMPT` — substituted per
+  argument and exported as `HYPERDRIVE_*` variables — where `$PROMPT` is a
+  tool-neutral set of reconciliation instructions you can replace with your own
+  ERB template via `resolve.prompt:`. A sidecar you edited yourself is never
+  handed off, `--dry-run` runs nothing, and the resolver never runs during
+  `bundle install`.
+
 - **`.hyperdrive/config.yml`, a settings file that belongs to you.** The
   hand-edited `disabled:` (per kind) and `enabled:` (companion opt-in) lists now
   live there instead of in `.hyperdrive/lock.yml`. `hyperdrive:init` creates the

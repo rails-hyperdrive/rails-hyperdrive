@@ -231,6 +231,44 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(out2).to match(%r{unchanged.*alpha-guide\.md})
       expect(File.read(guide_path)).to include("Upstream v2 addition.")
     end
+
+    it "hands the sidecar to the configured resolver command and sweeps it on exit 0" do
+      resolver = File.join(app_dir, "bin/fake-resolver")
+      File.write(resolver, <<~RUBY)
+        #!/usr/bin/env ruby
+        merged = ENV.fetch("HYPERDRIVE_MERGED")
+        File.write(merged, File.read(ENV.fetch("HYPERDRIVE_REMOTE")) + "\n" + ENV.fetch("HYPERDRIVE_PROMPT").lines.first)
+      RUBY
+      File.chmod(0o755, resolver)
+
+      config_path = File.join(app_dir, ".hyperdrive/config.yml")
+      config = YAML.safe_load(File.read(config_path)) || {}
+      config["resolve"] = { "command" => "bin/fake-resolver $LOCAL $REMOTE" }
+      File.write(config_path, config.to_yaml)
+
+      File.write(guide_path, File.read(guide_path) + "\n<!-- LOCAL EDIT -->\n")
+      File.write(shipped_guide, File.read(shipped_guide) + "\nUpstream v2 addition.\n")
+
+      out, st = Smoke.run_hyperdrive_sync!(app_dir, "--sidecar", "--resolve")
+      expect(st.success?).to be(true), out
+      expect(out).to match(%r{\bresolved.*alpha-guide\.md})
+      expect(out).to include("Sidecars: 1 resolved")
+
+      expect(File.exist?("#{guide_path}.new")).to be(false)
+      resolved = File.read(guide_path)
+      expect(resolved).to include("Upstream v2 addition.")
+      expect(resolved).to include("You are resolving one file")
+
+      lock = YAML.safe_load(File.read(File.join(app_dir, ".hyperdrive/lock.yml")))
+      entry = lock["files"].find { |f| f["path"] == ".claude/hyperdrive/guidelines/alpha-guide.md" }
+      expect(entry["source"]).to start_with("rails-hyperdrive-alpha@")
+
+      out2, st2 = Smoke.run_hyperdrive_sync!(app_dir)
+      expect(st2.success?).to be(true), out2
+      expect(out2).to include("locally modified")
+      expect(out2).not_to include("unresolved sidecar")
+      expect(File.read(guide_path)).to eq(resolved)
+    end
   end
 
   describe "per-artifact opt-out" do

@@ -33,12 +33,26 @@ module Rails
           #   unless you edited it.
           # enabled: gems to scan as hyperdrive companions even though they do not
           #   opt in themselves; disabled: still wins per artifact.
+          # resolve: the command `hyperdrive:sync --resolve` hands each unresolved
+          #   <file>.new sidecar to, git-mergetool style. Placeholders $LOCAL (the
+          #   live file), $REMOTE (the sidecar), $BASE (the common ancestor, when
+          #   one is available), $MERGED (the live file again — what the command
+          #   must write), $SOURCE, $PREVIOUS_SOURCE, $KIND, and $PROMPT (the
+          #   instructions to give an agent) are substituted per argument, and each
+          #   is also exported as HYPERDRIVE_LOCAL, HYPERDRIVE_REMOTE, and so on.
+          #   Exit 0 means resolved and the sidecar is deleted; any other exit
+          #   leaves the file, the sidecar, and the lock untouched. prompt: names
+          #   your own ERB template, relative to the app root, replacing the
+          #   built-in one.
           disabled:
             skills: []
             guidelines: []
             agents: []
             commands: []
           enabled: []
+          # resolve:
+          #   command: <your tool> $PROMPT
+          #   prompt: .hyperdrive/resolve-prompt.md.erb
         YAML
 
         # No templates are rendered; source_root exists so Rails resolves the

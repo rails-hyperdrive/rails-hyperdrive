@@ -344,6 +344,107 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
     end
   end
 
+  describe "--resolve" do
+    let(:gpath) { path(".claude/hyperdrive/guidelines/auth-pundit.md") }
+    let(:config_path) { path(".hyperdrive/config.yml") }
+
+    def write_config(command:)
+      FileUtils.mkdir_p(File.dirname(config_path))
+      File.write(config_path, { "resolve" => { "command" => command } }.to_yaml)
+    end
+
+    def deliver_sidecar!
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
+      run_generator([])
+      File.write(gpath, File.read(gpath) + "\nMY EDIT\n")
+      stub_discovery([
+        guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit", version: "2.0.0",
+          body: "---\nname: auth-pundit\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n# auth-pundit\n\nv2 rule.\n")
+      ])
+    end
+
+    it "delivers to sidecars on its own, so --resolve alone reconciles" do
+      deliver_sidecar!
+      write_config(command: "false")
+
+      out = run_generator(["--resolve"])
+
+      expect(out).to match(/sidecar.*auth-pundit\.md/)
+      expect(File).to exist("#{gpath}.new")
+      expect(out).to include("Sidecars: 1 unresolved")
+    end
+
+    it "refuses --resolve with --overwrite" do
+      err = capture(:stderr) { run_generator(["--resolve", "--overwrite"]) }
+
+      expect(err).to include("--overwrite and --resolve are mutually exclusive")
+      expect(File).not_to exist(path(".hyperdrive/lock.yml"))
+    end
+
+    it "stops before syncing anything when no resolver command is configured" do
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
+
+      err = capture(:stderr) { run_generator(["--resolve", "--sidecar"]) }
+
+      expect(err).to include(".hyperdrive/config.yml", "resolve:", "$PROMPT")
+      expect(File).not_to exist(path(".hyperdrive/lock.yml"))
+    end
+
+    it "runs the configured command on the delivered sidecar and sweeps it" do
+      deliver_sidecar!
+      script = path("bin/accept")
+      FileUtils.mkdir_p(File.dirname(script))
+      File.write(script, %(#!/usr/bin/env ruby\nFile.write(ARGV[0], File.read(ARGV[1]))\n))
+      File.chmod(0o755, script)
+      write_config(command: "bin/accept $MERGED $REMOTE")
+
+      out = run_generator(["--sidecar", "--resolve"])
+
+      expect(out).to match(/\bresolved.*auth-pundit\.md/)
+      expect(out).to include("Sidecars: 1 resolved")
+      expect(File.read(gpath)).to include("v2 rule.")
+      expect(File.read(gpath)).not_to include("MY EDIT")
+      expect(File).not_to exist("#{gpath}.new")
+    end
+
+    it "leaves everything in place when the command fails" do
+      deliver_sidecar!
+      write_config(command: "false")
+
+      out = run_generator(["--sidecar", "--resolve"])
+
+      expect(out).to match(/unresolved.*auth-pundit\.md.*exit 1/)
+      expect(out).to include("Sidecars: 1 unresolved")
+      expect(File.read(gpath)).to include("MY EDIT")
+      expect(File.read("#{gpath}.new")).to include("v2 rule.")
+    end
+
+    it "runs alongside --merge and says so when the run left no sidecar" do
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
+      run_generator([])
+      write_config(command: "bin/never")
+
+      out = run_generator(["--merge", "--resolve"])
+
+      expect(out).to include("No sidecars to resolve")
+    end
+
+    it "invokes nothing and writes nothing under --dry-run" do
+      deliver_sidecar!
+      script = path("bin/marker")
+      FileUtils.mkdir_p(File.dirname(script))
+      File.write(script, %(#!/usr/bin/env ruby\nFile.write("ran", "yes")\n))
+      File.chmod(0o755, script)
+      write_config(command: "bin/marker")
+
+      out = run_generator(["--sidecar", "--resolve", "--dry-run"])
+
+      expect(out).to include("would run bin/marker")
+      expect(File).not_to exist(path("ran"))
+      expect(File.read(gpath)).to include("MY EDIT")
+    end
+  end
+
   describe "--merge" do
     let(:gpath) { path(".claude/hyperdrive/guidelines/auth-pundit.md") }
     let(:gem_home) { File.join(@app_dir, "fake-gem-home") }
