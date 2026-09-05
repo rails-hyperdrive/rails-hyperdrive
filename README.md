@@ -222,7 +222,7 @@ A disabled artifact is never installed, and one already on disk is removed on th
 
 The list is yours to edit; the generator only reads it. Delete a name to get the artifact back on the next run. When two companion gems ship the same artifact name, both install under a `<name>--<source-gem>` suffix: the plain name disables both, the suffixed name disables one.
 
-Earlier releases kept `disabled:` and `enabled:` in `.hyperdrive/lock.yml`. They are no longer read from there: a lock still carrying them draws one warning and the next write drops them, so move the lists into `.hyperdrive/config.yml` or every artifact you had disabled installs again.
+Earlier releases kept `disabled:` and `enabled:` in `.hyperdrive/lock.yml`. They are no longer read from there: a lock still carrying them draws one warning and the next write drops them. Move the lists into `.hyperdrive/config.yml` first: otherwise every artifact you had disabled installs again, and a gem that was enabled only there stops counting as a companion, so the next `init` or `sync` removes its unedited artifacts as stale.
 
 To skip installed content wholesale instead, pass `--skip-content` to `hyperdrive:init`.
 

@@ -472,7 +472,9 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
         expect(out).to include(
           ".hyperdrive/lock.yml carries disabled:/enabled:; those settings now live in " \
-          ".hyperdrive/config.yml and are ignored here"
+          ".hyperdrive/config.yml and are ignored here. Move them now: disabled " \
+          "artifacts install again, and artifacts from gems enabled only there are " \
+          "removed by the next init/sync"
         )
       end
     end

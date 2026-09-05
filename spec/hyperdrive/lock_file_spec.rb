@@ -284,7 +284,9 @@ RSpec.describe Rails::Hyperdrive::LockFile do
         expect(lock.legacy_settings?).to be(true)
         expect(lock.legacy_settings_message(".hyperdrive/lock.yml"))
           .to eq(".hyperdrive/lock.yml carries disabled:/enabled:; those settings now live in " \
-                 ".hyperdrive/config.yml and are ignored here")
+                 ".hyperdrive/config.yml and are ignored here. Move them now: disabled " \
+                 "artifacts install again, and artifacts from gems enabled only there are " \
+                 "removed by the next init/sync")
       end
     end
 

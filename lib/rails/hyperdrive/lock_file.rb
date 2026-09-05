@@ -97,7 +97,9 @@ module Rails
 
       def legacy_settings_message(display_path)
         "#{display_path} carries disabled:/enabled:; those settings now live in " \
-          "#{InstallLayout::CONFIG_PATH} and are ignored here"
+          "#{InstallLayout::CONFIG_PATH} and are ignored here. Move them now: disabled " \
+          "artifacts install again, and artifacts from gems enabled only there are " \
+          "removed by the next init/sync"
       end
 
       def entry(file_path)

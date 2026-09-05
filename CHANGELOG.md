@@ -54,11 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING — `disabled:`/`enabled:` in `.hyperdrive/lock.yml` are no longer
   read, and there is no migration.** `init`, `sync`, and `bundle install` print
   one warning naming the lock keys, and the next lock write drops them. Re-declare
-  those settings in `.hyperdrive/config.yml`, or every artifact you had disabled
-  installs again.
-- The lock schema version is now **3**. An installer older than this release
-  halts on a schema-3 lock instead of reading the absent `disabled:` list as
-  empty and reinstalling every artifact you opted out of.
+  those settings in `.hyperdrive/config.yml` first: otherwise every artifact you
+  had disabled installs again, and a gem that was opted in only through the
+  lock's `enabled:` list is no longer a companion, so the next `init` or `sync`
+  removes its unedited artifacts as stale (edited ones are warned about and
+  left).
+- The lock schema version is now **3**. A 0.8.0 installer halts on a schema-3
+  lock instead of reading the absent `disabled:` list as empty and reinstalling
+  every artifact you opted out of; installers before 0.8.0 ship no schema guard
+  and do reinstall them.
 
 ## [0.8.0] - 2026-08-26
 
