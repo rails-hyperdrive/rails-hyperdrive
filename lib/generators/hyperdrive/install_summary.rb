@@ -63,7 +63,7 @@ module Rails
           "#{count} #{noun}#{"s" unless count == 1}"
         end
 
-        private_class_method :installed_counts, :group_by_source, :display_name, :quantify
+        private_class_method :installed_counts, :group_by_source, :display_name
       end
     end
   end

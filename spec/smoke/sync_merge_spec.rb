@@ -65,6 +65,7 @@ RSpec.describe "hyperdrive:sync --merge smoke", :smoke do
     out, st = Smoke.run_hyperdrive_sync!(app_dir, "--merge")
     expect(st.success?).to be(true), out
     expect(out).to match(/merged.*alpha-guide\.md/)
+    expect(out).to include("Merged 1 file by three-way merge")
 
     merged = File.read(guide_path)
     expect(merged).to start_with("# Alpha Guideline (customized)")

@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`hyperdrive:sync --merge` now says what a clean merge is.** When a run
+  merges anything, the summary carries one footer line: a clean three-way merge
+  is textually non-overlapping, not verified, and `git diff` is where you check
+  what it produced. Nothing about merging itself changed; a run that merged
+  nothing prints no footer.
 - **BREAKING — `disabled:`/`enabled:` in `.hyperdrive/lock.yml` are no longer
   read, and there is no migration.** `init`, `sync`, and `bundle install` print
   one warning naming the lock keys, and the next lock write drops them. Re-declare
