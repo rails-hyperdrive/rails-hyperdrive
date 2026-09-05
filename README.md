@@ -38,6 +38,8 @@ $ bundle add rails-hyperdrive-sidekiq --group=development
 $ bin/rails hyperdrive:init
 
   create  .mcp.json
+  append  .gitignore
+  append  Gemfile
   insert  config/routes.rb
   create  .hyperdrive/config.yml
   create  .claude/hyperdrive/guidelines/jobs-sidekiq.md
@@ -50,11 +52,16 @@ $ bin/rails hyperdrive:init
     done  hyperdrive initialized
   Mount: /_hyperdrive (in config/routes.rb)
   Server: 8 MCP tools at http://localhost:3000/_hyperdrive/mcp
-  Installed 1 skill, 1 guideline
+  Installed 1 skill, 1 guideline, 0 agents, 0 commands
 
     rails-hyperdrive-sidekiq@1.2.0
       skill      sidekiq-idempotency
       guideline  jobs-sidekiq
+
+  Next steps:
+    1. bin/rails server
+    2. Open Claude Code in this directory; it will read .mcp.json
+    3. Verify the connection: curl -s http://localhost:3000/_hyperdrive/mcp ...
 
 # 4. Start the dev server
 $ bin/dev
@@ -64,7 +71,7 @@ $ bin/dev
 # → agent has 8 tools, the eager guidelines (via CLAUDE.md), and the lazy skills
 ```
 
-The generated `.mcp.json` points at `http://localhost:3000<mount>/mcp`. If your dev server runs on another port, edit the URL there.
+The engine mounts at `/_hyperdrive` by default; `--mount-at /some/path` moves both the route and the URL written to `.mcp.json`. The generated `.mcp.json` points at `http://localhost:3000<mount>/mcp`, so if your dev server runs on another port, edit the URL there.
 
 ---
 
@@ -75,12 +82,12 @@ The generated `.mcp.json` points at `http://localhost:3000<mount>/mcp`. If your 
 | # | Tool | Purpose |
 |---|------|---------|
 | 1 | `run_ruby` | Eval Ruby in the booted Rails process, with timeout + output capture |
-| 2 | `run_sql` | Read-only SQL via the AR connection (refuses non-SELECT) |
+| 2 | `run_sql` | Read-only SQL via the AR connection (`SELECT`/`WITH`/`EXPLAIN`/`SHOW`/`PRAGMA` only; 100 rows max) |
 | 3 | `tail_logs` | Tail the last N lines of a log under `log/` (defaults to `log/<env>.log`) |
 | 4 | `list_models` | List Active Record model classes with columns/validations/associations |
 | 5 | `locate_source` | Resolve `Const` / `Const#method` / `Const.method` / `dep:<gem>` to a file:line |
 | 6 | `lookup_doc` | Look up RDoc for a symbol (via `ri`) |
-| 7 | `describe_app` | Snapshot: Rails/Ruby/DB versions + direct gem dependencies |
+| 7 | `describe_app` | Snapshot: Rails/Ruby/DB versions, direct gem dependencies, installed skills |
 | 8 | `list_routes` | All routes: HTTP verb, path, controller#action, named route |
 
 Plus two MCP resources: `hyperdrive://stack-profile` (JSON snapshot of your resolved stack) and `hyperdrive://skills/{name}` (the markdown body of each installed skill). The skill list is enumerated at server boot and the stack snapshot is memoized per process, so a newly installed skill or a changed bundle reaches these two only after a dev-server restart.
@@ -96,27 +103,33 @@ Companion gems ship four artifact kinds, tuned for how agents consume context:
 
 A companion gem declares in its manifest which gem each artifact targets and at which versions, so what lands in your app is what matches your `Gemfile.lock`, and nothing aimed at a library or version you don't run.
 
-With no companion gems, `hyperdrive:init` sets up just the server plumbing (`.mcp.json`, the engine mount, the lockfile) and puts **nothing** into your agent's context window. The two halves are independently skippable: `--skip-mcp` installs content but no MCP plumbing, `--skip-content` the reverse. Neither removes anything already in place.
+With no companion gems, `hyperdrive:init` sets up just the plumbing (`.mcp.json`, the engine mount, the bundler plugin line in your `Gemfile`, a `.gitignore` rule for the discover cache, an empty `.hyperdrive/config.yml`, and the lockfile) and puts **nothing** into your agent's context window. The two halves are independently skippable: `--skip-mcp` writes no `.mcp.json` entry and no mount; `--skip-content` skips the content, the config file, and the lockfile and leaves the rest. Neither removes anything already in place.
 
 ---
 
 ## Staying in sync
 
-**After `bundle install`: automatic.** `hyperdrive:init` registers the [`bundler-hyperdrive`](bundler-hyperdrive/) Bundler plugin in your Gemfile. From then on, adding a companion gem lands its artifacts on that very `bundle install`, with no extra command to run. The plugin is additive only (it never touches an existing file); version bumps and orphaned artifacts are only reported, with a pointer to `hyperdrive:sync`.
+**After `bundle install`: automatic.** `hyperdrive:init` registers the [`bundler-hyperdrive`](bundler-hyperdrive/) Bundler plugin in your Gemfile. From then on, adding a companion gem lands its artifacts on that very `bundle install`, with no extra command to run. The plugin is additive only (it never touches an existing file); version bumps and orphaned artifacts are only reported, with a pointer to `hyperdrive:sync`. It runs only where an install is safe to touch: a development environment (`RAILS_ENV`/`RACK_ENV` unset or `development`), no `CI` variable, no frozen bundle, and an app that already has a `.hyperdrive/lock.yml` (it tops up an initialized app, never bootstraps one). Because it never edits `CLAUDE.md`, a guideline that first arrives this way is not in context until the next `hyperdrive:sync` wires it in; the plugin says so when that happens.
 
-**`bin/rails hyperdrive:sync`: on demand.** Run it any time (e.g. after `bundle update`) to refresh installed content to the current bundle. It touches no bootstrap artifact and leaves locally modified files untouched (skip + warn). When you *have* edited an installed file and its gem ships a new version, three mutually exclusive flags reconcile the two:
+**`bin/rails hyperdrive:sync`: on demand.** Run it any time (e.g. after `bundle update`) to refresh installed content to the current bundle. It touches no bootstrap artifact, and with no flags it leaves locally modified files untouched (skip + warn). When you *have* edited an installed file and its gem ships a new version, one flag picks the strategy:
 
-| Strategy | What happens to the live file | What happens to your edits |
-|---|---|---|
-| `--merge` | Rewritten with a git three-way merge when it applies cleanly; otherwise untouched and the upstream lands as a `--sidecar` delivery | Kept: a merge that would need conflict markers falls back to the sidecar, so nothing half-merged ever goes live |
-| `--sidecar` | Untouched; the new upstream body is written next to it as `<file>.new` | Kept, byte-for-byte |
-| `--overwrite` | Restored to the gem-shipped content | Discarded |
+| Flag | What happens to the live file | What happens to your edits | Falls back to |
+|---|---|---|---|
+| *(none)* | Untouched, with a warning naming the flags below | Kept | — |
+| `--merge` | Rewritten with a git three-way merge (base = the gem version you last installed, ours = your file, theirs = the new upstream) when it applies cleanly | Kept | `--sidecar`, whenever git cannot produce a clean result |
+| `--sidecar` | Untouched; the new upstream body is written next to it as `<file>.new` | Kept, byte-for-byte | — |
+| `--overwrite` | Restored to the gem-shipped content | Discarded | — |
+| `--resolve` | Delivers as `--sidecar` (or as `--merge`, when both are given), then hands each unresolved `<file>.new` to a command you configure; exit 0 deletes the sidecar | Up to your command | — |
 
-A sidecar is inert (Claude Code loads only `SKILL.md` and the `index.md` `@`-lines, never a `.new` file), and it shows up in `git status` as your prompt to resolve. Resolve it by folding what you want into the live file and deleting the `.new`, or `mv <file>.new <file>` to accept the upstream wholesale. Either way the lockfile already records that delivery, so the next sync doesn't re-offer the same version (and a leftover sidecar you haven't touched is cleaned up once the live file catches up). `--merge` needs the previously installed gem version still present on disk to reconstruct the merge ancestor; when it isn't (CI, after `gem cleanup`), it degrades to the sidecar with a note saying why. A file that already has a sidecar is not out of reach: while one is pending the lockfile also records the version your edits were based on, so a later `--merge` still has a proper base to give git — including for the delivery already waiting in the `.new`. A clean merge is textually non-overlapping, not semantically correct: git merges two contradictory edits cleanly when unchanged lines sit between them, so `git diff` after a `--merge` run is a review step, not a formality.
+`--merge`, `--sidecar`, and `--overwrite` are mutually exclusive. `--resolve` stacks on top: alone it means "sidecar, then resolve", `--merge --resolve` means "git merges what it can, your command takes the rest", and `--overwrite --resolve` is rejected because an overwrite leaves nothing to resolve. Every combination accepts `--dry-run`, which prints the plan and writes nothing.
+
+The fallback from `--merge` to a sidecar is what keeps a half-merged file from ever going live. It happens, with the reason on the status line, when the merge would need conflict markers; when the gem version you last installed is no longer on disk (CI, after `gem cleanup`), so there is no ancestor to merge against; when the file has no earlier install recorded in the lockfile; when the content is binary; or when `git` is not on your PATH. A clean merge is textually non-overlapping, not semantically correct: git merges two contradictory edits cleanly when unchanged lines sit between them, so `git diff` after a `--merge` run is a review step, not a formality.
+
+A sidecar is inert (Claude Code loads only `SKILL.md` and the `index.md` `@`-lines, never a `.new` file), and it shows up in `git status` as your prompt to resolve. Resolve it by folding what you want into the live file and deleting the `.new`, or `mv <file>.new <file>` to accept the upstream wholesale. Either way the lockfile already records that delivery, so the next sync doesn't re-offer the same version (and a leftover sidecar you haven't touched is cleaned up once the live file catches up). A file that already has a sidecar is not out of reach: while one is pending the lockfile also records the version your edits were based on, so a later `--merge` still has a proper base to give git — including for the delivery already waiting in the `.new`.
 
 The sidecar pair is also how an AI coding agent reconciles for you, with no extra machinery: run `bin/rails hyperdrive:sync --sidecar`, have the agent merge the live/`.new` pair semantically (it has both full texts), then delete the sidecar.
 
-**`--resolve`: hand the sidecars to a tool.** `--resolve` automates that last step, `git mergetool` style. It delivers to sidecars on its own (add `--merge` to let git merge what it can first), hands every unresolved `<file>.new` to a command you configure, and deletes the sidecar when that command exits 0. The gem ships no command of its own, so nothing runs that you did not name:
+**`--resolve`: hand the sidecars to a tool.** `--resolve` automates that last step, `git mergetool` style. After delivery it hands every unresolved `<file>.new` — from this run or left over from an earlier one — to the command named in `.hyperdrive/config.yml`, and deletes the sidecar when that command exits 0. The gem ships no command of its own, so nothing runs that you did not name:
 
 ```yaml
 # .hyperdrive/config.yml
@@ -175,17 +188,19 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
   <supporting files>                   # optional extras (references/, examples/, …), installed as shipped (*.md.erb rendered)
 .claude/agents/<name>.md               # companion-shipped subagent, installed verbatim
 .claude/commands/<name>.md             # companion-shipped slash command, installed verbatim
-.hyperdrive/config.yml                 # yours to edit: disabled:/enabled: settings
+.hyperdrive/config.yml                 # yours to edit: disabled:/enabled:/resolve: settings
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
 
-A `git diff` is where you review what a companion gem added. The install summary names each artifact's source gem and version, and every installed file is hashed and attributed to its source in the git-tracked `.hyperdrive/lock.yml`. The files themselves land byte-identical to what the gem ships, with nothing injected. `hyperdrive:init` warns if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`.
+A `git diff` is where you review what a companion gem added. The install summary names each artifact's source gem and version, and every installed file is hashed and attributed to its source in the git-tracked `.hyperdrive/lock.yml`. The files themselves land byte-identical to what the gem ships, with nothing injected. `hyperdrive:init` and `hyperdrive:sync` warn if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`. The lockfile carries a schema version, and a rails-hyperdrive older than the one that wrote it stops with an upgrade message instead of rewriting state it cannot read.
 
-`CLAUDE.md` and `index.md` are the **eager chain**: they exist only because a companion gem ships a guideline, and both go when the last one leaves the bundle (the guideline file itself is left on disk and reported as an orphan).
+`CLAUDE.md` and `index.md` are the **eager chain**: they exist only because a companion gem ships a guideline, and both go when the last one leaves the bundle (the guideline file itself is left on disk and reported as an orphan). A `CLAUDE.md` you had before `hyperdrive:init` gets the one line appended, and tear-down strips just that line; a `CLAUDE.md` the installer created is deleted only while it is still byte-identical to what was written.
+
+Both links are yours to cut. Delete the `@.claude/hyperdrive/index.md` line from `CLAUDE.md` and no later run re-adds it (the lockfile remembers the choice, and the next run says so once). Delete a single `@guidelines/<name>.md` line from `index.md` and that guideline leaves eager context while staying installed; it is not re-added either, and an `index.md` you have emptied this way is kept because it is the record of those choices.
 
 ### Your edits win
 
-Installed files are yours to modify. The lockfile hash tells the installer whether a file is still gem-pristine: unedited files are refreshed on upgrade, edited files are skipped with a warning, never silently overwritten. `hyperdrive:sync --overwrite` is the explicit way back to gem-shipped content.
+Installed files are yours to modify. The lockfile hash tells the installer whether a file is still gem-pristine: unedited files are refreshed on upgrade, edited files are skipped with a warning, never silently overwritten. `hyperdrive:sync --overwrite` is the explicit way back to gem-shipped content; `--merge` and `--sidecar` ([above](#staying-in-sync)) bring the upstream change in without losing yours.
 
 ### Turning off a single artifact
 
@@ -207,6 +222,8 @@ A disabled artifact is never installed, and one already on disk is removed on th
 
 The list is yours to edit; the generator only reads it. Delete a name to get the artifact back on the next run. When two companion gems ship the same artifact name, both install under a `<name>--<source-gem>` suffix: the plain name disables both, the suffixed name disables one.
 
+Earlier releases kept `disabled:` and `enabled:` in `.hyperdrive/lock.yml`. They are no longer read from there: a lock still carrying them draws one warning and the next write drops them, so move the lists into `.hyperdrive/config.yml` or every artifact you had disabled installs again.
+
 To skip installed content wholesale instead, pass `--skip-content` to `hyperdrive:init`.
 
 ### Opting into a gem's bundled skills
@@ -224,7 +241,7 @@ An enabled gem is treated as a companion from then on: its skills install throug
 
 ## Safety
 
-Rails Hyperdrive is **dev-only**, enforced in depth: the engine refuses requests outside `Rails.env.development?`, applies an origin allowlist (`localhost`, `127.0.0.1`, `[::1]`), and every tool re-checks the dev guard on invocation. `run_sql` accepts read-only statements and refuses anything else. See [SECURITY.md](SECURITY.md).
+Rails Hyperdrive is **dev-only**, enforced in depth: the engine refuses requests outside `Rails.env.development?`, applies an origin allowlist (`localhost`, `127.0.0.1`, `[::1]`), and every tool re-checks the dev guard on invocation. The route line `hyperdrive:init` writes is itself guarded by `Rails.env.development?`, and an engine that loads outside development (the gem in the wrong Gemfile group, say) only logs a warning at boot. `run_sql` accepts read-only statements and refuses anything else. See [SECURITY.md](SECURITY.md).
 
 ---
 

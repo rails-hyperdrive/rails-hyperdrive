@@ -48,7 +48,7 @@ agents_dir: layered-rails/agents
 commands_dir: layered-rails/commands
 ```
 
-Guidelines have no override: they are found only at the convention path.
+Like `skills_dir:`, each adds to the kind's default root rather than replacing it, deduplicated by expanded path, and an unusable value falls back on the same terms. Guidelines have no override: they are found only at the convention path.
 
 ## Multi-file skills
 
@@ -60,6 +60,8 @@ A skill is a **directory**, and it may ship more than `SKILL.md`. Everything els
 - Supporting files carry no frontmatter contract: `SKILL.md` frontmatter remains the skill's sole schema surface.
 
 Guidelines, agents, and commands stay single-file.
+
+Guidelines are eager: every installed one is `@`-included from `CLAUDE.md` on every turn of every conversation. Keep them to declarative facts and put procedure in a skill. The installer warns about a guideline over 150 lines or roughly 1,500 tokens, and about an eager set totalling more than roughly 10,000 tokens.
 
 ## Frontmatter
 
@@ -76,9 +78,15 @@ Agents follow that contract unchanged. **Commands are the one exception**: their
 
 A plain skills.sh SKILL.md installs with zero warnings, and an adopted skill repo's content needs no modification: gating lives entirely in the gem-root manifest (below). Skills, agents, and commands install byte-identical to their shipped (or ERB-rendered) body, frontmatter included; guidelines are installed with their frontmatter stripped entirely (they are `@`-included eagerly). Provenance (`source`, `source_sha`, `installed_at`) is recorded per file in the git-tracked `.hyperdrive/lock.yml`, never inside the installed file. When two gems ship a same-named artifact, both install, each postfixed by source gem.
 
-`name:` is the artifact's identity, not a label. It is what the installer writes to disk (`.claude/skills/<name>/SKILL.md`, `.claude/hyperdrive/guidelines/<name>.md`, `.claude/agents/<name>.md`). Keep it equal to the file or directory stem: if the two disagree the install still succeeds, but the artifact lands under `name:`. Within one gem, two artifacts of the same type declaring the same `name:` collapse to a single installed file; which one survives is not a guarantee to build on, so give each a distinct `name:`.
+`name:` is the artifact's identity, not a label. It is what the installer writes to disk (`.claude/skills/<name>/SKILL.md`, `.claude/hyperdrive/guidelines/<name>.md`, `.claude/agents/<name>.md`). Keep it equal to the file or directory stem: if the two disagree the install still succeeds, but the artifact lands under `name:`. Use lowercase letters, digits, hyphens, and underscores: the MCP server exposes each installed skill as `hyperdrive://skills/<name>` and lists only names in that alphabet. Within one gem, two artifacts of the same type declaring the same `name:` collapse to a single installed file; which one survives is not a guarantee to build on, so give each a distinct `name:`.
 
 `--` is reserved inside `name:`. It is the collision-postfix separator: colliding artifacts install as `<name>--<source_gem>` — the skill directory, the agent or command filename, and, for a skill or an agent, the frontmatter `name:` alongside it — and the installer parses an installed name back at its **first** `--` to recover the base name, which drives `disabled:` matching, orphan reporting, and the sha-gated delete. A `name:` containing `--` makes that parse ambiguous. Avoid `--` in the companion gem's own name for the same reason — the gem name is what lands in the postfix.
+
+## Shipping an update
+
+A content change reaches apps through a version bump. On their next `hyperdrive:sync` an unedited installed file is rewritten to the new bytes; an edited one is skipped, three-way merged, or delivered beside the live file as `<file>.new`, whichever flag the user chose. The bundler plugin's top-up after `bundle install` only reports the newer version. The lockfile hashes the install-ready body, so for a template a change in what it renders to is delivered exactly like an edit to a static file, and so is a change in the app's bundle that alters the render.
+
+A user's `--merge` reconstructs the common ancestor from the gem version they last installed, read from their local gem directory; if `gem cleanup` has removed it, the merge degrades to a sidecar with `<gem>@<version> not found in installed gems` on the status line.
 
 Renaming a skill directory or its `name:` is a breaking change for apps that already installed it. On their next `hyperdrive:init`/`hyperdrive:sync` the new name installs fresh and the old one is deleted — but only when the old copy is unedited, its source gem is still bundled, and that gem lost no artifact to a discovery skip in the same run; a locally edited copy is reported and left for the user to delete by hand. The additive top-up after `bundle install` removes nothing, so until a sync runs the skill sits under both names. Renaming the directory also detaches its gating, since `skills:` entries are keyed by directory path: the old manifest key names no shipped directory and starts warning.
 
@@ -238,7 +246,7 @@ For a template-backed supporting file, either spelling is a valid key: the templ
 
 ### ERB-templated markdown
 
-A file named `*.md.erb` — in a skill directory, or in a guidelines, agents, or commands root — is rendered at install time and lands as plain `.md` (the `.erb` suffix is dropped). `SKILL.md.erb` defines a skill exactly like `SKILL.md`; its frontmatter is parsed from the rendered output. Hyperdrive provides four helpers, and they are the only API a template may rely on:
+A file named `*.md.erb` — in a skill directory, or in a guidelines, agents, or commands root — is rendered against the app's resolved bundle at discovery and lands as plain `.md` (the `.erb` suffix is dropped). `SKILL.md.erb` defines a skill exactly like `SKILL.md`; its frontmatter is parsed from the rendered output. Hyperdrive provides four helpers, and they are the only API a template may rely on:
 
 - `gem?("name")` / `gem?("name", ">= 2.0")`: is the gem bundled (at a satisfying version)?
 - `any_gem?("a", "b", …)`: is any of these bundled?
