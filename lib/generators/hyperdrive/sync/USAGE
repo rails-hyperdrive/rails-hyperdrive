@@ -14,7 +14,10 @@ Description:
     mutually-exclusive strategies reconcile them with a new upstream:
       --merge      three-way-merge the upstream change into the live file
                    (clean merges only; anything else falls back to --sidecar,
-                   so no conflict marker ever lands in a live file)
+                   so no conflict marker ever lands in a live file). Clean
+                   means textually non-overlapping, not semantically correct,
+                   so `git diff` after a --merge run is a review step, not a
+                   formality.
       --sidecar    write the new upstream body to <file>.new next to the live
                    file, leaving the live file untouched
       --overwrite  restore the live file to the gem-shipped content,

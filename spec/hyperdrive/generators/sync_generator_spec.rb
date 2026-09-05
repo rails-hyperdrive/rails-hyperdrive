@@ -296,6 +296,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       out = run_generator(["--sidecar"])
 
       expect(out).to match(/sidecar.*auth-pundit\.md.*delivered to/)
+      expect(out).not_to include("Merged")
       expect(File.read(gpath)).to include("MY GUIDE EDIT")
       expect(File.read(spath)).to include("MY SKILL EDIT")
       expect(File.read(refpath)).to eq("MY REF REWRITE\n")
@@ -448,25 +449,29 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
   describe "--merge" do
     let(:gpath) { path(".claude/hyperdrive/guidelines/auth-pundit.md") }
     let(:gem_home) { File.join(@app_dir, "fake-gem-home") }
-    let(:relpath) { "lib/rails-hyperdrive-pundit/hyperdrive/guidelines/auth-pundit.md" }
+    let(:relpath) { relpath_for("auth-pundit") }
     let(:v1_shipped) do
       "---\nname: auth-pundit\ndescription: d\ngem: dummy_gem\nversions: \"~> 1.0\"\n---\n\n" \
         "# auth-pundit\n\nline a\nline b\nline c\nline d\n"
     end
 
-    def v2_artifact(upstream_change: "line d (upstream)")
+    def relpath_for(name) = "lib/rails-hyperdrive-pundit/hyperdrive/guidelines/#{name}.md"
+
+    def v1_body(name) = v1_shipped.gsub("auth-pundit", name)
+
+    def v2_artifact(name: "auth-pundit", upstream_change: "line d (upstream)")
       current_root = File.join(@app_dir, "current-gem")
       guideline_artifact(
-        name: "auth-pundit", source: "rails-hyperdrive-pundit", version: "2.0.0",
-        body: v1_shipped.sub("line d", upstream_change),
-        source_root: current_root, path: File.join(current_root, relpath)
+        name: name, source: "rails-hyperdrive-pundit", version: "2.0.0",
+        body: v1_body(name).sub("line d", upstream_change),
+        source_root: current_root, path: File.join(current_root, relpath_for(name))
       )
     end
 
-    def ship_v1_ancestor!
-      file = File.join(gem_home, "gems", "rails-hyperdrive-pundit-1.0.0", relpath)
+    def ship_v1_ancestor!(name: "auth-pundit")
+      file = File.join(gem_home, "gems", "rails-hyperdrive-pundit-1.0.0", relpath_for(name))
       FileUtils.mkdir_p(File.dirname(file))
-      File.write(file, v1_shipped)
+      File.write(file, v1_body(name))
     end
 
     before do
@@ -483,6 +488,8 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       out = run_generator(["--merge"])
 
       expect(out).to match(/merged.*auth-pundit\.md/)
+      expect(out).to include("Merged 1 file by three-way merge")
+      expect(out).to include("not verified")
       live = File.read(gpath)
       expect(live).to start_with("# auth-pundit")
       expect(live).to include("line a (mine)")
@@ -497,7 +504,26 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       # never re-offered.
       out2 = run_generator([])
       expect(out2).to include("locally modified")
+      expect(out2).not_to include("Merged")
       expect(File.read(gpath)).to eq(live)
+    end
+
+    it "counts every merged file in one footer line" do
+      ship_v1_ancestor!
+      ship_v1_ancestor!(name: "auth-second")
+      stub_discovery([
+        guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit", body: v1_shipped),
+        guideline_artifact(name: "auth-second", source: "rails-hyperdrive-pundit", body: v1_body("auth-second"))
+      ])
+      run_generator([])
+      second = path(".claude/hyperdrive/guidelines/auth-second.md")
+      File.write(second, File.read(second).sub("line a", "line a (mine)"))
+      stub_discovery([v2_artifact, v2_artifact(name: "auth-second")])
+
+      out = run_generator(["--merge"])
+
+      expect(out).to include("Merged 2 files by three-way merge")
+      expect(out.scan("by three-way merge").size).to eq(1)
     end
 
     it "degrades to a sidecar when the ancestor is not in any installed gem" do
@@ -506,6 +532,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       out = run_generator(["--merge"])
 
       expect(out).to match(/sidecar.*not found in installed gems/)
+      expect(out).not_to include("Merged")
       expect(File.read(gpath)).to include("line a (mine)")
       expect(File.read(gpath)).not_to include("line d (upstream)")
       expect(File.read("#{gpath}.new")).to include("line d (upstream)")
@@ -523,6 +550,7 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       out = run_generator(["--merge"])
 
       expect(out).to match(/sidecar.*conflicting edits/)
+      expect(out).not_to include("Merged")
       expect(File.read(gpath)).to include("line a (mine)")
       expect(File.read(gpath)).not_to include("<<<<<<<")
       expect(File.read("#{gpath}.new")).to include("line a (upstream)")
@@ -539,13 +567,14 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       expect(File.read("#{gpath}.new")).to include("line d (upstream)")
     end
 
-    it "writes nothing under --dry-run" do
+    it "reports the merge it would make but writes nothing under --dry-run" do
       ship_v1_ancestor!
       stub_discovery([v2_artifact])
       before_live = File.read(gpath)
 
-      run_generator(["--merge", "--dry-run"])
+      out = run_generator(["--merge", "--dry-run"])
 
+      expect(out).to include("Merged 1 file by three-way merge")
       expect(File.read(gpath)).to eq(before_live)
       expect(File).not_to exist("#{gpath}.new")
     end

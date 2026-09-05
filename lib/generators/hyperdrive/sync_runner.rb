@@ -83,10 +83,18 @@ module Rails
         end
 
         def summary_lines
-          InstallSummary.lines(lock_entries) + resolve_lines
+          InstallSummary.lines(lock_entries) + merge_lines + resolve_lines
         end
 
         private
+
+        def merge_lines
+          count = Array(@result&.merged).size
+          return [] if count.zero?
+
+          ["", "  Merged #{InstallSummary.quantify(count, "file")} by three-way merge; a clean merge is " \
+               "textually non-overlapping, not verified; review with `git diff`"]
+        end
 
         def resolve_lines
           outcome = @resolve_outcome
