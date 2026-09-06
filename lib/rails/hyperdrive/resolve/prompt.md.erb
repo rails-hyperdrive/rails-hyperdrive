@@ -41,7 +41,7 @@ Rules:
 - Keep the YAML frontmatter valid, and leave the `name:` line exactly as REMOTE
   has it.
 <% end -%>
-- If you are not confident the result is correct, change nothing and exit with a
-  non-zero status.
+- If you are not confident the result is correct, leave MERGED untouched; an
+  unchanged MERGED is treated as unresolved.
 
-Exit 0 only when MERGED holds the reconciled file.
+The file counts as resolved only if MERGED changes.

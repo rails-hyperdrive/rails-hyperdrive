@@ -408,6 +408,18 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       expect(File).not_to exist("#{gpath}.new")
     end
 
+    it "leaves everything in place when the command exits 0 without writing" do
+      deliver_sidecar!
+      write_config(command: "true")
+
+      out = run_generator(["--sidecar", "--resolve"])
+
+      expect(out).to match(/unresolved.*auth-pundit\.md.*wrote nothing/)
+      expect(out).to include("Sidecars: 1 unresolved")
+      expect(File.read(gpath)).to include("MY EDIT")
+      expect(File.read("#{gpath}.new")).to include("v2 rule.")
+    end
+
     it "leaves everything in place when the command fails" do
       deliver_sidecar!
       write_config(command: "false")

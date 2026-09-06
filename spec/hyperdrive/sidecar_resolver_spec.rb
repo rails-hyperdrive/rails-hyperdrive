@@ -96,12 +96,43 @@ RSpec.describe Rails::Hyperdrive::SidecarResolver do
       expect(io.string).to match(/\bresolved.*auth-pundit\.md/)
     end
 
-    it "deletes the sidecar even when the command wrote nothing" do
+    it "leaves the sidecar when the command exits 0 without changing the file" do
       install_sidecar
       script("bin/noop", "exit 0")
+      lock_before = File.read(File.join(root, ".hyperdrive/lock.yml"))
 
-      expect(resolve(command: "bin/noop").resolved).to eq([dest])
+      outcome = resolve(command: "bin/noop")
+
+      expect(outcome.resolved).to be_empty
+      expect(outcome.unresolved).to eq([{ dest: dest, reason: "command exited 0 but wrote nothing" }])
       expect(File.read(File.join(root, dest))).to eq(live_body)
+      expect(File.read(File.join(root, sidecar))).to eq(upstream_body)
+      expect(File.read(File.join(root, ".hyperdrive/lock.yml"))).to eq(lock_before)
+      expect(io.string).to match(/unresolved.*wrote nothing/)
+    end
+
+    it "leaves the sidecar when the command exits 0 after deleting the live file" do
+      install_sidecar
+      script("bin/delete", %(File.delete(ENV["HYPERDRIVE_MERGED"]); exit 0))
+      lock_before = File.read(File.join(root, ".hyperdrive/lock.yml"))
+
+      outcome = resolve(command: "bin/delete")
+
+      expect(outcome.resolved).to be_empty
+      expect(outcome.unresolved).to eq([{ dest: dest, reason: "command exited 0 but $MERGED is missing" }])
+      expect(File.read(File.join(root, sidecar))).to eq(upstream_body)
+      expect(File.read(File.join(root, ".hyperdrive/lock.yml"))).to eq(lock_before)
+    end
+
+    it "resolves when the command creates a live file that was missing" do
+      install_sidecar
+      File.delete(File.join(root, dest))
+      accept_script
+
+      outcome = resolve(command: "bin/accept")
+
+      expect(outcome.resolved).to eq([dest])
+      expect(File.read(File.join(root, dest))).to eq(upstream_body)
       expect(File).not_to exist(File.join(root, sidecar))
     end
 

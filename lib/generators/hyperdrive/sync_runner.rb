@@ -22,7 +22,8 @@ module Rails
               command: <your tool> $PROMPT
 
           Placeholders: $LOCAL $REMOTE $BASE $MERGED $SOURCE $PREVIOUS_SOURCE $KIND $PROMPT
-          (also exported as HYPERDRIVE_* environment variables). Exit 0 marks the sidecar resolved.
+          (also exported as HYPERDRIVE_* environment variables). Exit 0 marks the sidecar resolved
+          only when the command changed $MERGED.
         MSG
 
         def initialize(shell:, root: nil)
