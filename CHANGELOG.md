@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-06
+
 ### Fixed
 
 - **`hyperdrive:sync --resolve` no longer deletes a sidecar on a bare exit 0.**
@@ -831,7 +833,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hyperdrive:init` generator that installs architecture skills and auto-discovers
   per-gem skills.
 
-[Unreleased]: https://github.com/rails-hyperdrive/rails-hyperdrive/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/rails-hyperdrive/rails-hyperdrive/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/v0.9.1
 [0.9.0]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/v0.9.0
 [0.8.0]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/v0.8.0
 [0.7.0]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/v0.7.0
