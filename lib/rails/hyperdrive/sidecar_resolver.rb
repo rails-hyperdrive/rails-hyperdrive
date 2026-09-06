@@ -9,8 +9,9 @@ require "rails/hyperdrive/resolve_prompt"
 module Rails
   module Hyperdrive
     # Hands each unresolved <dest>.new sidecar to the user's resolver command,
-    # git-mergetool style, and deletes the sidecar when it exits 0. Nothing here
-    # writes the lock: the sidecar's absence is the whole resolution signal.
+    # git-mergetool style, and deletes the sidecar when it exits 0 and changed
+    # the file. Nothing here writes the lock: the sidecar's absence is the whole
+    # resolution signal.
     class SidecarResolver
       TOKENS = %w[LOCAL REMOTE BASE MERGED SOURCE PREVIOUS_SOURCE KIND PROMPT].freeze
       TOKEN_PATTERN = /\$(#{TOKENS.sort_by { |t| -t.length }.join("|")})\b/
@@ -105,17 +106,34 @@ module Rails
           values = values_for(candidate, base: base)
           argv = substitute(tokens, values, base: base)
           @shell.say_status :resolve, "#{candidate.dest} via #{argv.first}", :blue
+          before = merged_bytes(candidate)
           _out, err, status = Open3.capture3(env_for(values), *argv, chdir: @root)
           if status.success?
-            # Exit 0 is the tool's assertion that the file is resolved, so the
-            # sidecar goes even if the tool never wrote $MERGED.
-            resolved(candidate)
+            verify(candidate, before)
           else
             unresolved(candidate, "exit #{status.exitstatus}#{detail(err)}")
           end
         end
       rescue StandardError => e
         unresolved(candidate, first_line(e.message))
+      end
+
+      # An exit status is not proof: a tool can be denied every write and still
+      # exit 0, so the file itself has to show the resolution.
+      def verify(candidate, before)
+        after = merged_bytes(candidate)
+        if after.nil?
+          unresolved(candidate, "command exited 0 but $MERGED is missing")
+        elsif after == before
+          unresolved(candidate, "command exited 0 but wrote nothing")
+        else
+          resolved(candidate)
+        end
+      end
+
+      def merged_bytes(candidate)
+        path = abs(candidate.dest)
+        File.file?(path) ? File.binread(path) : nil
       end
 
       def resolved(candidate)

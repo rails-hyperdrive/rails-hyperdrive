@@ -40,10 +40,10 @@ module Rails
           #   must write), $SOURCE, $PREVIOUS_SOURCE, $KIND, and $PROMPT (the
           #   instructions to give an agent) are substituted per argument, and each
           #   is also exported as HYPERDRIVE_LOCAL, HYPERDRIVE_REMOTE, and so on.
-          #   Exit 0 means resolved and the sidecar is deleted; any other exit
-          #   leaves the file, the sidecar, and the lock untouched. prompt: names
-          #   your own ERB template, relative to the app root, replacing the
-          #   built-in one.
+          #   Exit 0 marks the sidecar resolved only when the command changed the
+          #   file; exit 0 with the file untouched, or any other exit, leaves the
+          #   file, the sidecar, and the lock untouched. prompt: names your own
+          #   ERB template, relative to the app root, replacing the built-in one.
           disabled:
             skills: []
             guidelines: []
@@ -53,6 +53,12 @@ module Rails
           # resolve:
           #   command: <your tool> $PROMPT
           #   prompt: .hyperdrive/resolve-prompt.md.erb
+          #
+          # For Claude Code:
+          #   command: claude -p $PROMPT --allowedTools Read,Edit,Write
+          # Grant the tools rather than --permission-mode acceptEdits, which
+          # refuses writes under .claude/ and cannot read $BASE; $PROMPT comes
+          # first because --allowedTools takes every following argument.
         YAML
 
         # No templates are rendered; source_root exists so Rails resolves the

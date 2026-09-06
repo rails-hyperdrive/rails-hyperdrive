@@ -30,10 +30,12 @@ Description:
 
     --resolve does that step for you, git-mergetool style: after delivery it
     hands every unresolved <file>.new to the command in resolve.command in
-    .hyperdrive/config.yml and deletes the sidecar when that command exits 0.
-    On its own it delivers to sidecars; with --merge, git merges first and the
-    command takes the rest. With no command configured it stops before syncing
-    anything. A sidecar you edited yourself is never handed off.
+    .hyperdrive/config.yml and deletes the sidecar when that command exits 0
+    after changing the file; exit 0 with the file untouched, or any other exit,
+    leaves everything in place. On its own it delivers to sidecars; with
+    --merge, git merges first and the command takes the rest. With no command
+    configured it stops before syncing anything. A sidecar you edited yourself
+    is never handed off.
 
     Touches no bootstrap artifact: .mcp.json, the engine mount, the Gemfile
     plugin directive, .gitignore, and .hyperdrive/config.yml belong to
