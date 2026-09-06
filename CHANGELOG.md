@@ -12,10 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`hyperdrive:sync --resolve` no longer deletes a sidecar on a bare exit 0.**
   The command must also have changed `$MERGED`, matching `git mergetool`'s
   default of not trusting the exit code alone. Exit 0 with the live file
-  untouched (or missing) is reported as unresolved — `command exited 0 but wrote
-  nothing` — and leaves the live file, the sidecar, and the lockfile exactly as
-  they were, so an agent that was denied every write no longer loses the pending
-  upstream delivery.
+  untouched is reported as unresolved — `command exited 0 but wrote nothing`
+  (`command exited 0 but $MERGED is missing` when the command deleted it) — and
+  leaves the live file, the sidecar, and the lockfile exactly as they were, so
+  an agent that was denied every write no longer loses the pending upstream
+  delivery.
 
 ### Changed
 
