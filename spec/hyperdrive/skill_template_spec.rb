@@ -36,6 +36,28 @@ RSpec.describe Rails::Hyperdrive::SkillTemplate do
     end
   end
 
+  describe "all_gems?" do
+    it "is true when every named gem is bundled" do
+      expect(render(%(<%= all_gems?("alba", "sidekiq") %>))).to eq("true")
+    end
+
+    it "is false when one named gem is absent" do
+      expect(render(%(<%= all_gems?("alba", "view_component") %>))).to eq("false")
+    end
+
+    it "accepts symbol and string names alike" do
+      expect(render(%(<%= all_gems?(:alba, "sidekiq") %>))).to eq("true")
+    end
+
+    it "is true for an empty list" do
+      expect(render(%(<%= all_gems? %>))).to eq("true")
+    end
+
+    it "is true in the canonical binding" do
+      expect(described_class.render_canonical(%(<%= all_gems?("nope", "also_nope") %>))).to eq("true")
+    end
+  end
+
   describe "gem_version" do
     it "returns the version as a String, or nil" do
       expect(render(%(<%= gem_version("alba").class %>))).to eq("String")
@@ -61,7 +83,7 @@ RSpec.describe Rails::Hyperdrive::SkillTemplate do
   end
 
   describe "sealed binding" do
-    it "exposes only the four helpers — no stray lookup surface" do
+    it "exposes only the five helpers — no stray lookup surface" do
       expect { render("<%= resolved %>") }.to raise_error(NameError)
       expect { render("<%= config %>") }.to raise_error(NameError)
       expect { render("<%= app_root %>") }.to raise_error(NameError)

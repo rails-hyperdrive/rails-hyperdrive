@@ -246,14 +246,15 @@ For a template-backed supporting file, either spelling is a valid key: the templ
 
 ### ERB-templated markdown
 
-A file named `*.md.erb` — in a skill directory, or in a guidelines, agents, or commands root — is rendered against the app's resolved bundle at discovery and lands as plain `.md` (the `.erb` suffix is dropped). `SKILL.md.erb` defines a skill exactly like `SKILL.md`; its frontmatter is parsed from the rendered output. Hyperdrive provides four helpers, and they are the only API a template may rely on:
+A file named `*.md.erb` — in a skill directory, or in a guidelines, agents, or commands root — is rendered against the app's resolved bundle at discovery and lands as plain `.md` (the `.erb` suffix is dropped). `SKILL.md.erb` defines a skill exactly like `SKILL.md`; its frontmatter is parsed from the rendered output. Hyperdrive provides five helpers, and they are the only API a template may rely on:
 
 - `gem?("name")` / `gem?("name", ">= 2.0")`: is the gem bundled (at a satisfying version)?
 - `any_gem?("a", "b", …)`: is any of these bundled?
+- `all_gems?("a", "b", …)`: are all of these bundled? Needs an installer at 0.10 or later; fence it like `canonical_render?` (below).
 - `gem_version("name")`: the resolved version as a String, or `nil`.
 - `canonical_render?`: `true` in the author-side canonical render (`rake hyperdrive:skills:render`/`check`), `false` when rendering into an app.
 
-Nothing beyond those four is a contract — but nothing is blocked either. A template is plain ERB over an ordinary Ruby binding, not a sandbox: it can reach anything Ruby can, and it runs with the developer's own privileges at discovery time — during `hyperdrive:init`/`hyperdrive:sync`, on every `bundle install` through the bundler plugin, and when the MCP server answers `describe_app`. Enabling a companion trusts its templates exactly like its `lib/` code.
+Nothing beyond those five is a contract — but nothing is blocked either. A template is plain ERB over an ordinary Ruby binding, not a sandbox: it can reach anything Ruby can, and it runs with the developer's own privileges at discovery time — during `hyperdrive:init`/`hyperdrive:sync`, on every `bundle install` through the bundler plugin, and when the MCP server answers `describe_app`. Enabling a companion trusts its templates exactly like its `lib/` code.
 
 ```erb
 Use `bundle exec sidekiq` (you run Sidekiq <%= gem_version("sidekiq") || "any version" %>).
@@ -307,7 +308,7 @@ The static `SKILL.md` is generated, not hand-written. In the companion repo's `R
 require "hyperdrive/skill_tasks"
 ```
 
-- `rake hyperdrive:skills:render` renders each `SKILL.md.erb` to its paired static `SKILL.md`, and each supporting `*.md.erb` to its own face in the same content dir, using the **canonical** binding: `gem?`/`any_gem?` always true (even with a version requirement), `gem_version` always `nil`. Templates that interpolate `gem_version` must handle `nil` (e.g. `<%= gem_version("sidekiq") || "(any version)" %>`).
+- `rake hyperdrive:skills:render` renders each `SKILL.md.erb` to its paired static `SKILL.md`, and each supporting `*.md.erb` to its own face in the same content dir, using the **canonical** binding: `gem?`/`any_gem?`/`all_gems?` always true (even with a version requirement), `gem_version` always `nil`. Templates that interpolate `gem_version` must handle `nil` (e.g. `<%= gem_version("sidekiq") || "(any version)" %>`).
 - `rake hyperdrive:skills:check` renders in memory and fails, listing any stale static file; it also fails on any `*.md.erb` found under a public skills root.
 - `rake hyperdrive:manifest:check` lints `hyperdrive.yml` where the installer is deliberately permissive, and fails on: unknown keys at every level (top level, every kind's entries, `conditional:` entries), any `gem:`/`gems:`/`hyperdrive_version:` value the installer cannot parse or would only accept with a warning, a directory-key value it would refuse and fall back from (not a string, blank, or containing a `..` segment), a `command_prefix:` that is not a usable name prefix, entry keys naming nothing the gem ships — with the retired `versions:` and its `version:` near-miss called out by name — and a `hyperdrive_manifest` metadata key naming a path that is not a file, which would otherwise leave the gem opted in with every artifact ungated. A manifest that lints clean draws no gating warning at install time.
 

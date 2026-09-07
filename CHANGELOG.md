@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `all_gems?(*names)`, a fifth skill-template ERB helper and the AND sibling of
+  `any_gem?`: true only when every named gem is bundled. Names only — chain
+  `gem?("a", ">= 2") && gem?("b")` when a member needs a version requirement —
+  and an empty list is true. Like the other bundle predicates it reads `true` in
+  the author-side canonical render. A template calling it needs the installer
+  release that ships it: on an older one the render raises `NameError` and the
+  artifact is skipped as a render failure — the whole skill when it's
+  `SKILL.md.erb`, otherwise just that supporting file. Declare
+  `hyperdrive_version: ">= 0.10"` in the manifest entry (or gem-wide), so an
+  older installer reports "upgrade rails-hyperdrive" instead.
+
 ## [0.9.1] - 2026-09-06
 
 ### Fixed
