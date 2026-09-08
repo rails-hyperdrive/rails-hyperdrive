@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`bin/rails hyperdrive:init`/`sync`/`discover` run from a subdirectory of the
+  app now write to the app root.** The generators read the lockfile, the config
+  file, and `Gemfile.lock` through `Rails.root` but had no destination root, so
+  Thor defaulted to the current directory and `../bin/rails hyperdrive:init`
+  scattered `.mcp.json`, `.claude/`, and `.hyperdrive/` under wherever it was
+  invoked from. Each generator now starts with the app root as its destination.
+- **A `.hyperdrive/lock.yml` that cannot be read or parsed now stops
+  `hyperdrive:init`/`sync` with an error naming the file.** Previously a syntax
+  error was silently read as an absent lock — the run warned "locally modified"
+  for every installed file and then rewrote the lock with every entry and
+  `claude_md.state` dropped — while an unreadable file, a `!ruby/object` tag, or
+  a YAML alias crashed with a raw backtrace. Unreadable, unparseable, and
+  non-map-root locks all halt before any content write, `--dry-run` included; an
+  empty file still reads as absent. `bundle install` reports the same line and
+  installs nothing. `rake hyperdrive:skills:check`/`render` likewise report
+  unparseable rendered frontmatter as a render error for every YAML failure, not
+  only syntax errors.
+- **The install pipeline no longer reports a disabled artifact left on disk as
+  an orphan**, in any mode — the artifact is still shipped by its gem, so it is
+  not stranded, and its lock entry is carried as before. Additive runs (the
+  `bundle install` hook) now report no disabled artifacts at all.
+- **`hyperdrive:init --mount-at` now accepts only a plain `/segment[/segment]`
+  path** (letters, digits, `_`, `-`) and refuses anything else before writing
+  anything, since the value was interpolated unescaped into `config/routes.rb`
+  as Ruby source. When `config/routes.rb` has no
+  `Rails.application.routes.draw do` block, init warns and tells you the line to
+  add by hand, and the summary no longer claims the mount was written.
+
+### Changed
+
+- **`run_sql` refuses `PRAGMA name = value` assignments.** The paren form
+  (`PRAGMA table_info(users)`) and bare reads stay allowed. The guard remains a
+  guardrail rather than a parser, so a mutation keyword inside a string literal
+  (`SELECT 'update me'`) is still refused.
+- **`McpServer.rack_app` no longer accepts `allowed_hosts:`.** The method
+  memoizes, so the argument was ignored after the first call, and nothing ever
+  passed it; the allowlist is the middleware's own constant.
+- **When one companion ships the same artifact name at two paths** — a skill
+  under both skill roots, or a flat file in both the convention root and its
+  manifest `<kind>_dir:` override — discovery now reports the dropped path as a
+  skip instead of choosing silently. The survivor is unchanged (the
+  lexicographically greatest path), and the gem is not marked as having skipped
+  anything, since the name still installs.
+
 ## [0.9.2] - 2026-09-08
 
 ### Added

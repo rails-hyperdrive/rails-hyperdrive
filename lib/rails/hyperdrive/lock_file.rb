@@ -9,6 +9,17 @@ module Rails
       STATE_PRESENT  = "present".freeze
       STATE_REMOVED  = "removed-by-user".freeze
 
+      # A lock that exists but cannot be understood is never treated as absent:
+      # rewriting it would drop every entry and the user's claude_md state.
+      class UnreadableError < StandardError
+        attr_reader :reason
+
+        def initialize(reason)
+          @reason = reason
+          super(reason)
+        end
+      end
+
       # In-memory form of one files: entry. On disk, source_gem and
       # source_version are a single "gem@version" string; the split/join lives
       # in this file only.
@@ -60,8 +71,16 @@ module Rails
       def read
         return self unless File.exist?(@path)
 
-        data = YAML.safe_load(File.read(@path))
-        return self unless data.is_a?(Hash)
+        begin
+          raw = File.read(@path)
+          data = YAML.safe_load(raw)
+        rescue Psych::Exception => e
+          raise UnreadableError, "not valid YAML: #{e.message.to_s.lines.first.to_s.strip}"
+        rescue SystemCallError => e
+          raise UnreadableError, e.message
+        end
+        return self if data.nil?
+        raise UnreadableError, "root is not a map" unless data.is_a?(Hash)
 
         @document = data
         @schema_version = data["version"]
@@ -74,8 +93,10 @@ module Rails
           @files[entry.path] = entry if entry.path
         end
         self
-      rescue Psych::SyntaxError
-        self
+      end
+
+      def self.unreadable_message(display_path, reason)
+        "#{display_path} could not be read (#{reason}); fix it or restore it from git, then re-run"
       end
 
       # A lock written by a newer installer holds state this one cannot read,

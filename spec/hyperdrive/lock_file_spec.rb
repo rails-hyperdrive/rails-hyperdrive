@@ -230,14 +230,50 @@ RSpec.describe Rails::Hyperdrive::LockFile do
     end
   end
 
-  it "recovers from a malformed lock file (returns empty state, never raises)" do
-    Dir.mktmpdir do |dir|
-      path = File.join(dir, "lock.yml")
-      File.write(path, "files: [unterminated\n  : :\n")
-      lock = nil
-      expect { lock = described_class.load(path) }.not_to raise_error
-      expect(lock.claude_md_state).to be_nil
-      expect(lock.guideline_paths).to eq([])
+  describe "a lock that cannot be read" do
+    def load_in_tmpdir(contents)
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "lock.yml")
+        File.write(path, contents)
+        yield path
+      end
+    end
+
+    {
+      "a syntax error"     => ["files: [unterminated\n  : :\n", /not valid YAML/],
+      "a disallowed class" => ["version: 3\nfiles: !ruby/object:Object {}\n", /not valid YAML/],
+      "an alias"           => ["a: &x 1\nb: *x\n", /not valid YAML/],
+      "a non-map root"     => ["- a\n", /root is not a map/]
+    }.each do |label, (contents, reason)|
+      it "raises UnreadableError on #{label}" do
+        load_in_tmpdir(contents) do |path|
+          expect { described_class.load(path) }
+            .to raise_error(described_class::UnreadableError, reason)
+        end
+      end
+    end
+
+    it "raises UnreadableError when the file cannot be opened" do
+      skip "running as root: chmod cannot make a file unreadable" if Process.uid.zero?
+
+      load_in_tmpdir("version: 3\n") do |path|
+        File.chmod(0o000, path)
+        expect { described_class.load(path) }.to raise_error(described_class::UnreadableError)
+      end
+    end
+
+    it "still reads an empty file as absent, with no error" do
+      load_in_tmpdir("") do |path|
+        lock = described_class.load(path)
+        expect(lock.claude_md_state).to be_nil
+        expect(lock.guideline_paths).to eq([])
+      end
+    end
+
+    it "names the file and the reason in unreadable_message" do
+      expect(described_class.unreadable_message(".hyperdrive/lock.yml", "root is not a map"))
+        .to eq(".hyperdrive/lock.yml could not be read (root is not a map); " \
+               "fix it or restore it from git, then re-run")
     end
   end
 

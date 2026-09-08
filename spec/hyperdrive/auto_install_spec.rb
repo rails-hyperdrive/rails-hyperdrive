@@ -118,6 +118,25 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
     end
   end
 
+  describe "a lock that cannot be read" do
+    before do
+      initialize_app([guideline(name: "auth-pundit")])
+      File.write(File.join(root, ".hyperdrive/lock.yml"), "files: [unterminated\n  : :\n")
+    end
+
+    it "installs nothing, never raises, and prints why" do
+      bundle_ships([guideline(name: "auth-pundit"), guideline(name: "jobs-sidekiq", source: "rails-hyperdrive-sidekiq")])
+
+      result = described_class.run(root: root)
+
+      expect(result).to be_ran
+      expect(result.installed).to be_empty
+      expect(result.halted).to include(".hyperdrive/lock.yml could not be read (not valid YAML")
+      expect(result.messages).to eq([result.halted])
+      expect(File).not_to exist(File.join(root, ".claude/hyperdrive/guidelines/jobs-sidekiq.md"))
+    end
+  end
+
   it "forwards the config's enabled: list to discovery" do
     initialize_app([])
     write_config("enabled" => ["some_gem"])
@@ -229,13 +248,15 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(File).not_to exist(File.join(root, ".claude/hyperdrive/guidelines/jobs-sidekiq.md"))
     end
 
-    it "leaves an installed artifact on disk when it is disabled" do
+    it "leaves an installed artifact on disk when it is disabled, and says nothing about it" do
       disable("auth-pundit")
       bundle_ships([guideline(name: "auth-pundit")])
 
-      described_class.run(root: root)
+      result = described_class.run(root: root)
 
       expect(File).to exist(File.join(root, ".claude/hyperdrive/guidelines/auth-pundit.md"))
+      expect(result.orphaned).to be_empty
+      expect(result.messages.join("\n")).not_to include("auth-pundit")
     end
   end
 

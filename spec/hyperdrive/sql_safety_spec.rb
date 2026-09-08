@@ -36,5 +36,22 @@ RSpec.describe Rails::Hyperdrive::SqlSafety do
       sql = "WITH x AS (DELETE FROM users RETURNING *) SELECT * FROM x"
       expect { described_class.assert_read_only!(sql) }.to raise_error(described_class::Error)
     end
+
+    ["PRAGMA journal_mode = WAL", "pragma foreign_keys=ON"].each do |sql|
+      it "refuses the PRAGMA assignment #{sql.inspect}" do
+        expect { described_class.assert_read_only!(sql) }
+          .to raise_error(described_class::Error, /PRAGMA assignments are not allowed/)
+      end
+    end
+
+    it "allows a PRAGMA read" do
+      expect { described_class.assert_read_only!("PRAGMA foreign_keys") }.not_to raise_error
+      expect { described_class.assert_read_only!("PRAGMA table_info(users)") }.not_to raise_error
+    end
+
+    it "refuses a mutation keyword inside a string literal (accepted guardrail behavior)" do
+      expect { described_class.assert_read_only!("SELECT 'update me'") }
+        .to raise_error(described_class::Error, /forbidden token detected: update/i)
+    end
   end
 end

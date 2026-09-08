@@ -55,7 +55,11 @@ module Rails
         return skip(:not_development) unless development?(env)
         return skip(:not_initialized) unless File.exist?(File.join(root, InstallLayout::LOCK_PATH))
 
-        lock = LockFile.load(File.join(root, InstallLayout::LOCK_PATH))
+        begin
+          lock = LockFile.load(File.join(root, InstallLayout::LOCK_PATH))
+        rescue LockFile::UnreadableError => e
+          return halted(LockFile.unreadable_message(InstallLayout::LOCK_PATH, e.reason))
+        end
         return halted(lock.schema_ahead_message(InstallLayout::LOCK_PATH)) if lock.schema_ahead?
 
         config = ConfigFile.load(File.join(root, InstallLayout::CONFIG_PATH))

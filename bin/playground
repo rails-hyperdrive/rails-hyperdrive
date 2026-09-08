@@ -79,7 +79,7 @@ Dir.chdir(dest) do
   system(child_env, "bundle", "install") or die("bundle install failed")
 
   if run_init
-    hyperdrive_flags = ["--yes", *extra_hyperdrive_flags]
+    hyperdrive_flags = [*extra_hyperdrive_flags]
     puts "playground: bin/rails hyperdrive:init #{hyperdrive_flags.join(" ")}"
     system(child_env, "bundle", "exec", "bin/rails", "hyperdrive:init", *hyperdrive_flags) or die("hyperdrive:init failed")
   end

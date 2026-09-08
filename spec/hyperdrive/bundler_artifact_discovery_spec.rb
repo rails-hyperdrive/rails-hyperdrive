@@ -1320,13 +1320,32 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       FileUtils.rm_rf(outside) if outside
     end
 
-    it "at equal spec_version, the skills/... path wins the Phase-1 tiebreak" do
+    it "collapses one name shipped under two skill roots to the greatest path, reporting the drop" do
       write("skills/dup/SKILL.md", static_body("dup"))
       write("lib/source_gem/hyperdrive/skills/other/SKILL.md", static_body("dup"))
 
-      survivors = described_class.discover(specs: [paired_spec]).select { |a| a.name == "dup" }
+      survivors = described_class.discover(specs: [paired_spec], report: report).select { |a| a.name == "dup" }
+
       expect(survivors.size).to eq(1)
       expect(survivors.first.path).to eq(File.join(@dir, "skills/dup/SKILL.md"))
+      expect(skips).to include("skip #{File.join(@dir, "lib/source_gem/hyperdrive/skills/other/SKILL.md")}: " \
+        "#{File.join(@dir, "skills/dup/SKILL.md")} takes precedence")
+      # The name still installs, so nothing about this gem is held back.
+      expect(skipped_gems).not_to include("source_gem")
+    end
+
+    it "reports the drop for a flat kind shipped in both its convention root and its manifest override" do
+      write("agents/foo.md", "---\nname: foo\ndescription: d\n---\n\n# foo\n")
+      write("custom_agents/foo.md", "---\nname: foo\ndescription: d\n---\n\n# foo\n")
+
+      survivors = described_class.discover(specs: [paired_spec("agents_dir: custom_agents\n")], report: report)
+        .select { |a| a.name == "foo" }
+
+      expect(survivors.size).to eq(1)
+      expect(survivors.first.path).to eq(File.join(@dir, "custom_agents/foo.md"))
+      expect(skips).to include("skip #{File.join(@dir, "agents/foo.md")}: " \
+        "#{File.join(@dir, "custom_agents/foo.md")} takes precedence")
+      expect(skipped_gems).not_to include("source_gem")
     end
 
     describe "template-side supporting templates" do

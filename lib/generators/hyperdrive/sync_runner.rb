@@ -111,9 +111,20 @@ module Rails
         # Raised from install, so it stops the run before any content write —
         # a dry run included.
         def verify_lock_schema!
-          return unless lock.schema_ahead?
+          return unless readable_lock.schema_ahead?
 
-          message = lock.schema_ahead_message(::Rails::Hyperdrive::InstallLayout::LOCK_PATH)
+          halt_lock(lock.schema_ahead_message(::Rails::Hyperdrive::InstallLayout::LOCK_PATH))
+        end
+
+        def readable_lock
+          lock
+        rescue ::Rails::Hyperdrive::LockFile::UnreadableError => e
+          halt_lock(::Rails::Hyperdrive::LockFile.unreadable_message(
+            ::Rails::Hyperdrive::InstallLayout::LOCK_PATH, e.reason
+          ))
+        end
+
+        def halt_lock(message)
           @shell.say_status :error, message, :red
           raise Thor::Error, "hyperdrive: #{message}"
         end

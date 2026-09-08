@@ -6,6 +6,7 @@ module Rails
     module SqlSafety
       ALLOWED_LEADERS = /\A\s*(WITH\b.*?\bSELECT\b|SELECT\b|EXPLAIN\b|SHOW\b|PRAGMA\b)/im
       FORBIDDEN_TOKEN = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|REPLACE|MERGE|RENAME|VACUUM|ATTACH|DETACH)\b/i
+      PRAGMA_LEADER = /\A\s*PRAGMA\b/i
 
       class Error < StandardError; end
 
@@ -15,6 +16,11 @@ module Rails
         raise Error, "empty SQL" if sql.nil? || sql.strip.empty?
         unless sql =~ ALLOWED_LEADERS
           raise Error, "only SELECT / WITH...SELECT / EXPLAIN / SHOW / PRAGMA are allowed"
+        end
+        # `PRAGMA x = y` writes; the paren form (`PRAGMA table_info(users)`)
+        # cannot be told apart from a read and stays allowed.
+        if sql =~ PRAGMA_LEADER && sql.include?("=")
+          raise Error, "PRAGMA assignments are not allowed"
         end
         # Second pass catches a mutation smuggled inside a CTE body
         # (e.g. `WITH x AS (DELETE ...) SELECT ...`).

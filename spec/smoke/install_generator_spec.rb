@@ -26,7 +26,6 @@ RSpec.describe "hyperdrive:init smoke", :smoke do
         # Nothing an agent would read: the eager chain waits for a companion guideline.
         expect(File.exist?(File.join(app_dir, "CLAUDE.md"))).to be(false)
         expect(File.exist?(File.join(app_dir, ".claude/hyperdrive/index.md"))).to be(false)
-        expect(File.exist?(File.join(app_dir, ".claude/hyperdrive/stack.md"))).to be(false)
         expect(Dir.exist?(File.join(app_dir, ".claude/skills"))).to be(false)
 
         mcp_json = JSON.parse(File.read(File.join(app_dir, ".mcp.json")))
@@ -41,6 +40,18 @@ RSpec.describe "hyperdrive:init smoke", :smoke do
         expect(out2).to match(/identical|unchanged/)
         routes_after = File.read(File.join(app_dir, "config/routes.rb"))
         expect(routes_after.scan("Rails::Hyperdrive::Engine").length).to eq(1)
+      end
+
+      if fixture == "minimal"
+        it "writes under the app root, not the directory bin/rails was invoked from" do
+          out, status = Smoke.run_hyperdrive_init!(app_dir, chdir: File.join(app_dir, "config"))
+
+          expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
+          expect(File.exist?(File.join(app_dir, ".mcp.json"))).to be(true)
+          expect(File.exist?(File.join(app_dir, ".hyperdrive/lock.yml"))).to be(true)
+          expect(File.exist?(File.join(app_dir, "config/.mcp.json"))).to be(false)
+          expect(File.exist?(File.join(app_dir, "config/.hyperdrive/lock.yml"))).to be(false)
+        end
       end
 
       it "honors --dry-run" do

@@ -49,9 +49,13 @@ module Rails
       end
 
       no_commands do
+        # Every generator read goes through ::Rails.root, so the destination
+        # must too — Thor would otherwise default it to the cwd `bin/rails` was
+        # invoked from and split reads and writes across two directories.
         def start_generator(name, generator)
           require_application!
-          ::Rails::Generators::Hyperdrive.const_get(generator).start(@argv)
+          ::Rails::Generators::Hyperdrive.const_get(generator)
+            .start(@argv, destination_root: ::Rails.root.to_s)
         end
       end
     end

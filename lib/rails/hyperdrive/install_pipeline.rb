@@ -48,7 +48,11 @@ module Rails
       end
 
       def call
-        return halt_schema_ahead if old_lock.schema_ahead?
+        begin
+          return halt_schema_ahead if old_lock.schema_ahead?
+        rescue LockFile::UnreadableError => e
+          return halt_unreadable_lock(e)
+        end
 
         report_settings_warnings
         @new_lock = LockFile.new(abs(InstallLayout::LOCK_PATH)).carry_document(old_lock)
@@ -86,6 +90,12 @@ module Rails
       # is written, in every mode including :additive.
       def halt_schema_ahead
         @shell.say_status :warn, old_lock.schema_ahead_message(InstallLayout::LOCK_PATH), :yellow
+        @result
+      end
+
+      def halt_unreadable_lock(error)
+        @shell.say_status :warn,
+          LockFile.unreadable_message(InstallLayout::LOCK_PATH, error.reason), :yellow
         @result
       end
 
@@ -139,6 +149,8 @@ module Rails
       end
 
       def report_disabled
+        return if additive?
+
         build_result.disabled.each do |entry|
           @shell.say_status :disabled, "#{entry.type} '#{entry.final_name}' (listed in #{InstallLayout::CONFIG_PATH})", :blue
         end
@@ -598,10 +610,23 @@ module Rails
           next if already_removed?(entry.path)
           next unless DriftVerdict.verdict(file: abs(entry.path), lock_entry: entry, gem_sha: nil) == :orphaned
 
+          # A disabled artifact left on disk is still shipped by its gem, so it
+          # is not stranded and draws no orphan report.
+          if disabled_entry?(entry)
+            @new_lock.carry(entry)
+            next
+          end
+
           @result.orphaned << entry.path
           @shell.say_status :orphan, "#{entry.path} (#{orphan_reason(entry)}; left in place)", :yellow
           @new_lock.carry(entry)
         end
+      end
+
+      def disabled_entry?(entry)
+        type = InstallLayout::ARTIFACT_TYPES[entry.kind]
+        return false unless type
+        InstallPlan.disabled_dest?(config, type, entry.path, source_gem: entry.source_gem)
       end
 
       def orphan_reason(entry)

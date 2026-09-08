@@ -432,6 +432,30 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
         expect(out).to include(".claude/skills/jobs/SKILL.md (disabled but locally modified; delete it by hand)")
         expect(read(".hyperdrive/lock.yml")).to include(".claude/skills/jobs/SKILL.md")
       end
+
+      it "reports an edited one once, never as an orphan" do
+        File.write(File.join(root, ".claude/skills/jobs/SKILL.md"), "mine\n")
+        disable("skills", "jobs")
+
+        out = run_reporting(artifacts: [skill(name: "jobs")])
+        result = run(artifacts: [skill(name: "jobs")])
+
+        expect(out).to include("disabled but locally modified")
+        expect(out).not_to include("orphan")
+        expect(result.orphaned).to be_empty
+      end
+
+      it "says nothing at all in additive mode and keeps the lock entry" do
+        disable("skills", "jobs")
+
+        out = run_reporting(mode: :additive, artifacts: [skill(name: "jobs")])
+        result = run(mode: :additive, artifacts: [skill(name: "jobs")])
+
+        expect(out).not_to include("disabled")
+        expect(out).not_to include("orphan")
+        expect(result.orphaned).to be_empty
+        expect(read(".hyperdrive/lock.yml")).to include(".claude/skills/jobs/SKILL.md")
+      end
     end
   end
 
@@ -1247,6 +1271,32 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
       expect(out.scan("was written by a newer rails-hyperdrive").size).to eq(1)
       expect(out).to include("lock schema 4, this installer supports 3")
+    end
+  end
+
+  describe "a lock that cannot be read" do
+    let(:source) { "rails-hyperdrive-x" }
+
+    before do
+      run(artifacts: [guideline(name: "auth-pundit")], bundled_gems: [source])
+      File.write(File.join(root, ".hyperdrive/lock.yml"), "files: [unterminated\n  : :\n")
+    end
+
+    %i[preserve additive].each do |mode|
+      it "warns once, writes nothing, and leaves the lock byte-untouched in #{mode} mode" do
+        before_lock = read(".hyperdrive/lock.yml")
+
+        out = run_reporting(mode: mode, artifacts: [guideline(name: "jobs-sidekiq", source: source)],
+          bundled_gems: [source])
+        result = run(mode: mode, artifacts: [guideline(name: "jobs-sidekiq", source: source)],
+          bundled_gems: [source])
+
+        expect(out.scan("could not be read").size).to eq(1)
+        expect(out).to include(".hyperdrive/lock.yml could not be read (not valid YAML")
+        expect(exist?(".claude/hyperdrive/guidelines/jobs-sidekiq.md")).to be false
+        expect(read(".hyperdrive/lock.yml")).to eq(before_lock)
+        expect(result.installed).to be_empty
+      end
     end
   end
 

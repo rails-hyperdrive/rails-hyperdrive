@@ -32,15 +32,14 @@ module Rails
         @server ||= build_server
       end
 
-      def rack_app(allowed_hosts: Safety::RackMiddleware::DEFAULT_ALLOWED_HOSTS)
+      def rack_app
         # The transport's own DNS-rebinding check requires same-origin (host:port);
         # it is disabled because Safety::RackMiddleware enforces the localhost
         # Origin allowlist, which accepts any port.
         @rack_app ||= Safety::RackMiddleware.new(
           ::MCP::Server::Transports::StreamableHTTPTransport.new(
             server, stateless: true, enable_json_response: true, dns_rebinding_protection: false
-          ),
-          allowed_hosts: allowed_hosts
+          )
         )
       end
 

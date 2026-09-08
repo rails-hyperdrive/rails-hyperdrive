@@ -248,6 +248,26 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
     end
   end
 
+  describe "a lock that cannot be read" do
+    before do
+      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
+      run_generator([])
+      File.write(path(".hyperdrive/lock.yml"), "files: [unterminated\n  : :\n")
+    end
+
+    ["", "--dry-run"].each do |flag|
+      it "refuses to sync#{flag.empty? ? "" : " under #{flag}"}, naming the file, and leaves it byte-identical" do
+        before_lock = File.read(path(".hyperdrive/lock.yml"))
+
+        err = capture(:stderr) { run_generator([flag].reject(&:empty?)) }
+
+        expect(err).to include(".hyperdrive/lock.yml could not be read (not valid YAML")
+          .and include("fix it or restore it from git, then re-run")
+        expect(File.read(path(".hyperdrive/lock.yml"))).to eq(before_lock)
+      end
+    end
+  end
+
   describe "reconcile flag exclusivity" do
     [%w[--merge --overwrite], %w[--merge --sidecar], %w[--sidecar --overwrite],
      %w[--merge --sidecar --overwrite]].each do |flags|

@@ -7,7 +7,7 @@ RSpec.describe Rails::Generators::Hyperdrive::ContentSyncSupport do
   describe "the steps Thor registers" do
     it "runs init's steps in order, with nothing the shared module contributes" do
       expect(Rails::Generators::Hyperdrive::InstallGenerator.commands.keys).to eq(%w[
-        verify_environment discover_artifacts write_mcp_json ignore_discover_cache
+        verify_environment verify_options discover_artifacts write_mcp_json ignore_discover_cache
         register_bundler_plugin mount_engine bootstrap_config sync_content print_summary
       ])
     end
