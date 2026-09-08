@@ -15,7 +15,9 @@ module Rails
         include GitignoreSupport
 
         ENGINE_MOUNT_TOKEN = "Rails::Hyperdrive::Engine"
+        ROUTES_DRAW_ANCHOR = /Rails\.application\.routes\.draw do\s*\n/
         DEFAULT_MOUNT_AT = "/_hyperdrive".freeze
+        MOUNT_PATH_FORMAT = %r{\A/[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\z}
 
         MCP_JSON_PATH = ".mcp.json".freeze
         MCP_SERVER_KEY = "rails-hyperdrive".freeze
@@ -72,6 +74,16 @@ module Rails
 
         def verify_environment
           runner.verify_environment!
+        end
+
+        # The value is interpolated into config/routes.rb as Ruby source, so it
+        # is validated before anything is written, a dry run included.
+        def verify_options
+          return if options[:skip_mcp]
+          return if mount_path.match?(MOUNT_PATH_FORMAT)
+
+          raise Thor::Error, "hyperdrive: --mount-at must be a plain path of one or more " \
+            "/segments (letters, digits, _ and -), got #{options[:mount_at].to_s.inspect}"
         end
 
         def discover_artifacts
@@ -132,12 +144,24 @@ module Rails
 
           contents = File.read(::Rails.root.join(routes_file))
           if contents.include?(ENGINE_MOUNT_TOKEN)
+            @mounted = true
             say_status :identical, "#{routes_file} (engine already mounted)", :blue
             return
           end
 
           snippet = "  mount Rails::Hyperdrive::Engine => \"#{mount_path}\" if Rails.env.development?\n"
-          inject_into_file routes_file, snippet, after: /Rails\.application\.routes\.draw do\s*\n/
+          # inject_into_file reports a non-match as an ordinary unchanged line
+          # and returns, so the anchor is checked here or the summary would
+          # claim a mount that never landed.
+          unless contents.match?(ROUTES_DRAW_ANCHOR)
+            say_status :warn, "#{routes_file} has no `Rails.application.routes.draw do` block; add " \
+              "`mount Rails::Hyperdrive::Engine => \"#{mount_path}\" if Rails.env.development?` " \
+              "to your routes by hand", :yellow
+            return
+          end
+
+          inject_into_file routes_file, snippet, after: ROUTES_DRAW_ANCHOR
+          @mounted = true
         end
 
         # The settings are the user's, so an existing file is never rewritten or
@@ -167,7 +191,7 @@ module Rails
           if options[:skip_mcp]
             say "  MCP: skipped (--skip-mcp)"
           else
-            say "  Mount: #{mount_path} (in config/routes.rb)"
+            say "  Mount: #{mount_path} #{@mounted ? "(in config/routes.rb)" : "(not written to config/routes.rb; see warning above)"}"
             say "  Server: #{::Rails::Hyperdrive::McpServer::TOOLS.size} MCP tools at http://localhost:3000#{mount_path}/mcp"
           end
           runner.summary_lines.each { |line| say line } unless options[:skip_content]

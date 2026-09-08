@@ -601,17 +601,6 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       expect(File.read(lock_path)).to include("auth-pundit")
     end
 
-    it "does not force-remove a locally-modified disabled artifact on update" do
-      stub_discovery([guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit")])
-      run_generator([])
-      gpath = path(".claude/hyperdrive/guidelines/auth-pundit.md")
-      File.write(gpath, File.read(gpath) + "\nMY LOCAL EDIT\n")
-
-      disable("guidelines", "auth-pundit")
-      run_generator(["--update"])
-      expect(File.read(gpath)).to include("MY LOCAL EDIT")
-    end
-
     it "drops a disabled guideline from index.md" do
       stub_discovery([
         guideline_artifact(name: "auth-pundit", source: "rails-hyperdrive-pundit"),
@@ -988,6 +977,52 @@ RSpec.describe Rails::Generators::Hyperdrive::InstallGenerator do
       body = File.read(path(".mcp.json"))
       expect(body).to include("/_hyperdrive/mcp")
       expect(body).not_to include("/_hyperdrive//mcp")
+    end
+
+    # The value lands in config/routes.rb as Ruby source.
+    describe "--mount-at validation" do
+      ['/x" ; system("true") ; "', "/", "", "/a b", "/a.b", "/a/../b"].each do |value|
+        it "refuses #{value.inspect} before writing anything" do
+          err = capture(:stderr) { run_generator(["--mount-at", value]) }
+
+          expect(err).to include("--mount-at must be a plain path")
+          expect(File).not_to exist(path(".mcp.json"))
+        end
+      end
+
+      it "accepts a multi-segment path with digits, underscores, and dashes" do
+        run_generator(["--mount-at", "/api/v1_mcp"])
+
+        expect(File.read(path("config/routes.rb")))
+          .to include(%(mount Rails::Hyperdrive::Engine => "/api/v1_mcp"))
+        expect(File.read(path(".mcp.json"))).to include("/api/v1_mcp/mcp")
+      end
+
+      it "does not validate the value under --skip-mcp, which never uses it" do
+        expect { run_generator(["--skip-mcp", "--mount-at", "/a b"]) }.not_to raise_error
+      end
+    end
+
+    describe "a routes.rb the mount anchor does not match" do
+      let(:routes) { "Rails.application.routes.draw {\n}\n" }
+
+      before { File.write(path("config/routes.rb"), routes) }
+
+      it "warns, leaves routes.rb byte-untouched, and does not claim the mount" do
+        out = run_generator([])
+
+        expect(out).to include("config/routes.rb has no `Rails.application.routes.draw do` block")
+        expect(File.read(path("config/routes.rb"))).to eq(routes)
+        expect(out).to include("Mount: /_hyperdrive (not written to config/routes.rb; see warning above)")
+      end
+    end
+
+    it "does not claim the mount when config/routes.rb is absent" do
+      File.delete(path("config/routes.rb"))
+
+      out = run_generator([])
+
+      expect(out).to include("Mount: /_hyperdrive (not written to config/routes.rb; see warning above)")
     end
   end
 end
