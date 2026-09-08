@@ -1,5 +1,7 @@
+require "digest"
 require "json"
 require "yaml"
+require "rails/hyperdrive/lock_file"
 require_relative "smoke_helper"
 
 RSpec.describe "hyperdrive companion install smoke", :smoke do
@@ -269,6 +271,37 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(out2).not_to include("unresolved sidecar")
       expect(File.read(guide_path)).to eq(resolved)
     end
+
+    # An exit status is not proof of a resolution: a tool denied every write
+    # still exits 0.
+    it "leaves everything untouched when the resolver exits 0 without writing $MERGED" do
+      resolver = File.join(app_dir, "bin/noop-resolver")
+      File.write(resolver, "#!/bin/sh\nexit 0\n")
+      File.chmod(0o755, resolver)
+
+      config_path = File.join(app_dir, ".hyperdrive/config.yml")
+      config = YAML.safe_load(File.read(config_path)) || {}
+      config["resolve"] = { "command" => "bin/noop-resolver $LOCAL $REMOTE" }
+      File.write(config_path, config.to_yaml)
+
+      edited_live = File.read(guide_path) + "\n<!-- LOCAL EDIT -->\n"
+      File.write(guide_path, edited_live)
+      File.write(shipped_guide, File.read(shipped_guide) + "\nUpstream v2 addition.\n")
+
+      out, st = Smoke.run_hyperdrive_sync!(app_dir, "--sidecar", "--resolve")
+      expect(st.success?).to be(true), out
+      expect(out).to match(%r{unresolved.*alpha-guide\.md.*command exited 0 but wrote nothing})
+      expect(out).to include("Sidecars: 1 unresolved")
+
+      sidecar = "#{guide_path}.new"
+      expect(File.exist?(sidecar)).to be(true), "the sidecar was swept without a resolution:\n#{out}"
+      expect(File.read(sidecar)).to include("Upstream v2 addition.")
+      expect(File.read(guide_path)).to eq(edited_live)
+
+      lock = YAML.safe_load(File.read(File.join(app_dir, ".hyperdrive/lock.yml")))
+      entry = lock["files"].find { |f| f["path"] == ".claude/hyperdrive/guidelines/alpha-guide.md" }
+      expect(entry["source_sha"]).to eq(Digest::SHA256.hexdigest(File.binread(sidecar)))
+    end
   end
 
   describe "per-artifact opt-out" do
@@ -375,6 +408,257 @@ RSpec.describe "hyperdrive companion install smoke", :smoke do
       expect(out2).to match(/unchanged/)
       expect(File.read(alpha)).to eq(alpha_before)
       expect(File.read(alpha)).to include("name: shared-skill--rails-hyperdrive-alpha")
+    end
+  end
+
+  describe "a companion fenced out by hyperdrive_version:" do
+    let(:app_dir) { Smoke.copy_fixture("minimal") }
+    let(:beta_dir) { Smoke.vendor_companion!(app_dir, "rails-hyperdrive-beta") }
+    let(:guide_path) { File.join(app_dir, ".claude/hyperdrive/guidelines/beta-guide.md") }
+
+    def fence_line(kind, name)
+      "#{kind} '#{name}' (from rails-hyperdrive-beta) requires rails-hyperdrive >= 99 " \
+        "(this is #{Rails::Hyperdrive::VERSION}); upgrade rails-hyperdrive to install it"
+    end
+
+    def set_fence(requirement)
+      path = File.join(beta_dir, "hyperdrive.yml")
+      manifest = YAML.safe_load(File.read(path))
+      requirement ? manifest["hyperdrive_version"] = requirement : manifest.delete("hyperdrive_version")
+      File.write(path, manifest.to_yaml)
+    end
+
+    before do
+      Smoke.add_path_gem!(app_dir)
+      Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-alpha")
+      set_fence(">= 99")
+      Smoke.bundle_install!(app_dir)
+    end
+
+    it "skips every artifact with the fence line, and holds an installed one when the fence returns" do
+      out, status = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
+
+      expect(out).to include("discovery skipped 2 item(s):")
+      expect(out).to include(fence_line("guideline", "beta-guide"))
+      expect(out).to include(fence_line("skill", "shared-skill"))
+      expect(File.exist?(guide_path)).to be(false), "a fenced-out artifact installed:\n#{out}"
+
+      set_fence(nil)
+      out2, status2 = Smoke.run_hyperdrive_sync!(app_dir)
+      expect(status2.success?).to be(true), out2
+      expect(File.exist?(guide_path)).to be(true), "beta-guide not installed once unfenced:\n#{out2}"
+
+      set_fence(">= 99")
+      out3, status3 = Smoke.run_hyperdrive_sync!(app_dir)
+      expect(status3.success?).to be(true), out3
+      expect(out3).to include(fence_line("guideline", "beta-guide"))
+      expect(out3).to match(
+        %r{orphan.*beta-guide\.md.*rails-hyperdrive-beta is still bundled but did not offer this file; left in place}
+      )
+      expect(File.exist?(guide_path)).to be(true), "a fenced-out artifact on disk must be held:\n#{out3}"
+      expect(File.read(File.join(app_dir, ".hyperdrive/lock.yml")))
+        .to include(".claude/hyperdrive/guidelines/beta-guide.md")
+    end
+  end
+
+  describe "multi-target gem gates" do
+    let(:app_dir) { Smoke.copy_fixture("minimal") }
+    let(:beta_dir) { Smoke.vendor_companion!(app_dir, "rails-hyperdrive-beta") }
+
+    before do
+      Smoke.add_path_gem!(app_dir)
+      path = File.join(beta_dir, "hyperdrive.yml")
+      manifest = YAML.safe_load(File.read(path))
+      manifest["guidelines"] = {"beta-guide.md" => {"gem" => {"any" => %w[sqlite3 alba]}}}
+      manifest["skills"] = {"shared-skill" => {"gem" => {"all" => %w[sqlite3 alba]}}}
+      File.write(path, manifest.to_yaml)
+      Smoke.bundle_install!(app_dir)
+    end
+
+    it "installs on an any: match and reports the AND-flavored miss for all:" do
+      out, status = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
+
+      expect(File.exist?(File.join(app_dir, ".claude/hyperdrive/guidelines/beta-guide.md")))
+        .to be(true), "an any: gate matching sqlite3 did not install:\n#{out}"
+
+      expect(out).to include("discovery skipped 1 item(s):")
+      expect(out).to include(
+        "skip shared-skill (from rails-hyperdrive-beta): required target gem 'alba' not in bundle"
+      )
+      expect(Dir.exist?(File.join(app_dir, ".claude/skills/shared-skill"))).to be(false)
+    end
+  end
+
+  describe "a bundled gem that never opted in" do
+    let(:app_dir) { Smoke.copy_fixture("minimal") }
+    let(:config_path) { File.join(app_dir, ".hyperdrive/config.yml") }
+    let(:skill_path) { File.join(app_dir, ".claude/skills/plain-skill/SKILL.md") }
+    let(:notice) do
+      %(gem 'plain-skills-gem' ships 1 skills.sh skill(s); add "plain-skills-gem" to enabled: ) +
+        "in .hyperdrive/config.yml and re-run bin/rails hyperdrive:sync to install them"
+    end
+
+    before do
+      Smoke.add_path_gem!(app_dir)
+      Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-alpha")
+      Smoke.write_plain_gem!(app_dir, name: "plain-skills-gem", skill: "plain-skill")
+      Smoke.bundle_install!(app_dir)
+    end
+
+    it "is surfaced as a notice, and installs only once enabled: names it" do
+      out, status = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
+      expect(out).to include(notice)
+      expect(File.exist?(skill_path)).to be(false), "an un-opted gem's skill installed:\n#{out}"
+
+      config = YAML.safe_load(File.read(config_path))
+      config["enabled"] = ["plain-skills-gem"]
+      File.write(config_path, config.to_yaml)
+
+      out2, status2 = Smoke.run_hyperdrive_sync!(app_dir)
+      expect(status2.success?).to be(true), out2
+      expect(File.exist?(skill_path)).to be(true), "an enabled: gem's skill did not install:\n#{out2}"
+      expect(out2).not_to include(notice)
+    end
+  end
+
+  describe "a companion that stops offering an artifact" do
+    let(:app_dir) { Smoke.copy_fixture("minimal") }
+    let(:beta_dir) { Smoke.vendor_companion!(app_dir, "rails-hyperdrive-beta") }
+    let(:shipped_guide) do
+      File.join(beta_dir, "lib/rails-hyperdrive-beta/hyperdrive/guidelines/beta-guide.md")
+    end
+    let(:guide_path) { File.join(app_dir, ".claude/hyperdrive/guidelines/beta-guide.md") }
+    let(:lock_path) { File.join(app_dir, ".hyperdrive/lock.yml") }
+
+    before do
+      Smoke.add_path_gem!(app_dir)
+      Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-alpha")
+      beta_dir
+      Smoke.bundle_install!(app_dir)
+      out, status = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
+      expect(File.exist?(guide_path)).to be(true)
+    end
+
+    it "removes the stale destination and drops its lock entry" do
+      FileUtils.rm(shipped_guide)
+
+      out, status = Smoke.run_hyperdrive_sync!(app_dir)
+      expect(status.success?).to be(true), out
+      expect(out).to match(%r{remove\s+\.claude/hyperdrive/guidelines/beta-guide\.md})
+      expect(File.exist?(guide_path)).to be(false), "the stale destination survived:\n#{out}"
+      expect(File.read(lock_path)).not_to include("beta-guide.md")
+      expect(File.read(File.join(app_dir, ".claude/hyperdrive/index.md")))
+        .not_to include("@guidelines/beta-guide.md")
+    end
+
+    it "reports both orphan flavors and leaves the file in place" do
+      File.write(shipped_guide, "# Beta Guideline\n\nShipped without frontmatter.\n")
+
+      out, status = Smoke.run_hyperdrive_sync!(app_dir)
+      expect(status.success?).to be(true), out
+      expect(out).to include("missing or malformed frontmatter")
+      expect(out).to match(
+        %r{orphan.*beta-guide\.md.*rails-hyperdrive-beta is still bundled but did not offer this file; left in place}
+      )
+      expect(File.exist?(guide_path)).to be(true), "a held orphan was removed:\n#{out}"
+
+      gemfile = File.join(app_dir, "Gemfile")
+      File.write(gemfile, File.read(gemfile).lines.reject { |l| l.include?("rails-hyperdrive-beta") }.join)
+      Smoke.bundle_install!(app_dir)
+
+      out2, status2 = Smoke.run_hyperdrive_sync!(app_dir)
+      expect(status2.success?).to be(true), out2
+      expect(out2).to match(
+        %r{orphan.*beta-guide\.md.*no longer shipped by rails-hyperdrive-beta@0\.2\.0; left in place}
+      )
+      expect(File.exist?(guide_path)).to be(true), "an orphan was removed:\n#{out2}"
+      expect(File.read(lock_path)).to include(".claude/hyperdrive/guidelines/beta-guide.md")
+    end
+  end
+
+  describe "a lock written by a newer installer" do
+    let(:app_dir) { Smoke.copy_fixture("minimal") }
+    let(:lock_path) { File.join(app_dir, ".hyperdrive/lock.yml") }
+    let(:guide_path) { File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-guide.md") }
+
+    before do
+      Smoke.add_path_gem!(app_dir)
+      Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-alpha")
+      Smoke.bundle_install!(app_dir)
+      out, status = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
+    end
+
+    # A generator's Thor::Error prints and stops the run, but bin/rails still
+    # exits 0, so the halt shows up as output plus the absence of any write.
+    it "halts sync before any content write, --dry-run included" do
+      FileUtils.rm(guide_path)
+      File.write(lock_path, File.read(lock_path).sub(/^version: \d+$/, "version: 99"))
+      frozen = File.binread(lock_path)
+      message = ".hyperdrive/lock.yml was written by a newer rails-hyperdrive (lock schema 99, " \
+        "this installer supports #{Rails::Hyperdrive::LockFile::SCHEMA_VERSION}); upgrade rails-hyperdrive"
+
+      [["--dry-run"], []].each do |flags|
+        out, = Smoke.run_hyperdrive_sync!(app_dir, *flags)
+        expect(out).to include(message), "sync #{flags.inspect} did not halt:\n#{out}"
+        expect(File.exist?(guide_path)).to be(false), "sync #{flags.inspect} wrote content:\n#{out}"
+        expect(File.binread(lock_path)).to eq(frozen), "sync #{flags.inspect} rewrote the lock:\n#{out}"
+      end
+    end
+  end
+
+  describe "cross-source agent and command collision" do
+    let(:app_dir) { Smoke.copy_fixture("minimal") }
+    let(:beta_dir) { Smoke.vendor_companion!(app_dir, "rails-hyperdrive-beta") }
+
+    before do
+      Smoke.add_path_gem!(app_dir)
+      Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-alpha")
+      FileUtils.mkdir_p(File.join(beta_dir, "agents"))
+      File.write(File.join(beta_dir, "agents/alpha-agent.md"), <<~MD)
+        ---
+        name: alpha-agent
+        description: Smoke-fixture subagent shipped by the beta companion too.
+        ---
+
+        Beta variant of the agent.
+      MD
+      # Beta declares no command_prefix, so the shipped stem is already the
+      # identity alpha reaches by prefixing analyze.md.
+      FileUtils.mkdir_p(File.join(beta_dir, "commands"))
+      File.write(File.join(beta_dir, "commands/alpha-analyze.md"), "Beta variant of the command.\n")
+      Smoke.bundle_install!(app_dir)
+    end
+
+    it "postfixes both kinds by source and rewrites name: for the agent only" do
+      out, status = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
+      expect(out).to match(/conflict\s+agent 'alpha-agent' shipped by/)
+      expect(out).to match(/conflict\s+command 'alpha-analyze' shipped by/)
+
+      alpha_agent = File.join(app_dir, ".claude/agents/alpha-agent--rails-hyperdrive-alpha.md")
+      beta_agent = File.join(app_dir, ".claude/agents/alpha-agent--rails-hyperdrive-beta.md")
+      expect(File.read(alpha_agent)).to include("name: alpha-agent--rails-hyperdrive-alpha")
+      expect(File.read(beta_agent)).to include("name: alpha-agent--rails-hyperdrive-beta")
+      expect(File.read(beta_agent)).to include("Beta variant of the agent.")
+      expect(File.exist?(File.join(app_dir, ".claude/agents/alpha-agent.md"))).to be(false)
+
+      alpha_command = File.join(app_dir, ".claude/commands/alpha-analyze--rails-hyperdrive-alpha.md")
+      beta_command = File.join(app_dir, ".claude/commands/alpha-analyze--rails-hyperdrive-beta.md")
+      expect(File.binread(alpha_command)).to eq(File.binread(
+        File.join(Smoke::COMPANIONS_ROOT, "rails-hyperdrive-alpha/commands/analyze.md")
+      ))
+      expect(File.binread(beta_command)).to eq(File.binread(File.join(beta_dir, "commands/alpha-analyze.md")))
+      expect(File.exist?(File.join(app_dir, ".claude/commands/alpha-analyze.md"))).to be(false)
+
+      out2, status2 = Smoke.run_hyperdrive_init!(app_dir)
+      expect(status2.success?).to be(true), out2
+      expect(out2).to match(%r{unchanged\s+\.claude/agents/alpha-agent--rails-hyperdrive-beta\.md})
+      expect(out2).to match(%r{unchanged\s+\.claude/commands/alpha-analyze--rails-hyperdrive-beta\.md})
     end
   end
 end
