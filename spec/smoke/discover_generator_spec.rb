@@ -50,6 +50,34 @@ RSpec.describe "hyperdrive:discover smoke", :smoke do
     assert_healthy_or_degraded(out)
   end
 
+  it "caches a healthy result and serves the next run from it" do
+    out, status = Smoke.run_hyperdrive_discover!(app_dir)
+    expect(status.success?).to be(true), "hyperdrive:discover failed:\n#{out}"
+    skip "degraded run (offline/rate-limited); nothing was cached:\n#{out}" if out.match?(DEGRADED_OUTCOME)
+
+    cache = File.join(app_dir, ".hyperdrive/discover_cache.json")
+    expect(File.exist?(cache)).to be(true), "a healthy run wrote no cache:\n#{out}"
+    document = JSON.parse(File.read(cache))
+
+    # A candidate only the cache can supply: a second run that suggests it
+    # never re-queried rubygems.
+    document["candidates"] << {
+      "name" => "rails-hyperdrive-cache-canary", "version" => "9.9.9",
+      "metadata" => {"hyperdrive_targets" => "railties", "hyperdrive_artifacts" => "skill"}
+    }
+    File.write(cache, JSON.pretty_generate(document) + "\n")
+
+    out2, status2 = Smoke.run_hyperdrive_discover!(app_dir)
+    expect(status2.success?).to be(true), out2
+    expect(out2).to include("rails-hyperdrive-cache-canary 9.9.9")
+    expect(JSON.parse(File.read(cache))["fetched_at"]).to eq(document["fetched_at"])
+
+    out3, status3 = Smoke.run_hyperdrive_discover!(app_dir, "--refresh")
+    expect(status3.success?).to be(true), out3
+    skip "--refresh degraded to the cache:\n#{out3}" if out3.match?(DEGRADED_OUTCOME)
+    expect(out3).not_to include("rails-hyperdrive-cache-canary")
+  end
+
   it "is idempotent — does not duplicate the .gitignore rule across runs" do
     Smoke.run_hyperdrive_discover!(app_dir)
     Smoke.run_hyperdrive_discover!(app_dir)

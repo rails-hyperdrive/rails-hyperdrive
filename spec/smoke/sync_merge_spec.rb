@@ -155,6 +155,37 @@ RSpec.describe "hyperdrive:sync --merge smoke", :smoke do
     expect(lock).to include("ancestor_source: rails-hyperdrive-alpha@0.1.0")
   end
 
+  # v1 is never installed into the gem home here, so there is nothing to
+  # reconstruct a merge base from.
+  it "degrades to a sidecar when the ancestor is not in any gem path" do
+    gemfile = File.join(app_dir, "Gemfile")
+    File.write(gemfile, File.read(gemfile).sub(v1_dir.inspect, v2_dir.inspect))
+    Smoke.bundle_install!(app_dir)
+
+    edited = File.read(guide_path).sub("# Alpha Guideline", "# Alpha Guideline (customized)")
+    File.write(guide_path, edited)
+
+    out, st = Smoke.run_hyperdrive_sync!(app_dir, "--merge")
+    expect(st.success?).to be(true), out
+    expect(out).to match(
+      %r{sidecar.*alpha-guide\.md.*delivered to .*alpha-guide\.md\.new; rails-hyperdrive-alpha@0\.1\.0 not found in installed gems}
+    )
+    expect(out).not_to include("Merged")
+
+    expect(File.read(guide_path)).to eq(edited)
+    expect(File.read(guide_path)).not_to include("<<<<<<<")
+
+    sidecar = File.read("#{guide_path}.new")
+    expect(sidecar).to include("## New in v2")
+    expect(sidecar).not_to include("(customized)")
+
+    lock = File.read(File.join(app_dir, ".hyperdrive/lock.yml"))
+    expect(lock).to include("rails-hyperdrive-alpha@0.2.0")
+    # The ancestor keys are a pointer, not the body: they record where the live
+    # file's edits came from so a later run can retry once the gem is on disk.
+    expect(lock).to include("ancestor_source: rails-hyperdrive-alpha@0.1.0")
+  end
+
   it "hands the resolver the reconstructed ancestor and the source it came from" do
     install_v1_into_gem_home!
 
