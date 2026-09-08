@@ -3,6 +3,7 @@ require "json"
 require "net/http"
 require "open3"
 require "socket"
+require "pathname"
 require "tmpdir"
 require "uri"
 
@@ -62,12 +63,15 @@ module Smoke
     end
   end
 
-  def run_hyperdrive_init!(app_dir, *flags)
+  # chdir: names the cwd the subprocess runs in; the rails binary is resolved
+  # relative to it, so a run from a subdirectory exercises the real invocation.
+  def run_hyperdrive_init!(app_dir, *flags, chdir: app_dir)
+    rails_bin = Pathname.new(File.join(app_dir, "bin/rails")).relative_path_from(Pathname.new(chdir)).to_s
     Bundler.with_unbundled_env do
       Open3.capture2e(
         env_for(app_dir),
-        "bundle", "exec", "bin/rails", "hyperdrive:init", *flags,
-        chdir: app_dir
+        "bundle", "exec", rails_bin, "hyperdrive:init", *flags,
+        chdir: chdir
       )
     end
   end
