@@ -15,9 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and an empty list is true. Like the other bundle predicates it reads `true` in
   the author-side canonical render. A template calling it needs the installer
   release that ships it: on an older one the render raises `NameError` and the
-  artifact is skipped as a render failure — the whole skill when it's
-  `SKILL.md.erb`, otherwise just that supporting file. Declare
-  `hyperdrive_version: ">= 0.10"` in the manifest entry (or gem-wide), so an
+  artifact is skipped as a render failure — a supporting file on its own, or the
+  whole artifact when the template is the definition (`SKILL.md.erb`, or a
+  templated guideline, agent, or command). Declare
+  `hyperdrive_version: ">= 0.9.2"` in the manifest entry (or gem-wide), so an
   older installer reports "upgrade rails-hyperdrive" instead.
 
 ## [0.9.1] - 2026-09-06

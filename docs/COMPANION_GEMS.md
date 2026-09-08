@@ -250,7 +250,7 @@ A file named `*.md.erb` — in a skill directory, or in a guidelines, agents, or
 
 - `gem?("name")` / `gem?("name", ">= 2.0")`: is the gem bundled (at a satisfying version)?
 - `any_gem?("a", "b", …)`: is any of these bundled?
-- `all_gems?("a", "b", …)`: are all of these bundled? Needs an installer at 0.10 or later; fence it like `canonical_render?` (below).
+- `all_gems?("a", "b", …)`: are all of these bundled? Needs an installer at 0.9.2 or later; fence it like `canonical_render?` (below).
 - `gem_version("name")`: the resolved version as a String, or `nil`.
 - `canonical_render?`: `true` in the author-side canonical render (`rake hyperdrive:skills:render`/`check`), `false` when rendering into an app.
 
