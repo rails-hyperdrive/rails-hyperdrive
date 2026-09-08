@@ -321,6 +321,20 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         expect(paths(skill)).to be_empty
       end
 
+      it "warns about and ignores a SKILL.md.erb key" do
+        write_skill(<<~YAML)
+          conditional:
+            SKILL.md.erb:
+              gem: sidekiq
+        YAML
+        skill, warnings = discover
+        expect(warnings.join).to include(
+          "conditional key 'SKILL.md.erb' ignored; the entry's own gem: gates the whole skill"
+        )
+        expect(warnings.join).not_to include("names no shipped supporting file")
+        expect(paths(skill)).to eq(["references/extra.md"])
+      end
+
       it "warns about and ignores a SKILL.md key" do
         write_skill(<<~YAML)
           conditional:
@@ -828,6 +842,12 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       expect(warnings.join).to include("missing a required field (name, description)")
     end
 
+    it "skips a file whose frontmatter is never closed" do
+      write_skill("a", "---\nname: a\ndescription: d\n\n# a\n")
+      expect(described_class.discover(specs: [spec], report: report)).to be_empty
+      expect(warnings.join).to include("missing or malformed frontmatter")
+    end
+
     it "skips a file with malformed YAML frontmatter" do
       write_skill("a", "---\nname: [unterminated\n---\n\n# a\n")
       described_class.discover(specs: [spec], report: report)
@@ -1320,6 +1340,16 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       FileUtils.rm_rf(outside) if outside
     end
 
+    it "keeps a skill and a guideline one gem ships under the same name" do
+      write("skills/dup/SKILL.md", static_body("dup"))
+      write("lib/source_gem/hyperdrive/guidelines/dup.md", "---\nname: dup\ndescription: d\n---\n\n# dup\n")
+
+      results = described_class.discover(specs: [paired_spec], report: report).select { |a| a.name == "dup" }
+
+      expect(results.map(&:artifact_type)).to contain_exactly(:skill, :guideline)
+      expect(skips).to be_empty
+    end
+
     it "collapses one name shipped under two skill roots to the greatest path, reporting the drop" do
       write("skills/dup/SKILL.md", static_body("dup"))
       write("lib/source_gem/hyperdrive/skills/other/SKILL.md", static_body("dup"))
@@ -1514,6 +1544,15 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
           .to contain_exactly("references/a.md", "references/b.md")
       end
 
+      it "warns about a supporting template under a manifest skills_dir: root" do
+        write("custom/solo/SKILL.md", static_body("solo"))
+        write("custom/solo/references/a.md.erb", "a\n")
+
+        skill = described_class.discover(specs: [paired_spec("skills_dir: custom\n")], report: report).first
+        expect(warnings.grep(/public skills root/).size).to eq(1)
+        expect(skill.support_files.map { |f| f[:path] }).to eq(["references/a.md"])
+      end
+
       it "leaves a convention-root skill's supporting template unflagged" do
         write("lib/source_gem/hyperdrive/skills/solo/SKILL.md", static_body("solo"))
         write("lib/source_gem/hyperdrive/skills/solo/references/a.md.erb", "a\n")
@@ -1576,6 +1615,20 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       results, warnings = discover(sidekiq)
       expect(warnings).to be_empty
       expect(results.map(&:target_gem)).to all(eq(["sidekiq"]))
+    end
+
+    it "keeps the gem-wide gate for an entry carrying only the retired versions: key" do
+      write_skill("a")
+      write("hyperdrive.yml", "gem: sidekiq\nskills:\n  a:\n    versions: \">= 99\"\n")
+
+      results, warnings = discover(sidekiq)
+      expect(warnings.join).to include("versions: is no longer supported")
+      expect(results.first.target_gem).to eq(["sidekiq"])
+      expect(results.first.versions).to be_nil
+
+      results, warnings = discover
+      expect(results).to be_empty
+      expect(warnings.join).to include("skip a")
     end
 
     it "lets an entry replace the default gate wholesale" do

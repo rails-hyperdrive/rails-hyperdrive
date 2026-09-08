@@ -159,6 +159,73 @@ RSpec.describe Rails::Hyperdrive::CompanionDiscovery do
       expect(fetcher.calls.size).to eq(2)
       expect(result.suggestions.map(&:gem_name)).to include("rails-hyperdrive-tail")
     end
+
+    it "stops at MAX_PAGES when every page comes back full" do
+      pages = (1..35).to_h do |page|
+        [page, Array.new(30) { |i| gem_entry("rails-hyperdrive-p#{page}x#{i}", "1.0.0", targets: "sidekiq") }]
+      end
+      fetcher = FakeFetcher.new(pages: pages)
+
+      result = discovery(fetcher: fetcher).run
+
+      expect(fetcher.calls.size).to eq(described_class::MAX_PAGES)
+      expect(result.suggestions.size).to eq(described_class::MAX_PAGES * 30)
+    end
+  end
+
+  describe "ordering" do
+    it "lists installed companions first, then the rest by name" do
+      lock = <<~LOCK
+        GEM
+          remote: https://rubygems.org/
+          specs:
+            sidekiq (7.3.4)
+            rails-hyperdrive-sidekiq (1.2.0)
+
+        PLATFORMS
+          ruby
+
+        DEPENDENCIES
+          rails-hyperdrive-sidekiq
+          sidekiq
+
+        BUNDLED WITH
+           2.5.0
+      LOCK
+      lock_path = File.join(cache_dir, "Gemfile.lock")
+      File.write(lock_path, lock)
+
+      fetcher = FakeFetcher.new(pages: { 1 => [
+        gem_entry("rails-hyperdrive-zeta", "1.0.0", targets: "sidekiq"),
+        gem_entry("rails-hyperdrive-sidekiq", "1.2.0", targets: "sidekiq"),
+        gem_entry("rails-hyperdrive-alpha", "1.0.0", targets: "sidekiq")
+      ] })
+      result = described_class.new(
+        lockfile_path: lock_path, cache_path: cache_path, fetcher: fetcher, clock: -> { Time.utc(2026, 5, 29) }
+      ).run
+
+      expect(result.suggestions.map(&:gem_name))
+        .to eq(%w[rails-hyperdrive-sidekiq rails-hyperdrive-alpha rails-hyperdrive-zeta])
+    end
+  end
+
+  describe "a missing Gemfile.lock" do
+    it "reads an empty stack without attempting the read, suggesting only universal companions" do
+      missing = File.join(cache_dir, "Gemfile.lock")
+      allow(File).to receive(:read).and_call_original
+      expect(File).not_to receive(:read).with(missing)
+
+      fetcher = FakeFetcher.new(pages: { 1 => [
+        gem_entry("rails-hyperdrive-sidekiq", "1.2.0", targets: "sidekiq"),
+        gem_entry("rails-hyperdrive-any", "1.0.0", targets: "*")
+      ] })
+      result = described_class.new(
+        lockfile_path: missing, cache_path: cache_path, fetcher: fetcher, clock: -> { Time.utc(2026, 5, 29) }
+      ).run
+
+      expect(result.suggestions.map(&:gem_name)).to eq(["rails-hyperdrive-any"])
+      expect(result.suggestions.first.installed).to be(false)
+    end
   end
 
   describe "caching" do

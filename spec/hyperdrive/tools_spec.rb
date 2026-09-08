@@ -64,6 +64,31 @@ RSpec.describe "MCP tools end-to-end" do
       expect(payload["result"]).to eq("3")
     end
 
+    it "clamps a timeout above the maximum" do
+      expect(Rails::Hyperdrive::ConsoleExecutor)
+        .to receive(:eval)
+        .with("1", timeout: Rails::Hyperdrive::Tools::RunRuby::MAX_TIMEOUT_SECONDS)
+        .and_call_original
+
+      call_tool("run_ruby", { "code" => "1", "timeout" => 999 })
+    end
+
+    it "clamps a timeout below one second" do
+      expect(Rails::Hyperdrive::ConsoleExecutor)
+        .to receive(:eval).with("1", timeout: 1).and_call_original
+
+      call_tool("run_ruby", { "code" => "1", "timeout" => 0 })
+    end
+
+    it "uses the default timeout when none is given" do
+      expect(Rails::Hyperdrive::ConsoleExecutor)
+        .to receive(:eval)
+        .with("1", timeout: Rails::Hyperdrive::ConsoleExecutor::DEFAULT_TIMEOUT_SECONDS)
+        .and_call_original
+
+      call_tool("run_ruby", { "code" => "1" })
+    end
+
     it "captures exceptions" do
       resp = call_tool("run_ruby", { "code" => "raise 'boom'" })
       payload = JSON.parse(text_payload(resp))
@@ -91,6 +116,12 @@ RSpec.describe "MCP tools end-to-end" do
 
       expect(lines.length).to eq(cap + 2)
       expect(lines.last.strip).to eq("(showing first #{cap} of #{total} rows)")
+    end
+
+    it "returns only the header line for a zero-row result" do
+      resp = call_tool("run_sql", { "sql" => "SELECT * FROM users WHERE 1 = 0" })
+
+      expect(text_payload(resp)).to eq(User.column_names.join("\t"))
     end
 
     it "refuses INSERT (returns error response prefixed 'SQL not allowed:')" do
@@ -276,6 +307,21 @@ RSpec.describe "MCP tools end-to-end" do
     it "returns the whole file when it holds fewer lines than requested" do
       expect(text_payload(call_tool("tail_logs", { "lines" => 100 })))
         .to eq("line1\nline2\nline3\nline4\nline5\n")
+    end
+
+    it "clamps a line count above the maximum" do
+      max = Rails::Hyperdrive::Tools::TailLogs::MAX_LINES
+      File.write(log_path, (1..(max + 5)).map { |n| "line#{n}\n" }.join)
+
+      lines = text_payload(call_tool("tail_logs", { "lines" => 5000 })).lines
+
+      expect(lines.length).to eq(max)
+      expect(lines.first).to eq("line6\n")
+      expect(lines.last).to eq("line#{max + 5}\n")
+    end
+
+    it "clamps a line count below one" do
+      expect(text_payload(call_tool("tail_logs", { "lines" => 0 }))).to eq("line5\n")
     end
 
     it "reads a named file under log/" do

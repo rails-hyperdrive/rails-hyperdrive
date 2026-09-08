@@ -45,9 +45,14 @@ RSpec.describe Rails::Hyperdrive::StackProfile do
     expect(names).not_to include("minitest", "rspec")
   end
 
-  it "returns an error sentinel for a missing lockfile" do
+  it "returns an error sentinel and an otherwise empty profile for a missing lockfile" do
     p = described_class.from_lockfile("/no/such/path/Gemfile.lock").to_h
-    expect(p[:error]).to match(/not found/)
+    expect(p[:error]).to eq("Gemfile.lock not found at /no/such/path/Gemfile.lock")
+    expect(p[:rails]).to eq({})
+    expect(p[:ruby]).to eq({})
+    expect(p[:database]).to eq({})
+    expect(p[:direct_dependencies]).to eq([])
+    expect(p[:gem_skills]).to eq([])
   end
 
   it "exposes the spec-mandated top-level keys" do
@@ -146,6 +151,62 @@ RSpec.describe Rails::Hyperdrive::StackProfile do
         expect(described_class.from_lockfile(lockfile, app_root: root).to_h[:database])
           .to eq(adapter: "postgresql")
       end
+    end
+
+    # The fixture lockfile carries pg, so a gem-hint fallback always reads
+    # "postgresql" and never collides with a value these yml files declare.
+    def database_for(yml)
+      Dir.mktmpdir do |root|
+        FileUtils.mkdir_p(File.join(root, "config"))
+        File.write(File.join(root, "config/database.yml"), yml)
+        described_class.from_lockfile(lockfile, app_root: root).to_h[:database]
+      end
+    end
+
+    it "reads the adapter through a Rails-default database.yml with an alias and an ERB pool" do
+      expect(database_for(<<~YML)).to eq(adapter: "sqlite3")
+        default: &default
+          adapter: sqlite3
+          pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+
+        development:
+          <<: *default
+      YML
+    end
+
+    it "reads an ERB-valued adapter as empty rather than as template text" do
+      expect(database_for(<<~YML)).to eq(adapter: "")
+        development:
+          adapter: <%= ENV.fetch("DB_ADAPTER") { "mysql2" } %>
+      YML
+    end
+
+    it "picks the section for the current Rails.env" do
+      allow(::Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("test"))
+      expect(database_for(<<~YML)).to eq(adapter: "trilogy")
+        test:
+          adapter: trilogy
+        development:
+          adapter: mysql2
+      YML
+    end
+
+    it "falls back to the development section when the env has none" do
+      allow(::Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("test"))
+      expect(database_for(<<~YML)).to eq(adapter: "mysql2")
+        development:
+          adapter: mysql2
+      YML
+    end
+
+    it "reads the first adapter of a multi-database section" do
+      expect(database_for(<<~YML)).to eq(adapter: "mysql2")
+        development:
+          primary:
+            adapter: mysql2
+          cache:
+            adapter: sqlite3
+      YML
     end
   end
 

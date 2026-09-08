@@ -91,6 +91,36 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(result.installed).to eq([".claude/hyperdrive/guidelines/auth-pundit.md"])
     end
 
+    it "reads RAILS_ENV ahead of RACK_ENV" do
+      initialize_app([])
+      bundle_ships([guideline(name: "auth-pundit")])
+
+      with_env("RAILS_ENV" => "production", "RACK_ENV" => "development") do
+        expect(described_class.current_env).to eq("production")
+        expect(described_class.run(root: root).skipped).to eq(:not_development)
+      end
+    end
+
+    it "falls back to RACK_ENV when RAILS_ENV is unset" do
+      initialize_app([])
+      bundle_ships([guideline(name: "auth-pundit")])
+
+      with_env("RAILS_ENV" => nil, "RACK_ENV" => "staging") do
+        expect(described_class.current_env).to eq("staging")
+        expect(described_class.run(root: root).skipped).to eq(:not_development)
+      end
+    end
+
+    it "reads as development when neither variable is set" do
+      initialize_app([])
+      bundle_ships([guideline(name: "auth-pundit")])
+
+      with_env("RAILS_ENV" => nil, "RACK_ENV" => nil) do
+        expect(described_class.current_env).to eq("development")
+        expect(described_class.run(root: root)).to be_ran
+      end
+    end
+
     it "reports rather than raises when discovery blows up" do
       initialize_app([])
       allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover).and_raise("boom")

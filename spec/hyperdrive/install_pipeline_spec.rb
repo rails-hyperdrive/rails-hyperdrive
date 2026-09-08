@@ -1197,6 +1197,19 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       expect(read("#{gpath}.new")).to include("line d (upstream)")
     end
 
+    it "delivers a sidecar for a hand-written file, naming the missing ancestor" do
+      hand = ".claude/hyperdrive/guidelines/hand-made.md"
+      File.write(File.join(root, hand), "my own notes\n")
+
+      out = run_reporting(mode: :merge, artifacts: [v1, guideline(name: "hand-made")])
+
+      expect(out).to include(
+        "#{hand} (locally modified; new upstream delivered to #{hand}.new; no previous install recorded)"
+      )
+      expect(read(hand)).to eq("my own notes\n")
+      expect(read("#{hand}.new")).to include("# hand-made")
+    end
+
     it "degrades to a sidecar on binary content without invoking git" do
       allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return("a\0b")
       expect(Open3).not_to receive(:capture3)
@@ -1244,6 +1257,25 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
         expect(result.merged).to eq([gpath])
         expect(exist?("#{gpath}.new")).to be false
         expect(lock_entry(gpath)).not_to have_key("ancestor_source")
+      end
+
+      it "never merge-retries an edited sidecar and reports it as unresolved" do
+        run(mode: :sidecar, artifacts: [v2])
+        File.write(File.join(root, "#{gpath}.new"), "my half-finished reconcile\n")
+        expect(Rails::Hyperdrive::AncestorLocator).not_to receive(:locate_recorded_ancestor)
+        expect(Open3).not_to receive(:capture3)
+
+        out = run_reporting(mode: :merge, artifacts: [v2])
+
+        expect(out).to include(
+          "#{gpath} (locally modified; run hyperdrive:sync with --merge, --sidecar, or --overwrite to reconcile)"
+        )
+        expect(out).to include(
+          "#{gpath}.new (unresolved sidecar; reconcile it with #{gpath}, then delete it)"
+        )
+        expect(read("#{gpath}.new")).to eq("my half-finished reconcile\n")
+        expect(read(gpath)).to include("line a (mine)")
+        expect(lock_entry(gpath)["source"]).to eq("rails-hyperdrive-x@2.0.0")
       end
 
       it "refreshes the sidecar when the recorded ancestor cannot be rebuilt" do
