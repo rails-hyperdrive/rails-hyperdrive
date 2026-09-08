@@ -9,6 +9,12 @@ if rails_version && !rails_version.empty?
 else
   gem "rails", ">= 7.2"
 end
+# ActiveSupport < 8.1 calls JSON.generate with the quirks_mode: keyword json 3.0
+# removed, so every to_json raises there.
+if rails_version && !rails_version.empty? && Gem::Version.new(rails_version) < Gem::Version.new("8.1")
+  gem "json", "< 3"
+end
+
 gem "sqlite3", "~> 2.0"
 
 group :development, :test do
