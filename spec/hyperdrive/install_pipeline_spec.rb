@@ -432,6 +432,30 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
         expect(out).to include(".claude/skills/jobs/SKILL.md (disabled but locally modified; delete it by hand)")
         expect(read(".hyperdrive/lock.yml")).to include(".claude/skills/jobs/SKILL.md")
       end
+
+      it "reports an edited one once, never as an orphan" do
+        File.write(File.join(root, ".claude/skills/jobs/SKILL.md"), "mine\n")
+        disable("skills", "jobs")
+
+        out = run_reporting(artifacts: [skill(name: "jobs")])
+        result = run(artifacts: [skill(name: "jobs")])
+
+        expect(out).to include("disabled but locally modified")
+        expect(out).not_to include("orphan")
+        expect(result.orphaned).to be_empty
+      end
+
+      it "says nothing at all in additive mode and keeps the lock entry" do
+        disable("skills", "jobs")
+
+        out = run_reporting(mode: :additive, artifacts: [skill(name: "jobs")])
+        result = run(mode: :additive, artifacts: [skill(name: "jobs")])
+
+        expect(out).not_to include("disabled")
+        expect(out).not_to include("orphan")
+        expect(result.orphaned).to be_empty
+        expect(read(".hyperdrive/lock.yml")).to include(".claude/skills/jobs/SKILL.md")
+      end
     end
   end
 

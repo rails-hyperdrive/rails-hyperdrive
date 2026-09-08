@@ -248,13 +248,15 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       expect(File).not_to exist(File.join(root, ".claude/hyperdrive/guidelines/jobs-sidekiq.md"))
     end
 
-    it "leaves an installed artifact on disk when it is disabled" do
+    it "leaves an installed artifact on disk when it is disabled, and says nothing about it" do
       disable("auth-pundit")
       bundle_ships([guideline(name: "auth-pundit")])
 
-      described_class.run(root: root)
+      result = described_class.run(root: root)
 
       expect(File).to exist(File.join(root, ".claude/hyperdrive/guidelines/auth-pundit.md"))
+      expect(result.orphaned).to be_empty
+      expect(result.messages.join("\n")).not_to include("auth-pundit")
     end
   end
 
