@@ -66,6 +66,51 @@ RSpec.describe "hyperdrive:init smoke", :smoke do
     end
   end
 
+  context "with the init flags" do
+    let(:app_dir) { Smoke.copy_fixture("minimal") }
+
+    before do
+      Smoke.add_path_gem!(app_dir)
+      Smoke.bundle_install!(app_dir)
+    end
+
+    it "--skip-content leaves the MCP wiring and writes no managed content" do
+      out, status = Smoke.run_hyperdrive_init!(app_dir, "--skip-content")
+      expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
+
+      expect(File.exist?(File.join(app_dir, ".mcp.json"))).to be(true)
+      expect(File.read(File.join(app_dir, "config/routes.rb"))).to include("Rails::Hyperdrive::Engine")
+
+      expect(File.exist?(File.join(app_dir, ".hyperdrive/lock.yml"))).to be(false)
+      expect(File.exist?(File.join(app_dir, ".hyperdrive/config.yml"))).to be(false)
+      expect(Dir.exist?(File.join(app_dir, ".claude"))).to be(false)
+      expect(out).not_to include("Installed")
+    end
+
+    it "--skip-mcp writes the content but no .mcp.json and no mount" do
+      out, status = Smoke.run_hyperdrive_init!(app_dir, "--skip-mcp")
+      expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
+
+      expect(File.exist?(File.join(app_dir, ".mcp.json"))).to be(false)
+      expect(File.read(File.join(app_dir, "config/routes.rb"))).not_to include("Rails::Hyperdrive::Engine")
+
+      expect(File.exist?(File.join(app_dir, ".hyperdrive/lock.yml"))).to be(true)
+      expect(File.exist?(File.join(app_dir, ".hyperdrive/config.yml"))).to be(true)
+      expect(out).to include("MCP: skipped (--skip-mcp)")
+    end
+
+    it "--mount-at lands in both the routes mount and the .mcp.json url" do
+      out, status = Smoke.run_hyperdrive_init!(app_dir, "--mount-at", "/custom")
+      expect(status.success?).to be(true), "hyperdrive:init failed:\n#{out}"
+
+      expect(File.read(File.join(app_dir, "config/routes.rb")))
+        .to include('mount Rails::Hyperdrive::Engine => "/custom" if Rails.env.development?')
+      mcp_json = JSON.parse(File.read(File.join(app_dir, ".mcp.json")))
+      expect(mcp_json.dig("mcpServers", "rails-hyperdrive", "url")).to eq("http://localhost:3000/custom/mcp")
+      expect(out).to include("Mount: /custom (in config/routes.rb)")
+    end
+  end
+
   context "with a flag behind the legacy `--` separator" do
     let(:app_dir) { Smoke.copy_fixture("minimal") }
 

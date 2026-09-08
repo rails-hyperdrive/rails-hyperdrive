@@ -1,4 +1,6 @@
 require "fileutils"
+require "json"
+require "yaml"
 require_relative "smoke_helper"
 
 RSpec.describe "hyperdrive:sync --merge smoke", :smoke do
@@ -8,9 +10,7 @@ RSpec.describe "hyperdrive:sync --merge smoke", :smoke do
   let(:v3_dir) { File.join(app_dir, "companions/v3/rails-hyperdrive-alpha") }
   let(:guide_rel) { "lib/rails-hyperdrive-alpha/hyperdrive/guidelines/alpha-guide.md" }
   let(:guide_path) { File.join(app_dir, ".claude/hyperdrive/guidelines/alpha-guide.md") }
-  # Bundler runs the app subprocess with GEM_PATH scoped to BUNDLE_PATH's ruby
-  # scope, so this is the one gem home the ancestor lookup can see.
-  let(:gem_home) { File.join(Smoke::BUNDLE_PATH, Gem.ruby_engine, RbConfig::CONFIG["ruby_version"]) }
+  let(:gem_home) { Smoke.gem_home }
 
   def copy_companion!(dest)
     FileUtils.mkdir_p(dest)
@@ -18,6 +18,8 @@ RSpec.describe "hyperdrive:sync --merge smoke", :smoke do
   end
 
   before do
+    # A crashed earlier run must not leave the v1 gem behind for the next one.
+    Smoke.remove_from_gem_home!("rails-hyperdrive-alpha", "0.1.0")
     copy_companion!(v1_dir)
 
     # v2: bumped gemspec version + an upstream change appended to the guideline.
@@ -37,8 +39,7 @@ RSpec.describe "hyperdrive:sync --merge smoke", :smoke do
   end
 
   after do
-    FileUtils.rm_rf(File.join(gem_home, "gems", "rails-hyperdrive-alpha-0.1.0"))
-    FileUtils.rm_f(File.join(gem_home, "specifications", "rails-hyperdrive-alpha-0.1.0.gemspec"))
+    Smoke.remove_from_gem_home!("rails-hyperdrive-alpha", "0.1.0")
   end
 
   def install_v1_into_gem_home!
@@ -118,5 +119,78 @@ RSpec.describe "hyperdrive:sync --merge smoke", :smoke do
     lock = File.read(File.join(app_dir, ".hyperdrive/lock.yml"))
     expect(lock).to include("rails-hyperdrive-alpha@0.3.0")
     expect(lock).not_to include("ancestor_source")
+  end
+
+  it "degrades to a sidecar when the local edit overlaps the upstream change" do
+    install_v1_into_gem_home!
+
+    v2_guide = File.join(v2_dir, guide_rel)
+    File.write(v2_guide, File.read(v2_guide).sub(
+      "This app uses the alpha convention.", "This app uses the alpha convention (v2)."
+    ))
+    gemfile = File.join(app_dir, "Gemfile")
+    File.write(gemfile, File.read(gemfile).sub(v1_dir.inspect, v2_dir.inspect))
+    Smoke.bundle_install!(app_dir)
+
+    # The same line both sides rewrote: no textual merge exists.
+    edited = File.read(guide_path).sub(
+      "This app uses the alpha convention.", "This app uses the alpha convention (customized)."
+    )
+    File.write(guide_path, edited)
+
+    out, st = Smoke.run_hyperdrive_sync!(app_dir, "--merge")
+    expect(st.success?).to be(true), out
+    expect(out).to match(%r{sidecar.*alpha-guide\.md.*new upstream delivered to .*alpha-guide\.md\.new; conflicting edits})
+    expect(out).not_to include("Merged")
+
+    expect(File.read(guide_path)).to eq(edited)
+    expect(File.read(guide_path)).not_to include("<<<<<<<")
+
+    sidecar = File.read("#{guide_path}.new")
+    expect(sidecar).to include("This app uses the alpha convention (v2).")
+    expect(sidecar).not_to include("(customized)")
+
+    lock = File.read(File.join(app_dir, ".hyperdrive/lock.yml"))
+    expect(lock).to include("rails-hyperdrive-alpha@0.2.0")
+    expect(lock).to include("ancestor_source: rails-hyperdrive-alpha@0.1.0")
+  end
+
+  it "hands the resolver the reconstructed ancestor and the source it came from" do
+    install_v1_into_gem_home!
+
+    gemfile = File.join(app_dir, "Gemfile")
+    File.write(gemfile, File.read(gemfile).sub(v1_dir.inspect, v2_dir.inspect))
+    Smoke.bundle_install!(app_dir)
+    File.write(guide_path, File.read(guide_path).sub("# Alpha Guideline", "# Alpha Guideline (customized)"))
+
+    resolver = File.join(app_dir, "bin/probe-resolver")
+    File.write(resolver, <<~RUBY)
+      #!/usr/bin/env ruby
+      require "json"
+      File.write("resolve-probe.json", JSON.dump(
+        "base" => (b = ENV["HYPERDRIVE_BASE"]) && File.read(b),
+        "previous_source" => ENV["HYPERDRIVE_PREVIOUS_SOURCE"],
+        "source" => ENV["HYPERDRIVE_SOURCE"]
+      ))
+      File.write(ENV.fetch("HYPERDRIVE_MERGED"), File.read(ENV.fetch("HYPERDRIVE_REMOTE")))
+    RUBY
+    File.chmod(0o755, resolver)
+
+    config_path = File.join(app_dir, ".hyperdrive/config.yml")
+    config = YAML.safe_load(File.read(config_path)) || {}
+    config["resolve"] = { "command" => "bin/probe-resolver $BASE" }
+    File.write(config_path, config.to_yaml)
+
+    out, st = Smoke.run_hyperdrive_sync!(app_dir, "--resolve")
+    expect(st.success?).to be(true), out
+    expect(out).to include("Sidecars: 1 resolved")
+    expect(File.exist?("#{guide_path}.new")).to be(false)
+
+    probe = JSON.parse(File.read(File.join(app_dir, "resolve-probe.json")))
+    expect(probe["base"]).to start_with("# Alpha Guideline")
+    expect(probe["base"]).not_to include("## New in v2")
+    expect(probe["base"]).not_to include("description:") # install-ready form, frontmatter stripped
+    expect(probe["previous_source"]).to eq("rails-hyperdrive-alpha@0.1.0")
+    expect(probe["source"]).to eq("rails-hyperdrive-alpha@0.2.0")
   end
 end

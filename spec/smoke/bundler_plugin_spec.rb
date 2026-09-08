@@ -1,3 +1,4 @@
+require "yaml"
 require_relative "smoke_helper"
 
 # End-to-end smoke for the bundler-hyperdrive plugin: a newly bundled
@@ -41,10 +42,29 @@ RSpec.describe "bundler-hyperdrive plugin smoke", :smoke do
     File.write(edited, File.read(edited) + "\nMY LOCAL EDIT\n")
 
     Smoke.add_companion_gem!(app_dir, "rails-hyperdrive-beta")
-    bundle!
+    out = bundle!
 
+    # The hook's quiet-failure contract means a silent no-op looks like success
+    # on files alone; the printed line is what proves it ran.
+    expect(out).to include("[hyperdrive] installed")
     expect(File.read(edited)).to include("MY LOCAL EDIT")
     expect(File).to exist(File.join(app_dir, ".claude/hyperdrive/guidelines/beta-guide.md"))
+  end
+
+  it "prints a companion's version fence during bundle install" do
+    beta_dir = Smoke.vendor_companion!(app_dir, "rails-hyperdrive-beta")
+    manifest_path = File.join(beta_dir, "hyperdrive.yml")
+    manifest = YAML.safe_load(File.read(manifest_path))
+    manifest["hyperdrive_version"] = ">= 99"
+    File.write(manifest_path, manifest.to_yaml)
+
+    out = bundle!
+
+    expect(out).to include(
+      "[hyperdrive] guideline 'beta-guide' (from rails-hyperdrive-beta) requires rails-hyperdrive >= 99 " \
+      "(this is #{Rails::Hyperdrive::VERSION}); upgrade rails-hyperdrive to install it"
+    )
+    expect(File).not_to exist(File.join(app_dir, ".claude/hyperdrive/guidelines/beta-guide.md"))
   end
 
   it "reports an upgraded companion's artifacts without touching them" do
