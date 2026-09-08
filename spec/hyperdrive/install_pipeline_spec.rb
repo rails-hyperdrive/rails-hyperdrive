@@ -1250,6 +1250,32 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     end
   end
 
+  describe "a lock that cannot be read" do
+    let(:source) { "rails-hyperdrive-x" }
+
+    before do
+      run(artifacts: [guideline(name: "auth-pundit")], bundled_gems: [source])
+      File.write(File.join(root, ".hyperdrive/lock.yml"), "files: [unterminated\n  : :\n")
+    end
+
+    %i[preserve additive].each do |mode|
+      it "warns once, writes nothing, and leaves the lock byte-untouched in #{mode} mode" do
+        before_lock = read(".hyperdrive/lock.yml")
+
+        out = run_reporting(mode: mode, artifacts: [guideline(name: "jobs-sidekiq", source: source)],
+          bundled_gems: [source])
+        result = run(mode: mode, artifacts: [guideline(name: "jobs-sidekiq", source: source)],
+          bundled_gems: [source])
+
+        expect(out.scan("could not be read").size).to eq(1)
+        expect(out).to include(".hyperdrive/lock.yml could not be read (not valid YAML")
+        expect(exist?(".claude/hyperdrive/guidelines/jobs-sidekiq.md")).to be false
+        expect(read(".hyperdrive/lock.yml")).to eq(before_lock)
+        expect(result.installed).to be_empty
+      end
+    end
+  end
+
   describe "a destination the plan no longer claims" do
     let(:source) { "rails-hyperdrive-x" }
     let(:support) { [{ path: "references/deep.md", body: "deep\n" }] }

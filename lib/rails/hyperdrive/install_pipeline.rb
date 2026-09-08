@@ -48,7 +48,11 @@ module Rails
       end
 
       def call
-        return halt_schema_ahead if old_lock.schema_ahead?
+        begin
+          return halt_schema_ahead if old_lock.schema_ahead?
+        rescue LockFile::UnreadableError => e
+          return halt_unreadable_lock(e)
+        end
 
         report_settings_warnings
         @new_lock = LockFile.new(abs(InstallLayout::LOCK_PATH)).carry_document(old_lock)
@@ -86,6 +90,12 @@ module Rails
       # is written, in every mode including :additive.
       def halt_schema_ahead
         @shell.say_status :warn, old_lock.schema_ahead_message(InstallLayout::LOCK_PATH), :yellow
+        @result
+      end
+
+      def halt_unreadable_lock(error)
+        @shell.say_status :warn,
+          LockFile.unreadable_message(InstallLayout::LOCK_PATH, error.reason), :yellow
         @result
       end
 

@@ -138,6 +138,23 @@ RSpec.describe Rails::Hyperdrive::CanonicalSkillRender do
         .to raise_error(described_class::Error, /lacks name: or description:/)
     end
 
+    it "errors on rendered frontmatter that is not parseable YAML" do
+      write_gemspec
+      write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", "---\nname: [unterminated\n  : :\n---\n\n# p\n")
+
+      expect { described_class.write(dir: @dir) }
+        .to raise_error(described_class::Error, /rendered frontmatter is not parseable YAML/)
+    end
+
+    it "errors on rendered frontmatter carrying a disallowed class, not only a syntax error" do
+      write_gemspec
+      write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb",
+        "---\nname: !ruby/object:Object {}\ndescription: d\n---\n\n# p\n")
+
+      expect { described_class.write(dir: @dir) }
+        .to raise_error(described_class::Error, /rendered frontmatter is not parseable YAML/)
+    end
+
     it "errors on a manifest dir containing .. segments" do
       write_gemspec(skills_dir: "../outside")
       write("lib/paired_gem/hyperdrive/skills/paired/SKILL.md.erb", template)

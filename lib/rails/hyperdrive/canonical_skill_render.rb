@@ -124,7 +124,7 @@ module Rails
         meta = YAML.safe_load(frontmatter, permitted_classes: [Symbol]) || {}
         return if meta["name"] && meta["description"]
         raise Error, "#{template}: rendered frontmatter lacks name: or description:"
-      rescue Psych::SyntaxError
+      rescue Psych::Exception
         raise Error, "#{template}: rendered frontmatter is not parseable YAML"
       end
 

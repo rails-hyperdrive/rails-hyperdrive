@@ -102,6 +102,29 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncRunner do
     end
   end
 
+  describe "#install with a lock that cannot be read" do
+    before do
+      FileUtils.mkdir_p(File.join(root, ".hyperdrive"))
+      File.write(File.join(root, ".hyperdrive/lock.yml"), "files: [unterminated\n  : :\n")
+    end
+
+    it "raises before any content write and names the file" do
+      stub_discovery([guideline(name: "auth-pundit")])
+
+      expect { runner.install(mode: :preserve) }
+        .to raise_error(Thor::Error, /\.hyperdrive\/lock\.yml could not be read \(not valid YAML/)
+      expect(io.string).to include(".hyperdrive/lock.yml could not be read")
+      expect(exist?(".claude/hyperdrive/guidelines/auth-pundit.md")).to be false
+    end
+
+    it "raises on a non-map root too" do
+      File.write(File.join(root, ".hyperdrive/lock.yml"), "- a\n")
+
+      expect { runner.install(mode: :preserve) }
+        .to raise_error(Thor::Error, /could not be read \(root is not a map\)/)
+    end
+  end
+
   describe "#install" do
     it "installs discovered content into the given root" do
       stub_discovery([guideline(name: "auth-pundit")])
