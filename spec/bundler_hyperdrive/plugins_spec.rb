@@ -21,6 +21,13 @@ RSpec.describe "bundler-hyperdrive/plugins.rb" do
     expect(block).to be_a(Proc)
   end
 
+  it "is packaged by the plugin gemspec" do
+    gemspec = File.expand_path("../../bundler-hyperdrive/bundler-hyperdrive.gemspec", __dir__)
+
+    expect(Gem::Specification.load(gemspec).files)
+      .to include("plugins.rb", "lib/bundler/hyperdrive.rb")
+  end
+
   it "degrades a ScriptError escaping auto_install to one printed line" do
     _name, block = registered_hook
     allow(Bundler::Hyperdrive).to receive(:auto_install)

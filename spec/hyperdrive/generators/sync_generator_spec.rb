@@ -395,6 +395,19 @@ RSpec.describe Rails::Generators::Hyperdrive::SyncGenerator do
       expect(out).to include("Sidecars: 1 unresolved")
     end
 
+    it "reports a sidecar it skipped as user work" do
+      deliver_sidecar!
+      run_generator(["--sidecar"])
+      File.write("#{gpath}.new", "my half-finished reconcile\n")
+      write_config(command: "false")
+
+      out = run_generator(["--sidecar", "--resolve"])
+
+      expect(out).to include("Sidecars: 1 skipped")
+      expect(out).to include("sidecar locally modified; resolve or delete it by hand")
+      expect(File.read("#{gpath}.new")).to eq("my half-finished reconcile\n")
+    end
+
     it "refuses --resolve with --overwrite" do
       err = capture(:stderr) { run_generator(["--resolve", "--overwrite"]) }
 

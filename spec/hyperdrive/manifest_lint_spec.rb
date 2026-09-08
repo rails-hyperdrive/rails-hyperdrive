@@ -327,6 +327,18 @@ RSpec.describe Rails::Hyperdrive::ManifestLint do
         .to include("conditional key 'SKILL.md': the entry's own gem: gates the whole skill")
     end
 
+    it "fails on a key naming SKILL.md.erb" do
+      manifest = "skills:\n  alpha:\n    conditional:\n      SKILL.md.erb:\n        gem: sidekiq\n"
+      expect(problems(manifest)).to contain_exactly(
+        "skills entry 'alpha' conditional key 'SKILL.md.erb': the entry's own gem: gates the whole skill"
+      )
+    end
+
+    it "reports a missing skill directory once, not once per conditional key" do
+      manifest = "skills:\n  beta:\n    conditional:\n      references/x.md:\n        gem: sidekiq\n"
+      expect(problems(manifest)).to eq(["skills entry 'beta' names no shipped skill directory"])
+    end
+
     it "fails on a key naming no shipped supporting file" do
       expect(problems("skills:\n  alpha:\n    conditional:\n      references/gone.md:\n        gem: sidekiq\n").join)
         .to include("conditional key 'references/gone.md': names no shipped supporting file")

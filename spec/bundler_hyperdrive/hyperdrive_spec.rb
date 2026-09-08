@@ -89,6 +89,22 @@ RSpec.describe Bundler::Hyperdrive do
       ).to_stdout
     end
 
+    it "prepends the resolved gem's lib and reaches the entry point" do
+      Dir.mktmpdir do |fake|
+        lib = File.join(fake, "lib")
+        stub_bundle([host_spec("0.2.0", gem_path: fake)])
+        expect(Rails::Hyperdrive::AutoInstall)
+          .to receive(:run).with(root: ::Bundler.root.to_s)
+          .and_return(result(installed: [], outdated: [], orphaned: []))
+
+        run
+
+        expect($LOAD_PATH.first).to eq(lib)
+      ensure
+        $LOAD_PATH.delete(lib)
+      end
+    end
+
     it "prints the needs-attention report for stale artifacts" do
       allow(Rails::Hyperdrive::AutoInstall).to receive(:run).and_return(
         result(installed: [], outdated: ["a.md (x@1 → x@2)"], orphaned: [])

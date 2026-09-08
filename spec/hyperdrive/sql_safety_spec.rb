@@ -20,10 +20,13 @@ RSpec.describe Rails::Hyperdrive::SqlSafety do
       expect { described_class.assert_read_only!(sql) }.not_to raise_error
     end
 
-    %w[INSERT UPDATE DELETE DROP ALTER TRUNCATE CREATE GRANT REVOKE REPLACE MERGE].each do |verb|
-      it "refuses #{verb}" do
-        expect { described_class.assert_read_only!("#{verb} FROM users") }
-          .to raise_error(described_class::Error)
+    %w[
+      INSERT UPDATE DELETE DROP ALTER TRUNCATE CREATE GRANT
+      REVOKE REPLACE MERGE RENAME VACUUM ATTACH DETACH
+    ].each do |verb|
+      it "refuses #{verb} smuggled past the leader check" do
+        expect { described_class.assert_read_only!("SELECT 1; #{verb} users") }
+          .to raise_error(described_class::Error, /forbidden token detected: #{verb}/)
       end
     end
 
