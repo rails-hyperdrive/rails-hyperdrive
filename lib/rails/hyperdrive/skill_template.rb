@@ -3,7 +3,7 @@ require "erb"
 module Rails
   module Hyperdrive
     # Renders a skill's *.md.erb sources against the app's resolved bundle.
-    # The four helpers are the only supported template API, but the binding is
+    # The five helpers are the only supported template API, but the binding is
     # an ordinary object rather than a sandbox: a template runs arbitrary Ruby
     # with the privileges of whoever triggered discovery.
     module SkillTemplate
@@ -22,6 +22,10 @@ module Rails
           names.any? { |n| @resolved.key?(n.to_s) }
         end
 
+        def all_gems?(*names)
+          names.all? { |n| @resolved.key?(n.to_s) }
+        end
+
         def gem_version(name)
           version = @resolved[name.to_s]
           version&.to_s
@@ -37,17 +41,21 @@ module Rails
       end
 
       # Canonical render binding: every gem reads as present at any requested
-      # version, so an if/elsif/else contributes only its first branch and
-      # templates meant for this render must use additive if blocks. There is
-      # no bundle to resolve against, so gem_version is nil. canonical_render?
-      # is the exception: it is deterministic in both bindings, so branching on
-      # it is safe.
+      # version (gem?, any_gem? and all_gems? all answer true), so an
+      # if/elsif/else contributes only its first branch and templates meant for
+      # this render must use additive if blocks. There is no bundle to resolve
+      # against, so gem_version is nil. canonical_render? is the exception: it
+      # is deterministic in both bindings, so branching on it is safe.
       class CanonicalContext
         def gem?(_name, _requirement = nil)
           true
         end
 
         def any_gem?(*)
+          true
+        end
+
+        def all_gems?(*)
           true
         end
 
