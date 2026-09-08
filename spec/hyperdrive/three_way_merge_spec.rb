@@ -35,6 +35,16 @@ RSpec.describe Rails::Hyperdrive::ThreeWayMerge do
     expect(outcome.status).to eq(:unavailable)
   end
 
+  it "reports :unavailable when git dies without a conflict count" do
+    status = instance_double(Process::Status, success?: false, exited?: false, exitstatus: nil)
+    allow(Open3).to receive(:capture3).and_return(["", "", status])
+
+    outcome = described_class.merge(ours: base, base: base, theirs: base)
+
+    expect(outcome.status).to eq(:unavailable)
+    expect(outcome.body).to be_nil
+  end
+
   it "rejects binary input without invoking git" do
     expect(Open3).not_to receive(:capture3)
 

@@ -19,8 +19,13 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
     )
   end
 
-  def bundle_ships(artifacts)
-    allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover).and_return(artifacts)
+  # `bundled` is what the discovery walk saw in the bundle, which is what
+  # tells a held artifact apart from one whose gem is gone.
+  def bundle_ships(artifacts, bundled: artifacts.map(&:source_gem).uniq)
+    allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |report: nil, **|
+      Array(bundled).each { |gem| report.bundled_gems << gem } if report
+      artifacts
+    end
   end
 
   def initialize_app(artifacts)
@@ -73,6 +78,17 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       allow(::Bundler).to receive(:frozen_bundle?).and_return(true)
 
       expect(described_class.run(root: root).skipped).to eq(:not_development)
+    end
+
+    it "runs when Bundler cannot say whether the bundle is frozen" do
+      initialize_app([])
+      bundle_ships([guideline(name: "auth-pundit")])
+      allow(::Bundler).to receive(:frozen_bundle?).and_raise(::Bundler::GemfileNotFound)
+
+      result = described_class.run(root: root)
+
+      expect(result).to be_ran
+      expect(result.installed).to eq([".claude/hyperdrive/guidelines/auth-pundit.md"])
     end
 
     it "reports rather than raises when discovery blows up" do
@@ -235,7 +251,22 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       result = described_class.run(root: root)
 
       expect(result.orphaned.map(&:path)).to eq([".claude/hyperdrive/guidelines/auth-pundit.md"])
+      expect(result.orphaned.map(&:to_s)).to eq(
+        [".claude/hyperdrive/guidelines/auth-pundit.md (no longer shipped by rails-hyperdrive-x@1.0.0)"]
+      )
       expect(File).to exist(File.join(root, ".claude/hyperdrive/guidelines/auth-pundit.md"))
+    end
+
+    it "says an artifact is held, not gone, while its source gem is still bundled" do
+      bundle_ships([], bundled: ["rails-hyperdrive-x"])
+
+      result = described_class.run(root: root)
+
+      expect(result.orphaned.map(&:to_s)).to eq(
+        [".claude/hyperdrive/guidelines/auth-pundit.md " \
+         "(rails-hyperdrive-x is still bundled but did not offer this file)"]
+      )
+      expect(result.messages.join("\n")).to include("is still bundled but did not offer this file")
     end
 
     it "never installs a disabled artifact" do
@@ -265,8 +296,9 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
 
     # The bundler-plugin hook prints result.messages and nothing else, so the
     # fence is invisible at bundle install unless it lands there.
-    def bundle_fences(warning, artifacts: [guideline(name: "auth-pundit")])
+    def bundle_fences(warning, artifacts: [guideline(name: "auth-pundit")], bundled: ["rails-hyperdrive-x"])
       allow(Rails::Hyperdrive::BundlerArtifactDiscovery).to receive(:discover) do |report:, **|
+        Array(bundled).each { |gem| report.bundled_gems << gem }
         report.fence(warning)
         artifacts
       end
@@ -319,7 +351,10 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
       result = described_class.run(root: root)
 
       expect(File.read(path)).to eq(before_body)
-      expect(result.orphaned.map(&:path)).to eq([".claude/hyperdrive/guidelines/auth-pundit.md"])
+      expect(result.orphaned.map(&:to_s)).to eq(
+        [".claude/hyperdrive/guidelines/auth-pundit.md " \
+         "(rails-hyperdrive-x is still bundled but did not offer this file)"]
+      )
       expect(result.messages.last).to include("upgrade rails-hyperdrive to install it")
     end
   end
@@ -391,6 +426,14 @@ RSpec.describe Rails::Hyperdrive::AutoInstall do
     path = File.join(root, Rails::Hyperdrive::InstallLayout::CONFIG_PATH)
     FileUtils.mkdir_p(File.dirname(path))
     File.write(path, document.is_a?(String) ? document : document.to_yaml)
+  end
+
+  describe Rails::Hyperdrive::AutoInstall::Result do
+    it "reports whether the run wrote anything" do
+      expect(described_class.new(installed: [".claude/agents/reviewer.md"])).to be_installed_anything
+      expect(described_class.new(installed: [])).not_to be_installed_anything
+      expect(described_class.new).not_to be_installed_anything
+    end
   end
 
   def with_env(vars)

@@ -4,12 +4,15 @@ require_relative "../../bundler-hyperdrive/lib/bundler/hyperdrive"
 
 RSpec.describe "bundler-hyperdrive/plugins.rb" do
   # `load`, not `require_relative`: the file may already be in $LOADED_FEATURES.
-  def registered_hook
-    captured = nil
-    allow(Bundler::Plugin).to receive(:add_hook) { |name, &block| captured = [name, block] }
-    load File.expand_path("../../bundler-hyperdrive/plugins.rb", __dir__)
-    captured
-  end
+  # Loaded once for the group — each `load` recompiles the file and resets its
+  # coverage counters to whatever that copy happened to run.
+  captured = nil
+  original_add_hook = Bundler::Plugin.method(:add_hook)
+  Bundler::Plugin.define_singleton_method(:add_hook) { |name, &block| captured = [name, block] }
+  load File.expand_path("../../bundler-hyperdrive/plugins.rb", __dir__)
+  Bundler::Plugin.define_singleton_method(:add_hook, original_add_hook)
+
+  let(:registered_hook) { captured }
 
   it "registers the after-install-all hook" do
     name, block = registered_hook

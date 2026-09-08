@@ -6,10 +6,14 @@ require "tmpdir"
 RSpec.describe "hyperdrive rake tasks" do
   around { |ex| Dir.mktmpdir { |d| @dir = d; ex.run } }
 
-  before do
+  # Loaded once and re-enabled per example: `load` recompiles the file, which
+  # resets its coverage counters to what the last-loaded copy happened to run.
+  before(:context) do
     Rake.application = Rake::Application.new
     load File.expand_path("../../lib/hyperdrive/skill_tasks.rb", __dir__)
   end
+
+  before { Rake.application.tasks.each(&:reenable) }
 
   def write(rel, body)
     path = File.join(@dir, rel)
@@ -116,7 +120,9 @@ RSpec.describe "hyperdrive rake tasks" do
     end.to output(/render /).to_stdout
     expect(File.file?(File.join(@dir, "skills/paired/SKILL.md"))).to be true
   end
+end
 
+RSpec.describe "requiring the hyperdrive rake tasks" do
   # Subprocess so the real require machinery runs without touching the suite's Rake application.
   it "defines every task through `require \"hyperdrive/skill_tasks\"`" do
     lib = File.expand_path("../../lib", __dir__)

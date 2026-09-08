@@ -37,6 +37,24 @@ RSpec.describe Rails::Hyperdrive::ArtifactStatus do
     expect(status).to be_stale
   end
 
+  describe "how an entry prints itself" do
+    it "names the offering gem for a missing artifact" do
+      entry = compare([guideline(name: "auth-pundit")]).missing.first
+
+      expect(entry.to_s)
+        .to eq(".claude/hyperdrive/guidelines/auth-pundit.md (from rails-hyperdrive-x@1.0.0)")
+    end
+
+    it "prints an installed artifact as the bare path" do
+      artifacts = [guideline(name: "auth-pundit")]
+      install(artifacts)
+
+      entry = compare(artifacts).installed.first
+
+      expect(entry.to_s).to eq(".claude/hyperdrive/guidelines/auth-pundit.md")
+    end
+  end
+
   context "with a fully installed application" do
     let(:artifacts) { [guideline(name: "auth-pundit")] }
 

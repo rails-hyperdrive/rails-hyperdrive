@@ -1373,6 +1373,28 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
         expect(skill.support_files.first[:body]).to eq("notes: sidekiq\n")
       end
 
+      # The relpath is what AncestorLocator reads a merge base back from, so it
+      # has to name the file the bytes actually came from.
+      it "records a template-side relpath for a rendered file and none for a content-side one" do
+        paired_skill(
+          template_files: { "references/notes.md.erb" => support_template },
+          content_files: { "references/static.md" => "static\n" }
+        )
+
+        skill, warnings = discover(sidekiq)
+
+        expect(warnings).to be_empty
+        expect(skill.source_root).to eq(@dir)
+        expect(skill.path).to eq(File.join(@dir, "lib/source_gem/hyperdrive/skills/paired/SKILL.md.erb"))
+        expect(skill.support_root).to eq(File.join(@dir, "skills/paired"))
+
+        rendered = skill.support_files.find { |f| f[:path] == "references/notes.md" }
+        static = skill.support_files.find { |f| f[:path] == "references/static.md" }
+        expect(rendered[:source_relpath])
+          .to eq("lib/source_gem/hyperdrive/skills/paired/references/notes.md")
+        expect(static).not_to have_key(:source_relpath)
+      end
+
       it "supersedes the content dir's same-target static face without a warning" do
         paired_skill(
           template_files: { "references/notes.md.erb" => support_template },
@@ -1644,6 +1666,22 @@ RSpec.describe Rails::Hyperdrive::BundlerArtifactDiscovery do
       results, warnings = discover
       expect(warnings.join).to include("malformed YAML")
       expect(results.first.target_gem).to eq(["*"])
+    end
+
+    # The whole manifest is discarded, so a gem-wide gate and fence go with it.
+    it "warns and installs everything ungated when the manifest cannot be read" do
+      write_skill("a")
+      manifest = File.join(@dir, "hyperdrive.yml")
+      write("hyperdrive.yml", "gem: absent_gem\nhyperdrive_version: \">= 99\"\n")
+      allow(File).to receive(:read).and_call_original
+      allow(File).to receive(:read).with(manifest).and_raise(Errno::EACCES, manifest)
+
+      results, warnings = discover
+
+      expect(warnings.join).to include("unreadable (Permission denied")
+      expect(results.map(&:name)).to eq(["a"])
+      expect(results.first.target_gem).to eq(["*"])
+      expect(fence_warnings).to be_empty
     end
 
     it "warns and proceeds as if absent when the manifest root is not a map" do

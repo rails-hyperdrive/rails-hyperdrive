@@ -104,6 +104,15 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
     end
   end
 
+  it "appends the import line to a CLAUDE.md the app already had" do
+    File.write(File.join(root, "CLAUDE.md"), "# my project\n")
+
+    run(artifacts: [guideline(name: "auth-pundit")])
+
+    expect(read("CLAUDE.md")).to start_with("# my project\n")
+    expect(read("CLAUDE.md")).to include("@.claude/hyperdrive/index.md")
+  end
+
   describe "additive mode" do
     let(:existing) { guideline(name: "auth-pundit") }
 
@@ -183,6 +192,44 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
 
       expect(exist?(".claude/hyperdrive/guidelines/auth-pundit.md")).to be true
       expect(read(".hyperdrive/lock.yml")).to include("auth-pundit")
+    end
+  end
+
+  describe "a hand-written file the lock never recorded" do
+    let(:gpath) { ".claude/hyperdrive/guidelines/auth-pundit.md" }
+    let(:artifact) { guideline(name: "auth-pundit") }
+
+    before do
+      FileUtils.mkdir_p(File.dirname(File.join(root, gpath)))
+      File.write(File.join(root, gpath), "# my own notes\n")
+    end
+
+    it "is left alone in preserve mode, and the run says how to reconcile it" do
+      out = run_reporting(artifacts: [artifact])
+
+      expect(read(gpath)).to eq("# my own notes\n")
+      expect(out).to include(
+        "#{gpath} (locally modified; run hyperdrive:sync with --merge, --sidecar, or --overwrite to reconcile)"
+      )
+      expect(lock_entry(gpath)).to be_nil
+    end
+
+    it "is replaced by the shipped body in overwrite mode" do
+      result = run(mode: :overwrite, artifacts: [artifact])
+
+      expect(read(gpath)).to start_with("# auth-pundit")
+      expect(result.installed).to include(gpath)
+      expect(lock_entry(gpath)["source"]).to eq("rails-hyperdrive-x@1.0.0")
+    end
+
+    # The branch that stops a bundle install from clobbering a hand-written agent.
+    it "is never overwritten by an additive run, which claims no lock entry either" do
+      result = run(mode: :additive, artifacts: [artifact])
+
+      expect(read(gpath)).to eq("# my own notes\n")
+      expect(result.installed).to be_empty
+      expect(result.skipped).to eq([gpath])
+      expect(lock_entry(gpath)).to be_nil
     end
   end
 
@@ -634,6 +681,24 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       expect(out).to match(/unreviewed/)
     end
 
+    it "names a single ignored destination in the singular" do
+      File.write(File.join(root, ".gitignore"), ".hyperdrive/lock.yml\n")
+
+      out = run_reporting(artifacts: [guideline(name: "auth-pundit")])
+
+      expect(out).to include(
+        ".hyperdrive/lock.yml is gitignored; installed artifacts stay out of git status and " \
+        "pull-request diffs, so companion-shipped content reaches the agent unreviewed"
+      )
+    end
+
+    it "stays quiet when git cannot answer" do
+      FileUtils.rm_rf(File.join(root, ".git"))
+      File.write(File.join(root, ".gitignore"), ".claude/\n")
+
+      expect(run_reporting(artifacts: [guideline(name: "auth-pundit")])).not_to match(/gitignored/)
+    end
+
     it "stays quiet when they are tracked" do
       expect(run_reporting(artifacts: [guideline(name: "auth-pundit")])).not_to match(/gitignored/)
     end
@@ -787,6 +852,16 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       expect(read(sidecar)).to include("UPGRADED rule.")
       expect(result.sidecars.map(&:dest)).to eq([gpath])
       expect(lock_source(gpath)).to eq("rails-hyperdrive-x@2.0.0")
+    end
+
+    it "treats a sidecar path it cannot hash as the user's work" do
+      FileUtils.mkdir_p(File.join(root, sidecar))
+
+      out = run_reporting(mode: :sidecar, artifacts: [v2])
+
+      expect(out).to include("#{sidecar} (sidecar locally modified; resolve or delete it)")
+      expect(File.directory?(File.join(root, sidecar))).to be true
+      expect(lock_source(gpath)).to eq("rails-hyperdrive-x@1.0.0")
     end
 
     it "writes the sidecar byte-identical to what a live install would write, so mv = accept upstream" do
@@ -1108,6 +1183,20 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       expect(read("#{gpath}.new")).to include("line a (upstream)")
     end
 
+    it "degrades to a sidecar when the live file cannot be read" do
+      allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return(v1_ready)
+      allow(File).to receive(:read).and_call_original
+      allow(File).to receive(:read).with(File.join(root, gpath)).and_raise(Errno::EACCES)
+
+      out = run_reporting(mode: :merge, artifacts: [v2])
+
+      expect(out).to include(
+        "#{gpath} (locally modified; new upstream delivered to #{gpath}.new; binary content)"
+      )
+      expect(File.binread(File.join(root, gpath))).to include("line a (mine)")
+      expect(read("#{gpath}.new")).to include("line d (upstream)")
+    end
+
     it "degrades to a sidecar on binary content without invoking git" do
       allow(Rails::Hyperdrive::AncestorLocator).to receive(:locate).and_return("a\0b")
       expect(Open3).not_to receive(:capture3)
@@ -1254,7 +1343,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       File.write(lock, data.to_yaml)
     end
 
-    %i[preserve overwrite additive].each do |mode|
+    %i[preserve overwrite sidecar merge additive].each do |mode|
       it "writes nothing and rewrites no lock in #{mode} mode" do
         before_lock = read(".hyperdrive/lock.yml")
 
@@ -1282,7 +1371,7 @@ RSpec.describe Rails::Hyperdrive::InstallPipeline do
       File.write(File.join(root, ".hyperdrive/lock.yml"), "files: [unterminated\n  : :\n")
     end
 
-    %i[preserve additive].each do |mode|
+    %i[preserve overwrite sidecar merge additive].each do |mode|
       it "warns once, writes nothing, and leaves the lock byte-untouched in #{mode} mode" do
         before_lock = read(".hyperdrive/lock.yml")
 
