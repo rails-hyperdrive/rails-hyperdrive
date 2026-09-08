@@ -101,11 +101,16 @@ module Rails
           warn_unknown_manifest_keys(manifest, spec, seen, report)
         end
 
-        # Collapse same-name variants within one source gem (highest
-        # spec_version, path as tiebreak); never across sources — composite
-        # identity is (name, source_gem).
+        # Collapse same-name candidates within one source gem (the same name
+        # shipped under two roots) to the greatest path; never across sources —
+        # composite identity is (name, source_gem, artifact_type).
         candidates.group_by { |a| [a.name, a.source_gem, a.artifact_type] }.map do |_key, group|
-          group.max_by { |a| [Gem::Version.new(a.spec_version), a.path] }
+          winner = group.max_by(&:path)
+          group.each do |loser|
+            next if loser.equal?(winner)
+            report.skip "skip #{loser.path}: #{winner.path} takes precedence"
+          end
+          winner
         end
       end
 
