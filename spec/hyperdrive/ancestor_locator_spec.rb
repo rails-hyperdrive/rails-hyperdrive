@@ -259,4 +259,64 @@ RSpec.describe Rails::Hyperdrive::AncestorLocator do
       )).to be_nil
     end
   end
+
+  describe "resolving the bundle itself" do
+    let(:relpath) { "lib/rails-hyperdrive-x/hyperdrive/skills/jobs/SKILL.md" }
+    let(:template) { "---\nname: jobs\ndescription: d\n---\n\n<%= gem?(\"rspec-core\") ? \"bundled\" : \"absent\" %>\n" }
+    let(:rendered) { "---\nname: jobs\ndescription: d\n---\n\nbundled\n" }
+
+    # The pipeline never injects a bundle map, so this is the path it takes.
+    it "renders an .md.erb twin against the live bundle when no caller supplies a map" do
+      ship("#{relpath}.erb", template)
+
+      body = described_class.locate(
+        kind: "skill", relpath: relpath,
+        lock_entry: lock_entry(kind: "skill", sha: sha(rendered)), gem_paths: [home]
+      )
+
+      expect(body).to eq(rendered)
+    end
+
+    it "returns nil when the bundle cannot be resolved" do
+      ship("#{relpath}.erb", template)
+      allow(::Bundler).to receive(:load).and_raise(::Bundler::GemfileNotFound)
+
+      body = described_class.locate(
+        kind: "skill", relpath: relpath,
+        lock_entry: lock_entry(kind: "skill", sha: sha(rendered)), gem_paths: [home]
+      )
+
+      expect(body).to be_nil
+    end
+  end
+
+  describe "a lock entry it cannot read" do
+    it "reads as unavailable rather than raising out of locate" do
+      entry = double("entry", source_gem: "rails-hyperdrive-x", source_version: "1.0.0")
+      allow(entry).to receive(:source_sha).and_raise(RuntimeError, "corrupt entry")
+
+      expect(
+        described_class.locate(kind: "guideline", relpath: guideline_relpath,
+          lock_entry: entry, gem_paths: [home])
+      ).to be_nil
+    end
+
+    it "reads as unavailable rather than raising out of locate_recorded_ancestor" do
+      entry = double("entry", ancestor?: true, kind: "guideline", path: "x.md")
+      allow(entry).to receive(:ancestor_relpath).and_raise(RuntimeError, "corrupt entry")
+
+      expect(described_class.locate_recorded_ancestor(entry, gem_paths: [home])).to be_nil
+    end
+
+    it "rebuilds without a name rewrite when the destination cannot be read" do
+      relpath = "lib/rails-hyperdrive-x/hyperdrive/skills/jobs/SKILL.md"
+      shipped = "---\nname: jobs\ndescription: d\n---\n\n# jobs\n"
+      ship(relpath, shipped)
+      entry = double("entry", ancestor?: true, kind: "skill", ancestor_gem: "rails-hyperdrive-x",
+        ancestor_version: "1.0.0", ancestor_sha: sha(shipped), ancestor_relpath: relpath)
+      allow(entry).to receive(:path).and_raise(RuntimeError, "corrupt entry")
+
+      expect(described_class.locate_recorded_ancestor(entry, gem_paths: [home])).to eq(shipped)
+    end
+  end
 end

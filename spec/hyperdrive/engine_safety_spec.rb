@@ -47,3 +47,36 @@ RSpec.describe "Engine safety in non-development" do
     expect(status).to eq(403)
   end
 end
+
+RSpec.describe "Engine load-time warning" do
+  subject(:initializer) do
+    Rails::Hyperdrive::Engine.initializers.find { |i| i.name == "hyperdrive.warn_outside_development" }
+  end
+
+  let(:message) { "[hyperdrive] loaded outside development (Rails.env=production); MCP endpoints will return 403" }
+
+  before { allow(::Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production")) }
+
+  it "warns through the Rails logger when the engine loads outside development" do
+    logger = instance_double(Logger)
+    allow(::Rails).to receive(:logger).and_return(logger)
+
+    expect(logger).to receive(:warn).with(message)
+    initializer.run(Rails.application)
+  end
+
+  it "falls back to Kernel#warn before a logger exists" do
+    allow(::Rails).to receive(:logger).and_return(nil)
+
+    expect { initializer.run(Rails.application) }.to output("#{message}\n").to_stderr
+  end
+
+  it "stays silent in development" do
+    allow(::Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("development"))
+    logger = instance_double(Logger)
+    allow(::Rails).to receive(:logger).and_return(logger)
+
+    expect(logger).not_to receive(:warn)
+    expect { initializer.run(Rails.application) }.not_to output.to_stderr
+  end
+end

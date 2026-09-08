@@ -28,4 +28,18 @@ RSpec.describe Rails::Hyperdrive::Safety::RackMiddleware do
     expect(status).to eq(403)
     expect(body.first).to include("origin not allowed")
   end
+
+  it "403s when the Origin header is not a parseable URI" do
+    status, _h, body = mw.call({"HTTP_ORIGIN" => "http://exa mple.com"})
+    expect(status).to eq(403)
+    expect(body.first).to include("origin not allowed: http://exa mple.com")
+  end
+
+  it "reports the environment it refused under" do
+    allow(::Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("staging"))
+    _s, _h, body = mw.call({})
+    expect(JSON.parse(body.first)).to eq(
+      "error" => "forbidden", "reason" => "hyperdrive is dev-only (Rails.env=staging)"
+    )
+  end
 end

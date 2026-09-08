@@ -33,6 +33,28 @@ RSpec.describe Rails::Generators::Hyperdrive::DiscoverGenerator do
 
   def path(rel) = File.join(@app_dir, rel)
 
+  describe "what it asks CompanionDiscovery for" do
+    it "passes the app's lockfile, the gitignored cache path, and no refresh" do
+      expect(Rails::Hyperdrive::CompanionDiscovery).to receive(:new).with(
+        lockfile_path: path("Gemfile.lock"),
+        cache_path: path(".hyperdrive/discover_cache.json"),
+        refresh: false
+      ).and_return(instance_double(Rails::Hyperdrive::CompanionDiscovery,
+        run: Result.new(suggestions: [], warnings: [], status: :online)))
+
+      run_generator([])
+    end
+
+    it "passes refresh: true under --refresh" do
+      expect(Rails::Hyperdrive::CompanionDiscovery).to receive(:new)
+        .with(hash_including(refresh: true))
+        .and_return(instance_double(Rails::Hyperdrive::CompanionDiscovery,
+          run: Result.new(suggestions: [], warnings: [], status: :online)))
+
+      run_generator(["--refresh"])
+    end
+  end
+
   describe ".gitignore management" do
     before { stub_discovery(Result.new(suggestions: [], warnings: [], status: :online)) }
 
@@ -47,6 +69,22 @@ RSpec.describe Rails::Generators::Hyperdrive::DiscoverGenerator do
       body = File.read(path(".gitignore"))
       expect(body).to include("/log")
       expect(body).to include(".hyperdrive/discover_cache.json")
+    end
+
+    it "starts a new line when the existing .gitignore has no trailing newline" do
+      File.write(path(".gitignore"), "/log\n/tmp")
+
+      run_generator([])
+
+      expect(File.read(path(".gitignore"))).to eq("/log\n/tmp\n.hyperdrive/discover_cache.json\n")
+    end
+
+    it "writes the rule alone into an empty .gitignore" do
+      File.write(path(".gitignore"), "")
+
+      run_generator([])
+
+      expect(File.read(path(".gitignore"))).to eq(".hyperdrive/discover_cache.json\n")
     end
 
     it "is idempotent — does not duplicate the rule" do

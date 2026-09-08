@@ -27,6 +27,10 @@ RSpec.describe Rails::Hyperdrive::SkillTemplate do
     it "is false with a requirement when the gem is absent" do
       expect(render(%(<%= gem?("view_component", ">= 0") %>))).to eq("false")
     end
+
+    it "is false for a requirement that will not parse, rather than blowing up the render" do
+      expect(render(%(<%= gem?("alba", "newest") %>))).to eq("false")
+    end
   end
 
   describe "any_gem?" do

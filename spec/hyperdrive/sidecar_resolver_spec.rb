@@ -352,6 +352,35 @@ RSpec.describe Rails::Hyperdrive::SidecarResolver do
       expect(io.string).to include("could not be read", "using the default prompt")
       expect(dump["argv"].first).to include("You are resolving one file")
     end
+
+    # There is nothing left to fall back to, so the failure has to be this
+    # candidate's reason rather than a silently different prompt.
+    it "reports the shipped prompt failing as the candidate's unresolved reason" do
+      allow(Rails::Hyperdrive::ResolvePrompt)
+        .to receive(:default_template).and_raise(Errno::ENOENT, "resolve/prompt.md.erb")
+
+      outcome = resolve(command: "bin/dump $PROMPT")
+
+      expect(outcome.resolved).to be_empty
+      expect(outcome.unresolved.first[:dest]).to eq(dest)
+      expect(outcome.unresolved.first[:reason]).to include("resolve/prompt.md.erb")
+      expect(File).to exist(File.join(root, sidecar))
+      expect(File).not_to exist(File.join(root, "dump.yml"))
+    end
+  end
+
+  it "leaves a leftover sidecar it cannot hash alone as user work" do
+    install_sidecar
+    accept_script
+    allow(File).to receive(:binread).and_call_original
+    allow(File).to receive(:binread).with(File.join(root, sidecar)).and_raise(Errno::EACCES)
+
+    outcome = resolve(command: "bin/accept $MERGED")
+
+    expect(outcome.resolved).to be_empty
+    expect(outcome.skipped).to eq([dest])
+    expect(io.string).to include("sidecar locally modified; resolve or delete it by hand")
+    expect(File.read(File.join(root, dest))).to eq(live_body)
   end
 
   it "keeps a value holding spaces as one argument" do
