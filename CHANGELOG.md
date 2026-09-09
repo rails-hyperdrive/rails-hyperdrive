@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-09
+
 ### Fixed
 
 - **`bin/rails hyperdrive:init`/`sync`/`discover` run from a subdirectory of the
@@ -895,7 +897,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hyperdrive:init` generator that installs architecture skills and auto-discovers
   per-gem skills.
 
-[Unreleased]: https://github.com/rails-hyperdrive/rails-hyperdrive/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/rails-hyperdrive/rails-hyperdrive/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/v0.10.0
 [0.9.2]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/v0.9.2
 [0.9.1]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/v0.9.1
 [0.9.0]: https://github.com/rails-hyperdrive/rails-hyperdrive/releases/tag/v0.9.0
