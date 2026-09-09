@@ -71,7 +71,7 @@ $ bin/dev
 # → agent has 8 tools, the eager guidelines (via CLAUDE.md), and the lazy skills
 ```
 
-The engine mounts at `/_hyperdrive` by default; `--mount-at /some/path` moves both the route and the URL written to `.mcp.json`. The generated `.mcp.json` points at `http://localhost:3000<mount>/mcp`, so if your dev server runs on another port, edit the URL there.
+The engine mounts at `/_hyperdrive` by default; `--mount-at /some/path` moves both the route and the URL written to `.mcp.json`. That value is interpolated into `config/routes.rb` as Ruby source, so it must be a plain path of one or more `/`-separated segments of letters, digits, `_` and `-`; anything else stops the run before it writes. If `config/routes.rb` has no `Rails.application.routes.draw do` block to anchor to, nothing is mounted and the run warns with the line to add by hand. The generated `.mcp.json` points at `http://localhost:3000<mount>/mcp`, so if your dev server runs on another port, edit the URL there.
 
 ---
 
@@ -82,7 +82,7 @@ The engine mounts at `/_hyperdrive` by default; `--mount-at /some/path` moves bo
 | # | Tool | Purpose |
 |---|------|---------|
 | 1 | `run_ruby` | Eval Ruby in the booted Rails process, with timeout + output capture |
-| 2 | `run_sql` | Read-only SQL via the AR connection (`SELECT`/`WITH`/`EXPLAIN`/`SHOW`/`PRAGMA` only; 100 rows max) |
+| 2 | `run_sql` | Read-only SQL via the AR connection (`SELECT`/`WITH`/`EXPLAIN`/`SHOW`/`PRAGMA` only, and no `PRAGMA` assignments; 100 rows max) |
 | 3 | `tail_logs` | Tail the last N lines of a log under `log/` (defaults to `log/<env>.log`) |
 | 4 | `list_models` | List Active Record model classes with columns/validations/associations |
 | 5 | `locate_source` | Resolve `Const` / `Const#method` / `Const.method` / `dep:<gem>` to a file:line |
@@ -184,7 +184,7 @@ CLAUDE.md                              # user-owned; ONE injected line: @.claude
 .hyperdrive/lock.yml                   # git-tracked manifest (source gem, version, content hash)
 ```
 
-A `git diff` is where you review what a companion gem added. The install summary names each artifact's source gem and version, and every installed file is hashed and attributed to its source in the git-tracked `.hyperdrive/lock.yml`. The files themselves land byte-identical to what the gem ships, with nothing injected. `hyperdrive:init` and `hyperdrive:sync` warn if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`. The lockfile carries a schema version, and a rails-hyperdrive older than the one that wrote it stops with an upgrade message instead of rewriting state it cannot read.
+A `git diff` is where you review what a companion gem added. The install summary names each artifact's source gem and version, and every installed file is hashed and attributed to its source in the git-tracked `.hyperdrive/lock.yml`. The files themselves land byte-identical to what the gem ships, with nothing injected. `hyperdrive:init` and `hyperdrive:sync` warn if your app gitignores these paths, since that empties the diff without changing what reaches the agent. The `hyperdrive:discover` cache is the one file rails-hyperdrive adds to `.gitignore`. The lockfile carries a schema version, and a rails-hyperdrive older than the one that wrote it stops with an upgrade message instead of rewriting state it cannot read. A lockfile that cannot be opened, does not parse, or has something other than a map at its root stops the run the same way, naming the file so you can fix it or restore it from git.
 
 `CLAUDE.md` and `index.md` are the **eager chain**: they exist only because a companion gem ships a guideline, and both go when the last one leaves the bundle (the guideline file itself is left on disk and reported as an orphan). A `CLAUDE.md` you had before `hyperdrive:init` gets the one line appended, and tear-down strips just that line; a `CLAUDE.md` the installer created is deleted only while it is still byte-identical to what was written.
 

@@ -2,7 +2,11 @@ Description:
     Bootstraps Rails Hyperdrive in this app:
       - adds the rails-hyperdrive server to .mcp.json (Claude Code config),
         merging into any servers already configured there
-      - mounts Rails::Hyperdrive::Engine at /_hyperdrive in config/routes.rb (idempotent)
+      - mounts Rails::Hyperdrive::Engine at /_hyperdrive in config/routes.rb
+        (idempotent; --mount-at takes one or more /segments of letters,
+        digits, _ and -, and is validated before anything is written). With
+        no `Rails.application.routes.draw do` block to anchor to, nothing is
+        mounted and the warning names the line to add by hand
       - registers the bundler-hyperdrive plugin in the Gemfile, so newly
         bundled companion gems install their artifacts on bundle install
       - adds a .gitignore rule for the hyperdrive:discover cache
