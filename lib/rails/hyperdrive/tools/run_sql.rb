@@ -6,13 +6,13 @@ module Rails
     module Tools
       class RunSql < Base
         tool_name "run_sql"
-        description "Read-only SQL via ActiveRecord::Base.connection. Rejects INSERT/UPDATE/DELETE/DROP/etc. at the parser level. Caps results at 100 rows."
+        description "Read-only SQL via ActiveRecord::Base.connection. Rejects INSERT/UPDATE/DELETE/DROP/etc. at the parser level, and refuses PRAGMA assignments (`PRAGMA foreign_keys = ON`). Caps results at 100 rows."
 
         ROW_CAP = 100
 
         input_schema(
           properties: {
-            sql: { type: "string", description: "A SELECT / WITH / EXPLAIN / SHOW / PRAGMA statement." }
+            sql: { type: "string", description: "A SELECT / WITH / EXPLAIN / SHOW / PRAGMA statement. PRAGMA reads only: `PRAGMA table_info(users)` is allowed, `PRAGMA name = value` is refused." }
           },
           required: ["sql"]
         )
