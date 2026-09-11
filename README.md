@@ -23,6 +23,8 @@ Rails Hyperdrive is a development-only Rails engine for working on Rails apps wi
 
 On the last two routes, name the gem `rails-hyperdrive-<name>`: the prefix tells a Gemfile reader exactly what the gem is, though naming plays no part in discovery.
 
+<img src="https://cdn.evilmartians.com/badges/logo-no-label.svg" alt="Evil Martians logo" width="22" height="16" /> <b>Rails Hyperdrive</b> is built by <b><a href="https://evilmartians.com/">Evil Martians</a></b>, an American design and engineering consultancy for <b>developer tools, AI, and cybersecurity startups</b>.
+
 ---
 
 ## Quick start
